@@ -190,40 +190,209 @@ func UnmarshalProvider(data []byte) (Provider, error) {
 		return nil, err
 	}
 
-	var p Provider
 	switch base.ProviderType {
 	case ProviderHTTP:
-		p = &HttpProvider{}
+		return unmarshalHttpProvider(data)
 	case ProviderSSE:
-		p = &SSEProvider{}
+		return unmarshalSSEProvider(data)
 	case ProviderHTTPStream:
-		p = &StreamableHttpProvider{}
+		return unmarshalStreamableHttpProvider(data)
 	case ProviderCLI:
-		p = &CliProvider{}
+		p := &CliProvider{}
+		if err := json.Unmarshal(data, p); err != nil {
+			return nil, err
+		}
+		return p, nil
 	case ProviderWebSocket:
-		p = &WebSocketProvider{}
+		return unmarshalWebSocketProvider(data)
 	case ProviderGRPC:
-		p = &GRPCProvider{}
+		return unmarshalGRPCProvider(data)
 	case ProviderGraphQL:
-		p = &GraphQLProvider{}
+		return unmarshalGraphQLProvider(data)
 	case ProviderTCP:
-		p = &TCPProvider{}
+		p := &TCPProvider{}
+		if err := json.Unmarshal(data, p); err != nil {
+			return nil, err
+		}
+		return p, nil
 	case ProviderUDP:
-		p = &UDPProvider{}
+		p := &UDPProvider{}
+		if err := json.Unmarshal(data, p); err != nil {
+			return nil, err
+		}
+		return p, nil
 	case ProviderWebRTC:
-		p = &WebRTCProvider{}
+		p := &WebRTCProvider{}
+		if err := json.Unmarshal(data, p); err != nil {
+			return nil, err
+		}
+		return p, nil
 	case ProviderMCP:
-		p = &MCPProvider{}
+		p := &MCPProvider{}
+		if err := json.Unmarshal(data, p); err != nil {
+			return nil, err
+		}
+		return p, nil
 	case ProviderText:
-		p = &TextProvider{}
+		p := &TextProvider{}
+		if err := json.Unmarshal(data, p); err != nil {
+			return nil, err
+		}
+		return p, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider_type %q", base.ProviderType)
 	}
+}
 
-	if err := json.Unmarshal(data, p); err != nil {
+func unmarshalHttpProvider(data []byte) (*HttpProvider, error) {
+	type Alias HttpProvider
+	aux := struct {
+		*Alias
+		Auth json.RawMessage `json:"auth"`
+	}{Alias: (*Alias)(&HttpProvider{})}
+	if err := json.Unmarshal(data, &aux); err != nil {
 		return nil, err
 	}
-	return p, nil
+	hp := (*HttpProvider)(aux.Alias)
+	if len(aux.Auth) > 0 {
+		auth, err := unmarshalAuth(aux.Auth)
+		if err != nil {
+			return nil, err
+		}
+		hp.Auth = &auth
+	}
+	return hp, nil
+}
+
+func unmarshalSSEProvider(data []byte) (*SSEProvider, error) {
+	type Alias SSEProvider
+	aux := struct {
+		*Alias
+		Auth json.RawMessage `json:"auth"`
+	}{Alias: (*Alias)(&SSEProvider{})}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return nil, err
+	}
+	sp := (*SSEProvider)(aux.Alias)
+	if len(aux.Auth) > 0 {
+		auth, err := unmarshalAuth(aux.Auth)
+		if err != nil {
+			return nil, err
+		}
+		sp.Auth = &auth
+	}
+	return sp, nil
+}
+
+func unmarshalStreamableHttpProvider(data []byte) (*StreamableHttpProvider, error) {
+	type Alias StreamableHttpProvider
+	aux := struct {
+		*Alias
+		Auth json.RawMessage `json:"auth"`
+	}{Alias: (*Alias)(&StreamableHttpProvider{})}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return nil, err
+	}
+	sp := (*StreamableHttpProvider)(aux.Alias)
+	if len(aux.Auth) > 0 {
+		auth, err := unmarshalAuth(aux.Auth)
+		if err != nil {
+			return nil, err
+		}
+		sp.Auth = &auth
+	}
+	return sp, nil
+}
+
+func unmarshalWebSocketProvider(data []byte) (*WebSocketProvider, error) {
+	type Alias WebSocketProvider
+	aux := struct {
+		*Alias
+		Auth json.RawMessage `json:"auth"`
+	}{Alias: (*Alias)(&WebSocketProvider{})}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return nil, err
+	}
+	wp := (*WebSocketProvider)(aux.Alias)
+	if len(aux.Auth) > 0 {
+		auth, err := unmarshalAuth(aux.Auth)
+		if err != nil {
+			return nil, err
+		}
+		wp.Auth = &auth
+	}
+	return wp, nil
+}
+
+func unmarshalGRPCProvider(data []byte) (*GRPCProvider, error) {
+	type Alias GRPCProvider
+	aux := struct {
+		*Alias
+		Auth json.RawMessage `json:"auth"`
+	}{Alias: (*Alias)(&GRPCProvider{})}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return nil, err
+	}
+	gp := (*GRPCProvider)(aux.Alias)
+	if len(aux.Auth) > 0 {
+		auth, err := unmarshalAuth(aux.Auth)
+		if err != nil {
+			return nil, err
+		}
+		gp.Auth = &auth
+	}
+	return gp, nil
+}
+
+func unmarshalGraphQLProvider(data []byte) (*GraphQLProvider, error) {
+	type Alias GraphQLProvider
+	aux := struct {
+		*Alias
+		Auth json.RawMessage `json:"auth"`
+	}{Alias: (*Alias)(&GraphQLProvider{})}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return nil, err
+	}
+	gp := (*GraphQLProvider)(aux.Alias)
+	if len(aux.Auth) > 0 {
+		auth, err := unmarshalAuth(aux.Auth)
+		if err != nil {
+			return nil, err
+		}
+		gp.Auth = &auth
+	}
+	return gp, nil
+}
+
+func unmarshalAuth(data []byte) (Auth, error) {
+	var base struct {
+		AuthType AuthType `json:"auth_type"`
+	}
+	if err := json.Unmarshal(data, &base); err != nil {
+		return nil, err
+	}
+	switch base.AuthType {
+	case APIKeyType:
+		var a ApiKeyAuth
+		if err := json.Unmarshal(data, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	case BasicType:
+		var a BasicAuth
+		if err := json.Unmarshal(data, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	case OAuth2Type:
+		var a OAuth2Auth
+		if err := json.Unmarshal(data, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	default:
+		return nil, fmt.Errorf("unsupported auth_type %q", base.AuthType)
+	}
 }
 
 // (Assuming Auth, ApiKeyAuth, BasicAuth, OAuth2Auth come from your shared/auth package)
