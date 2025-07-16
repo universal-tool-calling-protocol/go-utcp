@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"server"
@@ -18,6 +19,18 @@ import (
 type SSEClientTransport struct {
 	client *http.Client
 	logger func(format string, args ...interface{})
+}
+
+// decodeToolsResponse parses a common tools discovery response.
+func decodeToolsResponse(r io.ReadCloser) ([]server.Tool, error) {
+	defer r.Close()
+	var resp struct {
+		Tools []server.Tool `json:"tools"`
+	}
+	if err := json.NewDecoder(r).Decode(&resp); err != nil {
+		return nil, err
+	}
+	return resp.Tools, nil
 }
 
 // NewSSETransport constructs a new SSEClientTransport.
@@ -55,22 +68,19 @@ func (t *SSEClientTransport) RegisterToolProvider(ctx context.Context, prov serv
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover tools: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
 		return nil, fmt.Errorf("discovery failed with status %d", resp.StatusCode)
 	}
 
-	var toolsResp struct {
-		Tools []server.Tool `json:"tools"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&toolsResp); err != nil {
+	tools, err := decodeToolsResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode tools response: %w", err)
 	}
 
-	t.logger("Discovered %d tools from SSE provider '%s'", len(toolsResp.Tools), sseProv.Name)
-	return toolsResp.Tools, nil
+	t.logger("Discovered %d tools from SSE provider '%s'", len(tools), sseProv.Name)
+	return tools, nil
 }
 
 // DeregisterToolProvider cleans up any resources (no-op for SSE).
@@ -193,27 +203,24 @@ func (t *StreamableHTTPClientTransport) RegisterToolProvider(ctx context.Context
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover tools: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
 		return nil, fmt.Errorf("discovery failed with status %d", resp.StatusCode)
 	}
 
-	var toolsResp struct {
-		Tools []server.Tool `json:"tools"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&toolsResp); err != nil {
+	tools, err := decodeToolsResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode tools response: %w", err)
 	}
 
 	// Mark tools as streaming-capable
-	for i := range toolsResp.Tools {
-		toolsResp.Tools[i].Streaming = true
+	for i := range tools {
+		tools[i].Streaming = true
 	}
 
-	t.logger("Discovered %d streaming tools from HTTP provider '%s'", len(toolsResp.Tools), hp.Name)
-	return toolsResp.Tools, nil
+	t.logger("Discovered %d streaming tools from HTTP provider '%s'", len(tools), hp.Name)
+	return tools, nil
 }
 
 // DeregisterToolProvider cleans up streaming HTTP resources.
