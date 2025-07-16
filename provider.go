@@ -1,4 +1,4 @@
-package server
+package UTCP
 
 import (
 	"encoding/json"

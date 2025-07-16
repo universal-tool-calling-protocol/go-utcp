@@ -1,7 +1,6 @@
-package transport
+package UTCP
 
 import (
-	"core"
 	"fmt"
 	"net/url"
 	"strings"
@@ -45,8 +44,8 @@ func NewConverter(
 }
 
 // Convert parses the OpenAPI spec and builds a UtcpManual.
-func (c *OpenApiConverter) Convert() core.UtcpManual {
-	var tools []core.Tool
+func (c *OpenApiConverter) Convert() UtcpManual {
+	var tools []Tool
 
 	// determine baseURL
 	baseURL := "/"
@@ -80,8 +79,8 @@ func (c *OpenApiConverter) Convert() core.UtcpManual {
 		}
 	}
 
-	return core.UtcpManual{
-		Version: core.Version,
+	return UtcpManual{
+		Version: Version,
 		Tools:   tools,
 	}
 }
@@ -131,7 +130,7 @@ func (c *OpenApiConverter) resolveSchema(schema interface{}) interface{} {
 }
 
 // extractAuth pulls the first security requirement and builds an auth.Auth.
-func (c *OpenApiConverter) extractAuth(operation map[string]interface{}) core.Auth {
+func (c *OpenApiConverter) extractAuth(operation map[string]interface{}) Auth {
 	var reqs []interface{}
 	if opSec, ok := operation["security"].([]interface{}); ok && len(opSec) > 0 {
 		reqs = opSec
@@ -171,22 +170,22 @@ func (c *OpenApiConverter) getSecuritySchemes() map[string]interface{} {
 }
 
 // createAuthFromScheme inspects a single OAS security-scheme object.
-func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) core.Auth {
+func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) Auth {
 	typ, _ := scheme["type"].(string)
 	switch strings.ToLower(typ) {
 	case "apikey":
 		loc, _ := scheme["in"].(string)
 		name, _ := scheme["name"].(string)
-		return &core.ApiKeyAuth{
-			AuthType: core.APIKeyType,
+		return &ApiKeyAuth{
+			AuthType: APIKeyType,
 			APIKey:   fmt.Sprintf("${%s_API_KEY}", strings.ToUpper(c.providerName)),
 			VarName:  name,
 			Location: loc,
 		}
 
 	case "basic":
-		return &core.BasicAuth{
-			AuthType: core.BasicType,
+		return &BasicAuth{
+			AuthType: BasicType,
 			Username: fmt.Sprintf("${%s_USERNAME}", strings.ToUpper(c.providerName)),
 			Password: fmt.Sprintf("${%s_PASSWORD}", strings.ToUpper(c.providerName)),
 		}
@@ -195,14 +194,14 @@ func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) c
 		schemeName, _ := scheme["scheme"].(string)
 		switch strings.ToLower(schemeName) {
 		case "basic":
-			return &core.BasicAuth{
-				AuthType: core.BasicType,
+			return &BasicAuth{
+				AuthType: BasicType,
 				Username: fmt.Sprintf("${%s_USERNAME}", strings.ToUpper(c.providerName)),
 				Password: fmt.Sprintf("${%s_PASSWORD}", strings.ToUpper(c.providerName)),
 			}
 		case "bearer":
-			return &core.ApiKeyAuth{
-				AuthType: core.APIKeyType,
+			return &ApiKeyAuth{
+				AuthType: APIKeyType,
 				APIKey:   fmt.Sprintf("Bearer ${%s_API_KEY}", strings.ToUpper(c.providerName)),
 				VarName:  "Authorization",
 				Location: "header",
@@ -223,8 +222,8 @@ func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) c
 							}
 							scope = strings.Join(s, " ")
 						}
-						return &core.OAuth2Auth{
-							AuthType:     core.OAuth2Type,
+						return &OAuth2Auth{
+							AuthType:     OAuth2Type,
 							TokenURL:     tokenURL,
 							ClientID:     fmt.Sprintf("${%s_CLIENT_ID}", strings.ToUpper(c.providerName)),
 							ClientSecret: fmt.Sprintf("${%s_CLIENT_SECRET}", strings.ToUpper(c.providerName)),
@@ -245,8 +244,8 @@ func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) c
 					}
 					scope = strings.Join(s, " ")
 				}
-				return &core.OAuth2Auth{
-					AuthType:     core.OAuth2Type,
+				return &OAuth2Auth{
+					AuthType:     OAuth2Type,
 					TokenURL:     tokenURL,
 					ClientID:     fmt.Sprintf("${%s_CLIENT_ID}", strings.ToUpper(c.providerName)),
 					ClientSecret: fmt.Sprintf("${%s_CLIENT_SECRET}", strings.ToUpper(c.providerName)),
@@ -270,7 +269,7 @@ func (c *OpenApiConverter) createTool(
 	path, method string,
 	op map[string]interface{},
 	baseURL string,
-) (*core.Tool, error) {
+) (*Tool, error) {
 	opID, _ := op["operationId"].(string)
 	if opID == "" {
 		return nil, nil // skip unnamed ops
@@ -295,10 +294,10 @@ func (c *OpenApiConverter) createTool(
 
 	fullURL := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(path, "/")
 
-	prov := &core.HttpProvider{
-		BaseProvider: core.BaseProvider{
+	prov := &HttpProvider{
+		BaseProvider: BaseProvider{
 			Name:         c.providerName,
-			ProviderType: core.ProviderHTTP,
+			ProviderType: ProviderHTTP,
 		},
 		HTTPMethod:   strings.ToUpper(method),
 		URL:          fullURL,
@@ -309,7 +308,7 @@ func (c *OpenApiConverter) createTool(
 		HeaderFields: headers,
 	}
 
-	return &core.Tool{
+	return &Tool{
 		Name:        opID,
 		Description: desc,
 		Inputs:      inputSchema,
@@ -322,7 +321,7 @@ func (c *OpenApiConverter) createTool(
 // extractInputs returns (schema, headerFields, bodyFieldName).
 func (c *OpenApiConverter) extractInputs(
 	op map[string]interface{},
-) (core.ToolInputOutputSchema, []string, *string) {
+) (ToolInputOutputSchema, []string, *string) {
 	props := map[string]interface{}{}
 	var required []string
 	var headers []string
@@ -379,7 +378,7 @@ func (c *OpenApiConverter) extractInputs(
 	if len(required) > 0 {
 		reqPtr = required
 	}
-	return core.ToolInputOutputSchema{
+	return ToolInputOutputSchema{
 		Type:       "object",
 		Properties: props,
 		Required:   reqPtr,
@@ -389,14 +388,14 @@ func (c *OpenApiConverter) extractInputs(
 // extractOutputs builds the response schema.
 func (c *OpenApiConverter) extractOutputs(
 	op map[string]interface{},
-) core.ToolInputOutputSchema {
+) ToolInputOutputSchema {
 	resp := map[string]interface{}{}
 	if r200, ok := op["responses"].(map[string]interface{})["200"].(map[string]interface{}); ok {
 		resp = r200
 	} else if r201, ok := op["responses"].(map[string]interface{})["201"].(map[string]interface{}); ok {
 		resp = r201
 	} else {
-		return core.ToolInputOutputSchema{}
+		return ToolInputOutputSchema{}
 	}
 
 	resp = c.resolveSchema(resp).(map[string]interface{})
@@ -404,7 +403,7 @@ func (c *OpenApiConverter) extractOutputs(
 		if appJSON, ok2 := content["application/json"].(map[string]interface{}); ok2 {
 			if schema, ok3 := appJSON["schema"].(map[string]interface{}); ok3 {
 				sch := c.resolveSchema(schema).(map[string]interface{})
-				out := core.ToolInputOutputSchema{
+				out := ToolInputOutputSchema{
 					Type:        castString(sch["type"], "object"),
 					Properties:  castMap(sch["properties"]),
 					Required:    castStringSlice(sch["required"]),
@@ -432,7 +431,7 @@ func (c *OpenApiConverter) extractOutputs(
 			}
 		}
 	}
-	return core.ToolInputOutputSchema{}
+	return ToolInputOutputSchema{}
 }
 
 // ---- small casting helpers ----

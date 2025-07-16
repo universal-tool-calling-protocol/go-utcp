@@ -1,9 +1,8 @@
-package transport
+package UTCP
 
 import (
 	"bytes"
 	"context"
-	"core"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +35,7 @@ func (t *CliTransport) logError(msg string) {
 }
 
 // prepareEnv merges base environment with provider-specific variables.
-func (t *CliTransport) prepareEnv(provider *core.CliProvider) []string {
+func (t *CliTransport) prepareEnv(provider *CliProvider) []string {
 
 	env := os.Environ()
 	for k, v := range provider.EnvVars {
@@ -90,9 +89,9 @@ func (t *CliTransport) executeCommand(
 // RegisterToolProvider discovers tools by executing provider.CommandName and parsing UTCPManual JSON.
 func (t *CliTransport) RegisterToolProvider(
 	ctx context.Context,
-	prov core.Provider,
-) ([]core.Tool, error) {
-	cliProv, ok := prov.(*core.CliProvider)
+	prov Provider,
+) ([]Tool, error) {
+	cliProv, ok := prov.(*CliProvider)
 	if !ok || cliProv.CommandName == "" {
 		return nil, errors.New("invalid CliProvider or missing CommandName")
 	}
@@ -123,7 +122,7 @@ func (t *CliTransport) RegisterToolProvider(
 }
 
 // DeregisterToolProvider is a no-op for CLI transport.
-func (t *CliTransport) DeregisterToolProvider(ctx context.Context, prov core.Provider) error {
+func (t *CliTransport) DeregisterToolProvider(ctx context.Context, prov Provider) error {
 	// stateless
 	return nil
 }
@@ -149,14 +148,14 @@ func (t *CliTransport) formatArguments(args map[string]interface{}) []string {
 }
 
 // extractManual parses UTCPManual JSON from output.
-func (t *CliTransport) extractManual(output, name string) []core.Tool {
-	var manuals core.UtcpManual
+func (t *CliTransport) extractManual(output, name string) []Tool {
+	var manuals UtcpManual
 	// try full output
 	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &manuals); err == nil {
 		return manuals.Tools
 	}
 	// scan lines
-	var tools []core.Tool
+	var tools []Tool
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "{") && strings.HasSuffix(line, "}") {
@@ -164,13 +163,13 @@ func (t *CliTransport) extractManual(output, name string) []core.Tool {
 			if err := json.Unmarshal([]byte(line), &single); err == nil {
 				if _, ok := single["tools"]; ok {
 					b, _ := json.Marshal(single)
-					var m core.UtcpManual
+					var m UtcpManual
 					if err2 := json.Unmarshal(b, &m); err2 == nil {
 						tools = append(tools, m.Tools...)
 					}
 				} else if single["name"] != nil && single["description"] != nil {
 					b, _ := json.Marshal(single)
-					var tdef core.Tool
+					var tdef Tool
 					if err2 := json.Unmarshal(b, &tdef); err2 == nil {
 						tools = append(tools, tdef)
 					}
@@ -186,10 +185,10 @@ func (t *CliTransport) CallTool(
 	ctx context.Context,
 	toolName string,
 	args map[string]interface{},
-	prov core.Provider,
+	prov Provider,
 	l *string,
 ) (interface{}, error) {
-	cliProv, ok := prov.(*core.CliProvider)
+	cliProv, ok := prov.(*CliProvider)
 	if !ok || cliProv.CommandName == "" {
 		return nil, errors.New("invalid CliProvider or missing CommandName")
 	}

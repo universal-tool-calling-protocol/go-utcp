@@ -1,8 +1,7 @@
-package transport
+package UTCP
 
 import (
 	"context"
-	"core"
 )
 
 // ToolSearchStrategy is an interface for any component
@@ -12,5 +11,5 @@ type ToolSearchStrategy interface {
 	// A limit of 0 means “no limit” (return all matches).
 	//
 	// ctx carries deadlines, cancellation signals, and other request-scoped values.
-	SearchTools(ctx context.Context, query string, limit int) ([]core.Tool, error)
+	SearchTools(ctx context.Context, query string, limit int) ([]Tool, error)
 }
