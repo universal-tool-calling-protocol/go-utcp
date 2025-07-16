@@ -3,6 +3,7 @@ package transport
 
 import (
 	"context"
+	"core"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -10,16 +11,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"server" // import your server package
+	// import your server package
 )
 
 // UtcpClientInterface defines the public API.
 type UtcpClientInterface interface {
-	RegisterToolProvider(ctx context.Context, prov server.Provider) ([]server.Tool, error)
+	RegisterToolProvider(ctx context.Context, prov core.Provider) ([]core.Tool, error)
 	DeregisterToolProvider(ctx context.Context, providerName string) error
 	CallTool(ctx context.Context, toolName string, args map[string]any) (any, error)
-	SearchTools(ctx context.Context, query string, limit int) ([]server.Tool, error)
+	SearchTools(ctx context.Context, query string, limit int) ([]core.Tool, error)
 }
 
 // UtcpClient holds all state and implements UtcpClientInterface.
@@ -142,32 +142,32 @@ func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 		subbed := c.replaceVarsInAny(raw, c.config).(map[string]any)
 
 		// decode into the right Provider struct
-		var prov server.Provider
+		var prov core.Provider
 		switch ptype {
 		case "http":
-			prov = &server.HttpProvider{}
+			prov = &core.HttpProvider{}
 		case "cli":
-			prov = &server.CliProvider{}
+			prov = &core.CliProvider{}
 		case "sse":
-			prov = &server.SSEProvider{}
+			prov = &core.SSEProvider{}
 		case "http_stream":
-			prov = &server.StreamableHttpProvider{}
+			prov = &core.StreamableHttpProvider{}
 		case "websocket":
-			prov = &server.WebSocketProvider{}
+			prov = &core.WebSocketProvider{}
 		case "grpc":
-			prov = &server.GRPCProvider{}
+			prov = &core.GRPCProvider{}
 		case "graphql":
-			prov = &server.GraphQLProvider{}
+			prov = &core.GraphQLProvider{}
 		case "tcp":
-			prov = &server.TCPProvider{}
+			prov = &core.TCPProvider{}
 		case "udp":
-			prov = &server.UDPProvider{}
+			prov = &core.UDPProvider{}
 		case "webrtc":
-			prov = &server.WebRTCProvider{}
+			prov = &core.WebRTCProvider{}
 		case "mcp":
-			prov = &server.MCPProvider{}
+			prov = &core.MCPProvider{}
 		case "text":
-			prov = &server.TextProvider{}
+			prov = &core.TextProvider{}
 		default:
 			fmt.Fprintf(os.Stderr, "warning: unsupported provider type %q, skipping\n", ptype)
 			continue
@@ -188,31 +188,31 @@ func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 }
 
 // getProviderName extracts the name from a provider
-func (c *UtcpClient) getProviderName(prov server.Provider) string {
+func (c *UtcpClient) getProviderName(prov core.Provider) string {
 	switch p := prov.(type) {
-	case *server.HttpProvider:
+	case *core.HttpProvider:
 		return p.Name
-	case *server.CliProvider:
+	case *core.CliProvider:
 		return p.Name
-	case *server.SSEProvider:
+	case *core.SSEProvider:
 		return p.Name
-	case *server.StreamableHttpProvider:
+	case *core.StreamableHttpProvider:
 		return p.Name
-	case *server.WebSocketProvider:
+	case *core.WebSocketProvider:
 		return p.Name
-	case *server.GRPCProvider:
+	case *core.GRPCProvider:
 		return p.Name
-	case *server.GraphQLProvider:
+	case *core.GraphQLProvider:
 		return p.Name
-	case *server.TCPProvider:
+	case *core.TCPProvider:
 		return p.Name
-	case *server.UDPProvider:
+	case *core.UDPProvider:
 		return p.Name
-	case *server.WebRTCProvider:
+	case *core.WebRTCProvider:
 		return p.Name
-	case *server.MCPProvider:
+	case *core.MCPProvider:
 		return p.Name
-	case *server.TextProvider:
+	case *core.TextProvider:
 		return p.Name
 	default:
 		return "unknown"
@@ -220,31 +220,31 @@ func (c *UtcpClient) getProviderName(prov server.Provider) string {
 }
 
 // setProviderName sets the name on a provider
-func (c *UtcpClient) setProviderName(prov server.Provider, name string) {
+func (c *UtcpClient) setProviderName(prov core.Provider, name string) {
 	switch p := prov.(type) {
-	case *server.HttpProvider:
+	case *core.HttpProvider:
 		p.Name = name
-	case *server.CliProvider:
+	case *core.CliProvider:
 		p.Name = name
-	case *server.SSEProvider:
+	case *core.SSEProvider:
 		p.Name = name
-	case *server.StreamableHttpProvider:
+	case *core.StreamableHttpProvider:
 		p.Name = name
-	case *server.WebSocketProvider:
+	case *core.WebSocketProvider:
 		p.Name = name
-	case *server.GRPCProvider:
+	case *core.GRPCProvider:
 		p.Name = name
-	case *server.GraphQLProvider:
+	case *core.GraphQLProvider:
 		p.Name = name
-	case *server.TCPProvider:
+	case *core.TCPProvider:
 		p.Name = name
-	case *server.UDPProvider:
+	case *core.UDPProvider:
 		p.Name = name
-	case *server.WebRTCProvider:
+	case *core.WebRTCProvider:
 		p.Name = name
-	case *server.MCPProvider:
+	case *core.MCPProvider:
 		p.Name = name
-	case *server.TextProvider:
+	case *core.TextProvider:
 		p.Name = name
 	}
 }
@@ -252,8 +252,8 @@ func (c *UtcpClient) setProviderName(prov server.Provider, name string) {
 // RegisterToolProvider applies variable substitution, picks the right transport, and registers tools.
 func (c *UtcpClient) RegisterToolProvider(
 	ctx context.Context,
-	prov server.Provider,
-) ([]server.Tool, error) {
+	prov core.Provider,
+) ([]core.Tool, error) {
 	prov = c.substituteProviderVariables(prov)
 	name := strings.ReplaceAll(c.getProviderName(prov), ".", "_")
 	c.setProviderName(prov, name)
@@ -323,7 +323,7 @@ func (c *UtcpClient) CallTool(
 	if err != nil {
 		return nil, err
 	}
-	var selectedTool *server.Tool
+	var selectedTool *core.Tool
 	for _, t := range tools {
 		if t.Name == toolName {
 			selectedTool = &t
@@ -345,14 +345,14 @@ func (c *UtcpClient) CallTool(
 	return tr.CallTool(ctx, toolName, args, *prov, nil)
 }
 
-func (c *UtcpClient) SearchTools(query string, limit int) ([]server.Tool, error) {
+func (c *UtcpClient) SearchTools(query string, limit int) ([]core.Tool, error) {
 	tools, err := c.searchStrategy.SearchTools(context.Background(), query, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert []*server.Tool to []server.Tool
-	result := make([]server.Tool, len(tools))
+	// Convert []*core.Tool to []core.Tool
+	result := make([]core.Tool, len(tools))
 	for i, tool := range tools {
 		result[i] = tool
 	}
@@ -362,7 +362,7 @@ func (c *UtcpClient) SearchTools(query string, limit int) ([]server.Tool, error)
 // ----- variable substitution helpers -----
 
 // substituteProviderVariables dumps to JSON, replaces vars, and re‑unmarshals.
-func (c *UtcpClient) substituteProviderVariables(p server.Provider) server.Provider {
+func (c *UtcpClient) substituteProviderVariables(p core.Provider) core.Provider {
 	// Convert provider to map for substitution
 	raw := c.providerToMap(p)
 	out := c.replaceVarsInAny(raw, c.config).(map[string]any)
@@ -377,7 +377,7 @@ func (c *UtcpClient) substituteProviderVariables(p server.Provider) server.Provi
 }
 
 // providerToMap converts a provider to a map for JSON manipulation
-func (c *UtcpClient) providerToMap(p server.Provider) map[string]any {
+func (c *UtcpClient) providerToMap(p core.Provider) map[string]any {
 	blob, _ := json.Marshal(p)
 	var result map[string]any
 	json.Unmarshal(blob, &result)
@@ -385,34 +385,34 @@ func (c *UtcpClient) providerToMap(p server.Provider) map[string]any {
 }
 
 // createProviderOfType creates a new provider instance of the given type
-func (c *UtcpClient) createProviderOfType(ptype server.ProviderType) server.Provider {
+func (c *UtcpClient) createProviderOfType(ptype core.ProviderType) core.Provider {
 	switch ptype {
-	case server.ProviderHTTP:
-		return &server.HttpProvider{}
-	case server.ProviderCLI:
-		return &server.CliProvider{}
-	case server.ProviderSSE:
-		return &server.SSEProvider{}
-	case server.ProviderHTTPStream:
-		return &server.StreamableHttpProvider{}
-	case server.ProviderWebSocket:
-		return &server.WebSocketProvider{}
-	case server.ProviderGRPC:
-		return &server.GRPCProvider{}
-	case server.ProviderGraphQL:
-		return &server.GraphQLProvider{}
-	case server.ProviderTCP:
-		return &server.TCPProvider{}
-	case server.ProviderUDP:
-		return &server.UDPProvider{}
-	case server.ProviderWebRTC:
-		return &server.WebRTCProvider{}
-	case server.ProviderMCP:
-		return &server.MCPProvider{}
-	case server.ProviderText:
-		return &server.TextProvider{}
+	case core.ProviderHTTP:
+		return &core.HttpProvider{}
+	case core.ProviderCLI:
+		return &core.CliProvider{}
+	case core.ProviderSSE:
+		return &core.SSEProvider{}
+	case core.ProviderHTTPStream:
+		return &core.StreamableHttpProvider{}
+	case core.ProviderWebSocket:
+		return &core.WebSocketProvider{}
+	case core.ProviderGRPC:
+		return &core.GRPCProvider{}
+	case core.ProviderGraphQL:
+		return &core.GraphQLProvider{}
+	case core.ProviderTCP:
+		return &core.TCPProvider{}
+	case core.ProviderUDP:
+		return &core.UDPProvider{}
+	case core.ProviderWebRTC:
+		return &core.WebRTCProvider{}
+	case core.ProviderMCP:
+		return &core.MCPProvider{}
+	case core.ProviderText:
+		return &core.TextProvider{}
 	default:
-		return &server.HttpProvider{} // fallback
+		return &core.HttpProvider{} // fallback
 	}
 }
 

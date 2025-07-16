@@ -3,13 +3,13 @@ package transport
 import (
 	"bytes"
 	"context"
+	"core"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
-	"server"
 	"time"
 )
 
@@ -20,10 +20,10 @@ type SSEClientTransport struct {
 }
 
 // decodeToolsResponse parses a common tools discovery response.
-func decodeToolsResponse(r io.ReadCloser) ([]server.Tool, error) {
+func decodeToolsResponse(r io.ReadCloser) ([]core.Tool, error) {
 	defer r.Close()
 	var resp struct {
-		Tools []server.Tool `json:"tools"`
+		Tools []core.Tool `json:"tools"`
 	}
 	if err := json.NewDecoder(r).Decode(&resp); err != nil {
 		return nil, err
@@ -43,8 +43,8 @@ func NewSSETransport(logger func(format string, args ...interface{})) *SSEClient
 }
 
 // RegisterToolProvider registers an SSE-based provider by fetching its tool list.
-func (t *SSEClientTransport) RegisterToolProvider(ctx context.Context, prov server.Provider) ([]server.Tool, error) {
-	sseProv, ok := prov.(*server.SSEProvider)
+func (t *SSEClientTransport) RegisterToolProvider(ctx context.Context, prov core.Provider) ([]core.Tool, error) {
+	sseProv, ok := prov.(*core.SSEProvider)
 	if !ok {
 		return nil, errors.New("SSEClientTransport can only be used with SSEProvider")
 	}
@@ -64,8 +64,8 @@ func (t *SSEClientTransport) RegisterToolProvider(ctx context.Context, prov serv
 }
 
 // DeregisterToolProvider cleans up any resources (no-op for SSE).
-func (t *SSEClientTransport) DeregisterToolProvider(ctx context.Context, prov server.Provider) error {
-	sseProv, ok := prov.(*server.SSEProvider)
+func (t *SSEClientTransport) DeregisterToolProvider(ctx context.Context, prov core.Provider) error {
+	sseProv, ok := prov.(*core.SSEProvider)
 	if !ok {
 		return errors.New("SSEClientTransport can only be used with SSEProvider")
 	}
@@ -75,8 +75,8 @@ func (t *SSEClientTransport) DeregisterToolProvider(ctx context.Context, prov se
 }
 
 // CallTool invokes a named tool over SSE by POSTing inputs and decoding JSON output.
-func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov server.Provider, l *string) (interface{}, error) {
-	sseProv, ok := prov.(*server.SSEProvider)
+func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov core.Provider, l *string) (interface{}, error) {
+	sseProv, ok := prov.(*core.SSEProvider)
 	if !ok {
 		return nil, errors.New("SSEClientTransport can only be used with SSEProvider")
 	}
@@ -127,8 +127,8 @@ func NewStreamableHTTPTransport(logger func(format string, args ...interface{}))
 }
 
 // RegisterToolProvider registers an HTTP streaming provider by fetching its tool list.
-func (t *StreamableHTTPClientTransport) RegisterToolProvider(ctx context.Context, prov server.Provider) ([]server.Tool, error) {
-	streamProv, ok := prov.(*server.StreamableHttpProvider)
+func (t *StreamableHTTPClientTransport) RegisterToolProvider(ctx context.Context, prov core.Provider) ([]core.Tool, error) {
+	streamProv, ok := prov.(*core.StreamableHttpProvider)
 	if !ok {
 		return nil, errors.New("StreamableHTTPClientTransport can only be used with StreamableHttpProvider")
 	}
@@ -148,8 +148,8 @@ func (t *StreamableHTTPClientTransport) RegisterToolProvider(ctx context.Context
 }
 
 // CallTool invokes a named tool via HTTP POST for streaming providers.
-func (t *StreamableHTTPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov server.Provider, l *string) (interface{}, error) {
-	streamProv, ok := prov.(*server.StreamableHttpProvider)
+func (t *StreamableHTTPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov core.Provider, l *string) (interface{}, error) {
+	streamProv, ok := prov.(*core.StreamableHttpProvider)
 	if !ok {
 		return nil, errors.New("StreamableHTTPClientTransport can only be used with StreamableHttpProvider")
 	}
@@ -179,7 +179,7 @@ func (t *StreamableHTTPClientTransport) CallTool(ctx context.Context, toolName s
 }
 
 // DeregisterToolProvider clears any streaming-specific state (no-op).
-func (t *StreamableHTTPClientTransport) DeregisterToolProvider(ctx context.Context, prov server.Provider) error {
+func (t *StreamableHTTPClientTransport) DeregisterToolProvider(ctx context.Context, prov core.Provider) error {
 	// No persistent state to clean up
 	return nil
 }
@@ -202,8 +202,8 @@ func NewMCPTransport(logger func(format string, args ...interface{})) *MCPClient
 }
 
 // RegisterToolProvider for MCP logs registration; discovery via MCP protocol not implemented.
-func (t *MCPClientTransport) RegisterToolProvider(ctx context.Context, prov server.Provider) ([]server.Tool, error) {
-	mcpProv, ok := prov.(*server.MCPProvider)
+func (t *MCPClientTransport) RegisterToolProvider(ctx context.Context, prov core.Provider) ([]core.Tool, error) {
+	mcpProv, ok := prov.(*core.MCPProvider)
 	if !ok {
 		return nil, errors.New("MCPClientTransport can only be used with MCPProvider")
 	}
@@ -213,8 +213,8 @@ func (t *MCPClientTransport) RegisterToolProvider(ctx context.Context, prov serv
 }
 
 // CallTool invokes a named tool over MCP (not implemented).
-func (t *MCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov server.Provider, l *string) (interface{}, error) {
-	mcpProv, ok := prov.(*server.MCPProvider)
+func (t *MCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov core.Provider, l *string) (interface{}, error) {
+	mcpProv, ok := prov.(*core.MCPProvider)
 	if !ok {
 		return nil, errors.New("MCPClientTransport can only be used with MCPProvider")
 	}
@@ -224,8 +224,8 @@ func (t *MCPClientTransport) CallTool(ctx context.Context, toolName string, args
 }
 
 // DeregisterToolProvider cleans up any resources for MCP.
-func (t *MCPClientTransport) DeregisterToolProvider(ctx context.Context, prov server.Provider) error {
-	mcpProv, ok := prov.(*server.MCPProvider)
+func (t *MCPClientTransport) DeregisterToolProvider(ctx context.Context, prov core.Provider) error {
+	mcpProv, ok := prov.(*core.MCPProvider)
 	if !ok {
 		return errors.New("MCPClientTransport can only be used with MCPProvider")
 	}
@@ -236,20 +236,20 @@ func (t *MCPClientTransport) DeregisterToolProvider(ctx context.Context, prov se
 // TextClientTransport is a simple in-memory/text-based transport.
 type TextClientTransport struct {
 	prefix string
-	tools  map[string]server.Tool
+	tools  map[string]core.Tool
 }
 
 // NewTextTransport constructs a TextClientTransport.
 func NewTextTransport(prefix string) *TextClientTransport {
 	return &TextClientTransport{
 		prefix: prefix,
-		tools:  make(map[string]server.Tool),
+		tools:  make(map[string]core.Tool),
 	}
 }
 
 // RegisterToolProvider loads tool definitions from a local text (JSON) file.
-func (t *TextClientTransport) RegisterToolProvider(ctx context.Context, prov server.Provider) ([]server.Tool, error) {
-	textProv, ok := prov.(*server.TextProvider)
+func (t *TextClientTransport) RegisterToolProvider(ctx context.Context, prov core.Provider) ([]core.Tool, error) {
+	textProv, ok := prov.(*core.TextProvider)
 	if !ok {
 		return nil, errors.New("TextClientTransport can only be used with TextProvider")
 	}
@@ -261,8 +261,8 @@ func (t *TextClientTransport) RegisterToolProvider(ctx context.Context, prov ser
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	manual := server.NewUtcpManualFromMap(raw)
-	t.tools = make(map[string]server.Tool, len(manual.Tools))
+	manual := core.NewUtcpManualFromMap(raw)
+	t.tools = make(map[string]core.Tool, len(manual.Tools))
 	for _, tool := range manual.Tools {
 		t.tools[tool.Name] = tool
 	}
@@ -270,13 +270,13 @@ func (t *TextClientTransport) RegisterToolProvider(ctx context.Context, prov ser
 }
 
 // DeregisterToolProvider cleans up in-memory tools.
-func (t *TextClientTransport) DeregisterToolProvider(ctx context.Context, prov server.Provider) error {
-	t.tools = make(map[string]server.Tool)
+func (t *TextClientTransport) DeregisterToolProvider(ctx context.Context, prov core.Provider) error {
+	t.tools = make(map[string]core.Tool)
 	return nil
 }
 
 // CallTool invokes a named in-memory tool handler.
-func (t *TextClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov server.Provider, l *string) (interface{}, error) {
+func (t *TextClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov core.Provider, l *string) (interface{}, error) {
 	tool, ok := t.tools[toolName]
 	if !ok {
 		return nil, fmt.Errorf("tool %q not registered", toolName)

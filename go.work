@@ -4,5 +4,5 @@ use (
 	.
 	./client
 	./client/transport
-	./server
+	./core
 )

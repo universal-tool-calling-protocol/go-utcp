@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"core"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"server"
 	"strings"
 	"sync"
 
@@ -52,7 +52,7 @@ func (t *GraphQLClientTransport) enforceHTTPSOrLocalhost(urlStr string) error {
 }
 
 // handleOAuth2 fetches and caches client credentials tokens.
-func (t *GraphQLClientTransport) handleOAuth2(ctx context.Context, auth *server.OAuth2Auth) (string, error) {
+func (t *GraphQLClientTransport) handleOAuth2(ctx context.Context, auth *core.OAuth2Auth) (string, error) {
 	t.mu.Lock()
 	if token, ok := t.oauthTokens[auth.ClientID]; ok {
 		t.mu.Unlock()
@@ -94,7 +94,7 @@ func (t *GraphQLClientTransport) handleOAuth2(ctx context.Context, auth *server.
 // prepareHeaders constructs HTTP headers including auth.
 func (t *GraphQLClientTransport) prepareHeaders(
 	ctx context.Context,
-	prov *server.GraphQLProvider,
+	prov *core.GraphQLProvider,
 ) (map[string]string, error) {
 	headers := make(map[string]string)
 
@@ -118,7 +118,7 @@ func (t *GraphQLClientTransport) prepareHeaders(
 
 	// 4) Type‑switch on the real auth type
 	switch auth := authIface.(type) {
-	case *server.ApiKeyAuth:
+	case *core.ApiKeyAuth:
 		// only inject into headers if Location == "header"
 		if strings.EqualFold(auth.Location, "header") && auth.APIKey != "" {
 			headers[auth.VarName] = auth.APIKey
@@ -129,13 +129,13 @@ func (t *GraphQLClientTransport) prepareHeaders(
 			)
 		}
 
-	case *server.BasicAuth:
+	case *core.BasicAuth:
 		// always go in Authorization header
 		creds := auth.Username + ":" + auth.Password
 		encoded := base64.StdEncoding.EncodeToString([]byte(creds))
 		headers["Authorization"] = "Basic " + encoded
 
-	case *server.OAuth2Auth:
+	case *core.OAuth2Auth:
 		token, err := t.handleOAuth2(ctx, auth)
 		if err != nil {
 			return nil, fmt.Errorf("oauth2 token error: %w", err)
@@ -150,8 +150,8 @@ func (t *GraphQLClientTransport) prepareHeaders(
 }
 
 // RegisterToolProvider discovers schema and registers tools.
-func (t *GraphQLClientTransport) RegisterToolProvider(ctx context.Context, manualProv server.Provider) ([]server.Tool, error) {
-	prov, ok := manualProv.(*server.GraphQLProvider)
+func (t *GraphQLClientTransport) RegisterToolProvider(ctx context.Context, manualProv core.Provider) ([]core.Tool, error) {
+	prov, ok := manualProv.(*core.GraphQLProvider)
 	if !ok {
 		return nil, errors.New("GraphQLClientTransport can only be used with GraphQLProvider")
 	}
@@ -189,32 +189,32 @@ func (t *GraphQLClientTransport) RegisterToolProvider(ctx context.Context, manua
 	if err := client.Run(ctx, req, &schema); err != nil {
 		return nil, err
 	}
-	var toolsList []server.Tool
+	var toolsList []core.Tool
 	for _, f := range schema.__Schema.QueryType.Fields {
 		desc := ""
 		if f.Description != nil {
 			desc = *f.Description
 		}
-		toolsList = append(toolsList, server.Tool{Name: f.Name, Description: desc, Inputs: server.ToolInputOutputSchema{Required: nil}, Provider: prov})
+		toolsList = append(toolsList, core.Tool{Name: f.Name, Description: desc, Inputs: core.ToolInputOutputSchema{Required: nil}, Provider: prov})
 	}
 	for _, f := range schema.__Schema.MutationType.Fields {
 		desc := ""
 		if f.Description != nil {
 			desc = *f.Description
 		}
-		toolsList = append(toolsList, server.Tool{Name: f.Name, Description: desc, Inputs: server.ToolInputOutputSchema{Required: nil}, Provider: prov})
+		toolsList = append(toolsList, core.Tool{Name: f.Name, Description: desc, Inputs: core.ToolInputOutputSchema{Required: nil}, Provider: prov})
 	}
 	return toolsList, nil
 }
 
 // DeregisterToolProvider is a no-op for stateless transport.
-func (t *GraphQLClientTransport) DeregisterToolProvider(ctx context.Context, manualProv server.Provider) error {
+func (t *GraphQLClientTransport) DeregisterToolProvider(ctx context.Context, manualProv core.Provider) error {
 	return nil
 }
 
 // CallTool executes a GraphQL operation by name.
-func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider server.Provider, l *string) (any, error) {
-	prov, ok := toolProvider.(*server.GraphQLProvider)
+func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider core.Provider, l *string) (any, error) {
+	prov, ok := toolProvider.(*core.GraphQLProvider)
 	if !ok {
 		return nil, errors.New("GraphQLClientTransport can only be used with GraphQLProvider")
 	}

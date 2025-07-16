@@ -2,8 +2,8 @@ package transport
 
 import (
 	"context"
+	"core"
 	"regexp"
-	"server"
 	"sort"
 	"strings"
 )
@@ -25,7 +25,7 @@ func NewTagSearchStrategy(repo ToolRepository, descriptionWeight float64) *TagSe
 }
 
 // SearchTools returns tools ordered by relevance to the query, using explicit tags and description keywords.
-func (s *TagSearchStrategy) SearchTools(ctx context.Context, query string, limit int) ([]server.Tool, error) {
+func (s *TagSearchStrategy) SearchTools(ctx context.Context, query string, limit int) ([]core.Tool, error) {
 	// Normalize query
 	queryLower := strings.ToLower(query)
 	words := s.wordRegex.FindAllString(queryLower, -1)
@@ -42,7 +42,7 @@ func (s *TagSearchStrategy) SearchTools(ctx context.Context, query string, limit
 
 	// Score each tool
 	type scoredTool struct {
-		t     server.Tool
+		t     core.Tool
 		score float64
 	}
 	var scored []scoredTool
@@ -85,7 +85,7 @@ func (s *TagSearchStrategy) SearchTools(ctx context.Context, query string, limit
 	})
 
 	// Return up to limit
-	var result []server.Tool
+	var result []core.Tool
 	for i, st := range scored {
 		if i >= limit {
 			break

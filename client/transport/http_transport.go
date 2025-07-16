@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"core"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +13,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v2"
-
-	"server"
 )
 
 // HttpClientTransport implements ClientTransportInterface for HTTP-based tool providers.
@@ -36,19 +35,19 @@ func NewHttpClientTransport(logger func(format string, args ...interface{})) *Ht
 }
 
 // DeregisterToolProvider is a no-op for CLI transport.
-func (t *HttpClientTransport) DeregisterToolProvider(ctx context.Context, prov server.Provider) error {
+func (t *HttpClientTransport) DeregisterToolProvider(ctx context.Context, prov core.Provider) error {
 	// stateless
 	return nil
 }
 
 // applyAuth applies authentication to the request based on provider config.
-func (t *HttpClientTransport) applyAuth(req *http.Request, provider *server.HttpProvider) error {
+func (t *HttpClientTransport) applyAuth(req *http.Request, provider *core.HttpProvider) error {
 	if provider.Auth == nil {
 		return nil
 	}
 	authIfc := *provider.Auth
 	switch a := authIfc.(type) {
-	case *server.ApiKeyAuth:
+	case *core.ApiKeyAuth:
 		if a.APIKey == "" {
 			t.logger("API key not found for ApiKeyAuth.")
 			return errors.New("API key for ApiKeyAuth not found")
@@ -63,14 +62,14 @@ func (t *HttpClientTransport) applyAuth(req *http.Request, provider *server.Http
 		case "cookie":
 			req.AddCookie(&http.Cookie{Name: a.VarName, Value: a.APIKey})
 		}
-	case *server.BasicAuth:
+	case *core.BasicAuth:
 		req.SetBasicAuth(a.Username, a.Password)
 	}
 	return nil
 }
 
 // handleOAuth2 performs client credentials flow for OAuth2.
-func (t *HttpClientTransport) handleOAuth2(ctx context.Context, oauth *server.OAuth2Auth) (string, error) {
+func (t *HttpClientTransport) handleOAuth2(ctx context.Context, oauth *core.OAuth2Auth) (string, error) {
 	if tokenData, ok := t.oauthTokens[oauth.ClientID]; ok {
 		if access, exists := tokenData["access_token"].(string); exists {
 			return access, nil
@@ -123,8 +122,8 @@ func (t *HttpClientTransport) handleOAuth2(ctx context.Context, oauth *server.OA
 }
 
 // RegisterToolProvider discovers tools from a REST HttpProvider.
-func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p server.Provider) ([]server.Tool, error) {
-	hp, ok := p.(*server.HttpProvider)
+func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p core.Provider) ([]core.Tool, error) {
+	hp, ok := p.(*core.HttpProvider)
 	if !ok {
 		return nil, errors.New("HttpTransport can only be used with HttpProvider")
 	}
@@ -148,7 +147,7 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p server
 	// OAuth2
 	if hp.Auth != nil {
 		authIfc := *hp.Auth
-		if oauth, ok := authIfc.(*server.OAuth2Auth); ok {
+		if oauth, ok := authIfc.(*core.OAuth2Auth); ok {
 			token, err := t.handleOAuth2(ctx, oauth)
 			if err != nil {
 				return nil, err
@@ -179,13 +178,13 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p server
 		json.Unmarshal(bodyBytes, &raw)
 	}
 	// Parse UTCP manual
-	var manual server.UtcpManual
+	var manual core.UtcpManual
 	mmap, ok := raw.(map[string]interface{})
 	if ok {
 		if _, hasVer := mmap["version"]; hasVer {
-			manual = server.NewUtcpManualFromMap(mmap)
+			manual = core.NewUtcpManualFromMap(mmap)
 		} else {
-			converter := server.NewOpenAPIConverter(raw, hp.URL, hp.Name)
+			converter := core.NewOpenAPIConverter(raw, hp.URL, hp.Name)
 			manual = converter.Convert()
 		}
 	}
@@ -193,8 +192,8 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p server
 }
 
 // CallTool calls a specific tool on the HTTP provider.
-func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p server.Provider, l *string) (any, error) {
-	hp, ok := p.(*server.HttpProvider)
+func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p core.Provider, l *string) (any, error) {
+	hp, ok := p.(*core.HttpProvider)
 	if !ok {
 		return nil, errors.New("HttpTransport can only be used with HttpProvider")
 	}
@@ -230,7 +229,7 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 	// OAuth2
 	if hp.Auth != nil {
 		authIfc := *hp.Auth
-		if oauth, ok := authIfc.(*server.OAuth2Auth); ok {
+		if oauth, ok := authIfc.(*core.OAuth2Auth); ok {
 			token, err := t.handleOAuth2(ctx, oauth)
 			if err != nil {
 				return nil, err
