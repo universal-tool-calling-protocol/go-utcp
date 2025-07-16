@@ -213,7 +213,7 @@ func (t *GraphQLClientTransport) DeregisterToolProvider(ctx context.Context, man
 }
 
 // CallTool executes a GraphQL operation by name.
-func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider server.Provider) (any, error) {
+func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider server.Provider, l *string) (any, error) {
 	prov, ok := toolProvider.(*server.GraphQLProvider)
 	if !ok {
 		return nil, errors.New("GraphQLClientTransport can only be used with GraphQLProvider")
