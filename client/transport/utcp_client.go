@@ -113,7 +113,7 @@ func defaultTransports() map[string]ClientTransport {
 			},
 		), // You'll need to implement these
 		"text": NewTextTransport(""), // You'll need to implement these
-		"graphql": NewGraphQLTransport(func(msg string, err error) {
+		"graphql": NewGraphQLClientTransport(func(msg string, err error) {
 			fmt.Printf("GraphQL Transport: %s: %v\n", msg, err)
 		}),
 	}
