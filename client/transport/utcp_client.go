@@ -90,12 +90,29 @@ func NewUtcpClient(
 // defaultTransports wires up your various transport implementations.
 func defaultTransports() map[string]ClientTransport {
 	return map[string]ClientTransport{
-		"http":        NewHTTPTransport(),           // You'll need to implement these
-		"cli":         NewCliTransport(nil),         // You'll need to implement these
-		"sse":         NewSSETransport(),            // You'll need to implement these
-		"http_stream": NewStreamableHTTPTransport(), // You'll need to implement these
-		"mcp":         NewMCPTransport(),            // You'll need to implement these
-		"text":        NewTextTransport(""),         // You'll need to implement these
+		"http": NewHttpClientTransport(
+			func(format string, args ...interface{}) {
+				fmt.Printf("HTTP Transport: "+format+"\n", args...)
+			},
+		), // You'll need to implement these
+		"cli": NewCliTransport(
+			func(format string, args ...interface{}) {
+				fmt.Printf("CLI Transport: "+format+"\n", args...)
+			},
+		), // You'll need to implement these
+		// You'll need to implement these
+		"sse": NewSSETransport(func(format string, args ...interface{}) {
+			fmt.Printf("SSE Transport: "+format+"\n", args...)
+		}), // You'll need to implement these
+		"http_stream": NewStreamableHTTPTransport(func(format string, args ...interface{}) {
+			fmt.Printf("HTTP Stream Transport: "+format+"\n", args...)
+		}), // You'll need to implement these
+		"mcp": NewMCPTransport(
+			func(format string, args ...interface{}) {
+				fmt.Printf("MCP Transport: "+format+"\n", args...)
+			},
+		), // You'll need to implement these
+		"text": NewTextTransport(""), // You'll need to implement these
 		"graphql": NewGraphQLTransport(func(msg string, err error) {
 			fmt.Printf("GraphQL Transport: %s: %v\n", msg, err)
 		}),
@@ -325,7 +342,7 @@ func (c *UtcpClient) CallTool(
 		return nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
 	}
 
-	return tr.CallTool(ctx, toolName, args, *prov)
+	return tr.CallTool(ctx, toolName, args, *prov, nil)
 }
 
 func (c *UtcpClient) SearchTools(query string, limit int) ([]server.Tool, error) {
@@ -456,31 +473,6 @@ func (c *UtcpClient) getVariable(key string, cfg *UtcpClientConfig) (string, err
 func NewInMemoryToolRepository() ToolRepository {
 	// You'll need to implement this based on your ToolRepository interface
 	panic("NewInMemoryToolRepository not implemented")
-}
-
-// Transport constructors - you'll need to implement these
-func NewHTTPTransport() ClientTransport {
-	panic("NewHTTPTransport not implemented")
-}
-
-func NewCLITransport() ClientTransport {
-	panic("NewCLITransport not implemented")
-}
-
-func NewSSETransport() ClientTransport {
-	panic("NewSSETransport not implemented")
-}
-
-func NewStreamableHTTPTransport() ClientTransport {
-	panic("NewStreamableHTTPTransport not implemented")
-}
-
-func NewMCPTransport() ClientTransport {
-	panic("NewMCPTransport not implemented")
-}
-
-func NewTextTransport(basePath string) ClientTransport {
-	panic("NewTextTransport not implemented")
 }
 
 // TextTransport interface for setting base path
