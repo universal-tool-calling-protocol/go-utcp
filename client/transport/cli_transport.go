@@ -123,7 +123,7 @@ func (t *CliTransport) RegisterToolProvider(
 }
 
 // DeregisterToolProvider is a no-op for CLI transport.
-func (t *CliTransport) DeregisterToolProvider(_ server.Provider) error {
+func (t *CliTransport) DeregisterToolProvider(ctx context.Context, prov server.Provider) error {
 	// stateless
 	return nil
 }
@@ -187,6 +187,7 @@ func (t *CliTransport) CallTool(
 	toolName string,
 	args map[string]interface{},
 	prov server.Provider,
+	l *string,
 ) (interface{}, error) {
 	cliProv, ok := prov.(*server.CliProvider)
 	if !ok || cliProv.CommandName == "" {

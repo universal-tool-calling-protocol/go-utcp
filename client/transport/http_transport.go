@@ -35,6 +35,12 @@ func NewHttpClientTransport(logger func(format string, args ...interface{})) *Ht
 	}
 }
 
+// DeregisterToolProvider is a no-op for CLI transport.
+func (t *HttpClientTransport) DeregisterToolProvider(ctx context.Context, prov server.Provider) error {
+	// stateless
+	return nil
+}
+
 // applyAuth applies authentication to the request based on provider config.
 func (t *HttpClientTransport) applyAuth(req *http.Request, provider *server.HttpProvider) error {
 	if provider.Auth == nil {
@@ -187,7 +193,7 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p server
 }
 
 // CallTool calls a specific tool on the HTTP provider.
-func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p server.Provider) (any, error) {
+func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p server.Provider, l *string) (any, error) {
 	hp, ok := p.(*server.HttpProvider)
 	if !ok {
 		return nil, errors.New("HttpTransport can only be used with HttpProvider")
