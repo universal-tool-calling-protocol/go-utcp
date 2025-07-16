@@ -140,40 +140,9 @@ func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 		// substitute inline variables first
 		subbed := c.replaceVarsInAny(raw, c.config).(map[string]any)
 
-		// decode into the right Provider struct
-		var prov Provider
-		switch ptype {
-		case "http":
-			prov = &HttpProvider{}
-		case "cli":
-			prov = &CliProvider{}
-		case "sse":
-			prov = &SSEProvider{}
-		case "http_stream":
-			prov = &StreamableHttpProvider{}
-		case "websocket":
-			prov = &WebSocketProvider{}
-		case "grpc":
-			prov = &GRPCProvider{}
-		case "graphql":
-			prov = &GraphQLProvider{}
-		case "tcp":
-			prov = &TCPProvider{}
-		case "udp":
-			prov = &UDPProvider{}
-		case "webrtc":
-			prov = &WebRTCProvider{}
-		case "mcp":
-			prov = &MCPProvider{}
-		case "text":
-			prov = &TextProvider{}
-		default:
-			fmt.Fprintf(os.Stderr, "warning: unsupported provider type %q, skipping\n", ptype)
-			continue
-		}
-
 		blob, _ := json.Marshal(subbed)
-		if err := json.Unmarshal(blob, prov); err != nil {
+		prov, err := UnmarshalProvider(blob)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "error decoding provider %q: %v\n", ptype, err)
 			continue
 		}
