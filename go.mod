@@ -3,6 +3,7 @@ module github.com/Raezil/UTCP
 go 1.22.2
 
 require (
+	github.com/gorilla/websocket v1.5.0
 	github.com/joho/godotenv v1.5.1
 	github.com/machinebox/graphql v0.2.2
 	github.com/stretchr/testify v1.10.0
@@ -11,8 +12,6 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/gorilla/mux v1.8.1 // indirect
-	github.com/graphql-go/graphql v0.8.1 // indirect
 	github.com/matryer/is v1.4.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

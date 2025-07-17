@@ -223,7 +223,7 @@ func TestCreateProviderOfTypeAll(t *testing.T) {
 
 func TestDefaultTransportsKeys(t *testing.T) {
 	tr := defaultTransports()
-	keys := []string{"http", "cli", "sse", "http_stream", "mcp", "text", "graphql"}
+	keys := []string{"http", "cli", "sse", "http_stream", "mcp", "websocket", "text", "graphql"}
 	for _, k := range keys {
 		if _, ok := tr[k]; !ok {
 			t.Fatalf("missing transport %s", k)
