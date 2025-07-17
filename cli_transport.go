@@ -36,7 +36,6 @@ func (t *CliTransport) logError(msg string) {
 
 // prepareEnv merges base environment with provider-specific variables.
 func (t *CliTransport) prepareEnv(provider *CliProvider) []string {
-
 	env := os.Environ()
 	for k, v := range provider.EnvVars {
 		env = append(env, k+"="+v)
@@ -79,7 +78,6 @@ func (t *CliTransport) executeCommand(
 		if errors.Is(err, context.DeadlineExceeded) {
 			t.logError("Command timed out: " + cmdPath + " " + strings.Join(args, " "))
 		}
-		// kill handled by CommandContext
 		return stdout, stderr, retCode, err
 	}
 
@@ -127,7 +125,6 @@ func (t *CliTransport) RegisterToolProvider(
 
 // DeregisterToolProvider is a no-op for CLI transport.
 func (t *CliTransport) DeregisterToolProvider(ctx context.Context, prov Provider) error {
-	// stateless
 	return nil
 }
 
@@ -154,11 +151,9 @@ func (t *CliTransport) formatArguments(args map[string]interface{}) []string {
 // extractManual parses UTCPManual JSON from output.
 func (t *CliTransport) extractManual(output, name string) []Tool {
 	var manuals UtcpManual
-	// try full output
 	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &manuals); err == nil {
 		return manuals.Tools
 	}
-	// scan lines
 	var tools []Tool
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
@@ -197,17 +192,26 @@ func (t *CliTransport) CallTool(
 		return nil, errors.New("invalid CliProvider or missing CommandName")
 	}
 
+	// Prepare the JSON payload for the tool
+	payloadBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal args: %w", err)
+	}
+	input := string(payloadBytes)
+
+	// Build command args: call <provider> <tool> [--flags]
 	parts := strings.Fields(cliProv.CommandName)
 	cmdPath := parts[0]
-	cmdArgs := parts[1:]
+	cmdArgs := []string{"call", cliProv.Name, toolName}
 	cmdArgs = append(cmdArgs, t.formatArguments(args)...)
+
 	env := t.prepareEnv(cliProv)
 
 	workDir := ""
 	if cliProv.WorkingDir != nil {
 		workDir = *cliProv.WorkingDir
 	}
-	stdout, stderr, code, err := t.executeCommand(ctx, cmdPath, cmdArgs, env, workDir, "")
+	stdout, stderr, code, err := t.executeCommand(ctx, cmdPath, cmdArgs, env, workDir, input)
 	output := stdout
 	if err != nil {
 		t.logError(fmt.Sprintf("Error calling tool %s: %v", toolName, err))
@@ -216,8 +220,6 @@ func (t *CliTransport) CallTool(
 		}
 	} else if code != 0 {
 		t.logError(fmt.Sprintf("Tool %s returned non-zero exit code: %d", toolName, code))
-	}
-	if code != 0 {
 		output = stderr
 	}
 	if strings.TrimSpace(output) == "" {
