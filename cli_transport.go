@@ -103,7 +103,11 @@ func (t *CliTransport) RegisterToolProvider(
 	cmdArgs := parts[1:]
 	env := t.prepareEnv(cliProv)
 
-	stdout, stderr, code, err := t.executeCommand(ctx, cmdPath, cmdArgs, env, *cliProv.WorkingDir, "")
+	workDir := ""
+	if cliProv.WorkingDir != nil {
+		workDir = *cliProv.WorkingDir
+	}
+	stdout, stderr, code, err := t.executeCommand(ctx, cmdPath, cmdArgs, env, workDir, "")
 	if err != nil && code != 0 {
 		return nil, err
 	}
@@ -199,7 +203,11 @@ func (t *CliTransport) CallTool(
 	cmdArgs = append(cmdArgs, t.formatArguments(args)...)
 	env := t.prepareEnv(cliProv)
 
-	stdout, stderr, code, err := t.executeCommand(ctx, cmdPath, cmdArgs, env, *cliProv.WorkingDir, "")
+	workDir := ""
+	if cliProv.WorkingDir != nil {
+		workDir = *cliProv.WorkingDir
+	}
+	stdout, stderr, code, err := t.executeCommand(ctx, cmdPath, cmdArgs, env, workDir, "")
 	output := stdout
 	if err != nil {
 		t.logError(fmt.Sprintf("Error calling tool %s: %v", toolName, err))
