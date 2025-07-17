@@ -13,7 +13,7 @@ discovered tools.
 ### Features
 
 * Built-in transports for HTTP, CLI, Server-Sent Events, streaming HTTP,
-  GraphQL, MCP and text-based providers.
+  GraphQL, MCP, UDP and text-based providers.
 * Variable substitution via environment variables or `.env` files using
   `UtcpDotEnv`.
 * In-memory repository for storing providers and tools discovered at
