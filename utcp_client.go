@@ -110,6 +110,9 @@ func defaultTransports() map[string]ClientTransport {
 				fmt.Printf("MCP Transport: "+format+"\n", args...)
 			},
 		), // You'll need to implement these
+		"websocket": NewWebSocketTransport(func(format string, args ...interface{}) {
+			fmt.Printf("WebSocket Transport: "+format+"\n", args...)
+		}),
 		"tcp": NewTCPClientTransport(
 			func(format string, args ...interface{}) {
 				fmt.Printf("TCP Transport: "+format+"\n", args...)

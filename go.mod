@@ -3,6 +3,7 @@ module github.com/Raezil/UTCP
 go 1.22.2
 
 require (
+	github.com/gorilla/websocket v1.5.0
 	github.com/joho/godotenv v1.5.1
 	github.com/machinebox/graphql v0.2.2
 	github.com/pion/webrtc/v3 v3.3.5
