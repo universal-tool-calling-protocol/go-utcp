@@ -2,56 +2,84 @@ package UTCP
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"log"
 	"net/http"
 	"time"
 )
 
-// MCPClientTransport for MCP protocol
-type MCPClientTransport struct {
-	client *http.Client
-	logger func(format string, args ...interface{})
+// LoggerFunc is the signature for an optional logger.
+type LoggerFunc func(format string, args ...interface{})
+
+// defaultLogger just forwards to the standard library.
+func defaultLogger(format string, args ...interface{}) {
+	log.Printf(format, args...)
 }
 
-// NewMCPTransport constructs a new MCPClientTransport.
-func NewMCPTransport(logger func(format string, args ...interface{})) *MCPClientTransport {
+// MCPTransport implements ClientTransport over MCPProvider.
+type MCPTransport struct {
+	client *http.Client
+	logger LoggerFunc
+}
+
+// NewMCPTransport initializes the transport with a 30 s timeout.
+func NewMCPTransport(logger LoggerFunc) *MCPTransport {
 	if logger == nil {
-		logger = func(format string, args ...interface{}) {}
+		logger = defaultLogger
 	}
-	return &MCPClientTransport{
+	return &MCPTransport{
 		client: &http.Client{Timeout: 30 * time.Second},
 		logger: logger,
 	}
 }
 
-// RegisterToolProvider for MCP logs registration; discovery via MCP protocol not implemented.
-func (t *MCPClientTransport) RegisterToolProvider(ctx context.Context, prov Provider) ([]Tool, error) {
-	mcpProv, ok := prov.(*MCPProvider)
+// RegisterToolProvider only accepts *MCPProvider; logs its Name().
+func (t *MCPTransport) RegisterToolProvider(
+	ctx context.Context,
+	provider Provider,
+) ([]Tool, error) {
+	prov, ok := provider.(*MCPProvider)
 	if !ok {
-		return nil, fmt.Errorf("MCPClientTransport can only be used with MCPProvider")
+		return nil, errors.New("can only be used with MCPProvider")
 	}
-	t.logger("Registered MCP provider '%s'", mcpProv.Name)
-	// TODO: perform MCP discovery based on mcpProv.Config
+	t.logger("Registered MCP provider '%s'", prov.Name)
 	return nil, nil
 }
 
-// CallTool invokes a named tool over MCP (not implemented).
-func (t *MCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, l *string) (interface{}, error) {
-	mcpProv, ok := prov.(*MCPProvider)
+// DeregisterToolProvider only accepts *MCPProvider; logs its Name().
+func (t *MCPTransport) DeregisterToolProvider(
+	ctx context.Context,
+	provider Provider,
+) error {
+	prov, ok := provider.(*MCPProvider)
 	if !ok {
-		return nil, fmt.Errorf("MCPClientTransport can only be used with MCPProvider")
+		return errors.New("can only be used with MCPProvider")
 	}
-	t.logger("Calling MCP tool '%s' on provider '%s'", toolName, mcpProv.Name)
-	// TODO: implement MCP protocol invocation logic
-	return nil, fmt.Errorf("MCP transport invocation not implemented yet")
+	t.logger("Deregistered MCP provider '%s'", prov.Name)
+	return nil
 }
 
-// DeregisterToolProvider cleans up any resources for MCP.
-func (t *MCPClientTransport) DeregisterToolProvider(ctx context.Context, prov Provider) error {
-	mcpProv, ok := prov.(*MCPProvider)
-	if !ok {
-		return fmt.Errorf("MCPClientTransport can only be used with MCPProvider")
+// notImplErr is a custom error so errors.Is() works.
+type notImplErr struct{}
+
+func (e notImplErr) Error() string {
+	return "MCP transport invocation not implemented yet"
+}
+
+func (e notImplErr) Is(target error) bool {
+	return target != nil && target.Error() == e.Error()
+}
+
+// CallTool only accepts *MCPProvider and returns the “not implemented” error.
+func (t *MCPTransport) CallTool(
+	ctx context.Context,
+	toolName string,
+	params map[string]any,
+	provider Provider,
+	version *string,
+) (any, error) {
+	if _, ok := provider.(*MCPProvider); !ok {
+		return nil, errors.New("can only be used with MCPProvider")
 	}
-	t.logger("Deregistered MCP provider '%s'", mcpProv.Name)
-	return nil
+	return nil, notImplErr{}
 }

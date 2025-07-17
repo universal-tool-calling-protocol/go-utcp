@@ -167,13 +167,6 @@ type McpConfig struct {
 	McpServers map[string]McpServer `json:"mcpServers"`
 }
 
-// MCPProvider for Model Context Protocol.
-type MCPProvider struct {
-	BaseProvider
-	Config McpConfig   `json:"config"`
-	Auth   *OAuth2Auth `json:"auth,omitempty"`
-}
-
 // TextProvider reads tool defs from a file.
 type TextProvider struct {
 	BaseProvider
