@@ -1,6 +1,1 @@
-# Ignore Go build outputs
-**/main
-*.exe
 
-# Ignore Go test binaries
-*.test
