@@ -21,5 +21,15 @@ discovered tools.
   into UTCP manuals.
 * Example programs demonstrating the client in the `examples` directory.
 
+### Examples
+
+Each subdirectory under `examples/` is a standalone Go module. When
+building or running an example from this repository, disable the
+workspace to ensure Go uses the module's own `go.mod`:
+
+```sh
+GOWORK=off go run ./examples/cli_transport
+```
+
 The library is primarily intended for experimentation and
 interoperability testing.  The API may change without notice.
