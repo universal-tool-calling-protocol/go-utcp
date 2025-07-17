@@ -39,6 +39,12 @@ func (t *WebRTCClientTransport) openConnection(ctx context.Context, prov *WebRTC
 	if err != nil {
 		return nil, err
 	}
+	// Wait for the data channel to open before returning. If we don't wait,
+	// sending a message immediately can result in "io: read/write on closed pipe".
+	openCh := make(chan struct{})
+	dc.OnOpen(func() {
+		close(openCh)
+	})
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {
 		return nil, err
@@ -68,6 +74,15 @@ func (t *WebRTCClientTransport) openConnection(ctx context.Context, prov *WebRTC
 	answer := webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: ans.SDP}
 	if err := pc.SetRemoteDescription(answer); err != nil {
 		return nil, err
+	}
+	// Wait for the data channel to be ready before returning so the caller
+	// can immediately send data without hitting closed pipe errors.
+	select {
+	case <-openCh:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(5 * time.Second):
+		return nil, errors.New("timeout waiting for data channel to open")
 	}
 	t.pc = pc
 	t.dc = dc
