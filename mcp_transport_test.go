@@ -7,7 +7,7 @@ import (
 
 func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
 	tr := NewMCPTransport(nil)
-	prov := &MCPProvider{BaseProvider: BaseProvider{Name: "mcp", ProviderType: ProviderMCP}, Config: McpConfig{}}
+	prov := NewMCPProvider("mcp")
 	ctx := context.Background()
 	tools, err := tr.RegisterToolProvider(ctx, prov)
 	if err != nil {
