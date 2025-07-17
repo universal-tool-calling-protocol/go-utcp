@@ -1,7 +1,3 @@
-//go:build ignore
-
-// file: utcp_client.go
-
 package UTCP
 
 import (
@@ -13,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	// import your server package
 )
 
@@ -437,130 +432,4 @@ func (c *UtcpClient) getVariable(key string, cfg *UtcpClientConfig) (string, err
 		return env, nil
 	}
 	return "", &UtcpVariableNotFound{VariableName: key}
-}
-
-type InMemoryToolRepository struct {
-	tools     map[string][]Tool   // providerName -> tools
-	providers map[string]Provider // providerName -> Provider
-	mu        sync.RWMutex        // for concurrent access
-}
-
-// GetProvider implements ToolRepository.
-func (r InMemoryToolRepository) GetProvider(ctx context.Context, providerName string) (*Provider, error) {
-	provider, ok := r.providers[providerName]
-	if !ok {
-		return nil, nil // not found
-	}
-	return &provider, nil
-}
-
-// GetProviders implements ToolRepository.
-func (r InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, error) {
-	var providers []Provider
-	for _, p := range r.providers {
-		providers = append(providers, p)
-	}
-	return providers, nil
-}
-
-// GetTool implements ToolRepository.
-func (r InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*Tool, error) {
-	for _, tools := range r.tools {
-		for _, tool := range tools {
-			if tool.Name == toolName {
-				return &tool, nil
-			}
-		}
-	}
-	return nil, nil // not found
-}
-
-// GetTools implements ToolRepository.
-func (r InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
-	var allTools []Tool
-	for _, tools := range r.tools {
-		allTools = append(allTools, tools...)
-	}
-	return allTools, nil
-}
-
-// GetToolsByProvider implements ToolRepository.
-func (r InMemoryToolRepository) GetToolsByProvider(ctx context.Context, providerName string) ([]Tool, error) {
-	tools, ok := r.tools[providerName]
-	if !ok {
-		return nil, fmt.Errorf("no tools found for provider %s", providerName)
-	}
-	return tools, nil
-}
-
-// RemoveProvider implements ToolRepository.
-func (r InMemoryToolRepository) RemoveProvider(ctx context.Context, providerName string) error {
-	if _, ok := r.providers[providerName]; !ok {
-		return fmt.Errorf("provider not found: %s", providerName)
-	}
-	delete(r.providers, providerName)
-	delete(r.tools, providerName) // also remove associated tools
-	return nil
-}
-
-// RemoveTool implements ToolRepository.
-func (r InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string) error {
-	for providerName, tools := range r.tools {
-		for i, tool := range tools {
-			if tool.Name == toolName {
-				r.tools[providerName] = append(tools[:i], tools[i+1:]...)
-				return nil // removed
-			}
-		}
-	}
-	return fmt.Errorf("tool not found: %s", toolName)
-}
-
-// SaveProviderWithTools implements ToolRepository.
-func (r *InMemoryToolRepository) SaveProviderWithTools(
-	ctx context.Context,
-	provider Provider,
-	tools []Tool,
-) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	// Save under provider’s own Name (e.g. “hello”)
-	// the clone in RegisterToolProvider has already had p.Name set
-	var providerName string
-	switch p := provider.(type) {
-	case *CliProvider:
-		providerName = p.Name
-	// add other cases here if you support them:
-	// case *HttpProvider:
-	//     providerName = p.Name
-	default:
-		return fmt.Errorf("unsupported provider type for saving: %T", provider)
-	}
-	r.providers[providerName] = provider
-	r.tools[providerName] = tools
-
-	fmt.Printf("Saved provider of type '%s' with %d tool(s)\n",
-		providerName, len(tools))
-	return nil
-}
-
-// UtcpVariableNotFound is returned when a variable is not found.
-
-// NewInMemoryToolRepository creates an in-memory tool repository
-func NewInMemoryToolRepository() ToolRepository {
-	return &InMemoryToolRepository{
-		tools:     make(map[string][]Tool),
-		providers: make(map[string]Provider),
-		mu:        sync.RWMutex{},
-	}
-}
-
-// TextTransport interface for setting base path
-type TextTransport interface {
-	ClientTransport
-	SetBasePath(path string)
 }

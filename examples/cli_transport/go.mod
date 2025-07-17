@@ -2,7 +2,7 @@ module main
 
 go 1.22.2
 
-require github.com/Raezil/UTCP v1.1.1
+require github.com/Raezil/UTCP v1.1.3
 
 require (
 	github.com/joho/godotenv v1.5.1 // indirect
