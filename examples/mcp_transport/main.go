@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/Raezil/UTCP"
 )
@@ -11,8 +14,9 @@ func main() {
 	// Create a base context
 	ctx := context.Background()
 
-	// Initialize the MCP transport with the default logger
-	transport := UTCP.NewMCPTransport(nil)
+	// Initialize the MCP transport with a custom HTTP client and default logger
+	client := &http.Client{Timeout: 10 * time.Second}
+	transport := UTCP.NewMCPTransportWithClient(client, nil)
 
 	// Create an MCPProvider instance with a name (use your own configuration)
 	provider := UTCP.NewMCPProvider("ExampleProvider")
@@ -28,7 +32,9 @@ func main() {
 
 	// Call a tool via the transport (replace "toolName" and parameters accordingly)
 	result, err := transport.CallTool(ctx, "toolName", map[string]interface{}{"param1": "value1"}, provider, nil)
-	if err != nil {
+	if errors.Is(err, UTCP.ErrNotImplemented) {
+		fmt.Println("Tool calling not implemented yet")
+	} else if err != nil {
 		fmt.Printf("Error invoking tool: %v\n", err)
 	} else {
 		fmt.Printf("Tool result: %v\n", result)

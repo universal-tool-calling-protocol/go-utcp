@@ -22,18 +22,17 @@ func TestMCPTransport_Errors(t *testing.T) {
 	if _, err := tr.CallTool(ctx, "t", nil, &CliProvider{}, nil); err == nil {
 		t.Fatalf("expected error for wrong provider")
 	}
-	// proper provider returns notImplErr
+	// proper provider returns ErrNotImplemented
 	_, err := tr.CallTool(ctx, "t", nil, NewMCPProvider("m"), nil)
-	if !errors.Is(err, notImplErr{}) {
-		t.Fatalf("expected notImplErr, got %v", err)
+	if !errors.Is(err, ErrNotImplemented) {
+		t.Fatalf("expected ErrNotImplemented, got %v", err)
 	}
 }
 
-// TestNotImplErr verifies Error and Is behaviour.
-func TestNotImplErr(t *testing.T) {
-	var e error = notImplErr{}
-	target := errors.New("MCP transport invocation not implemented yet")
-	if !errors.Is(e, target) {
+// TestErrNotImplemented verifies Error and Is behaviour.
+func TestErrNotImplemented(t *testing.T) {
+	var e error = ErrNotImplemented
+	if !errors.Is(e, ErrNotImplemented) {
 		t.Fatalf("errors.Is failed")
 	}
 	if e.Error() == "" {

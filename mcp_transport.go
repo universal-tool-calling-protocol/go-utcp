@@ -16,6 +16,13 @@ func defaultLogger(format string, args ...interface{}) {
 	log.Printf(format, args...)
 }
 
+var (
+	// ErrMCPProviderRequired indicates a function was called with the wrong provider type.
+	ErrMCPProviderRequired = errors.New("can only be used with MCPProvider")
+	// ErrNotImplemented is returned by CallTool as this transport has no implementation yet.
+	ErrNotImplemented = errors.New("MCP transport invocation not implemented yet")
+)
+
 // MCPTransport implements ClientTransport over MCPProvider.
 type MCPTransport struct {
 	client *http.Client
@@ -24,13 +31,27 @@ type MCPTransport struct {
 
 // NewMCPTransport initializes the transport with a 30 s timeout.
 func NewMCPTransport(logger LoggerFunc) *MCPTransport {
+	return NewMCPTransportWithClient(nil, logger)
+}
+
+// NewMCPTransportWithClient allows injecting a custom HTTP client.
+func NewMCPTransportWithClient(client *http.Client, logger LoggerFunc) *MCPTransport {
 	if logger == nil {
 		logger = defaultLogger
 	}
-	return &MCPTransport{
-		client: &http.Client{Timeout: 30 * time.Second},
-		logger: logger,
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	return &MCPTransport{client: client, logger: logger}
+}
+
+// provider ensures the given Provider is an MCPProvider.
+func (t *MCPTransport) provider(p Provider) (*MCPProvider, error) {
+	prov, ok := p.(*MCPProvider)
+	if !ok {
+		return nil, ErrMCPProviderRequired
+	}
+	return prov, nil
 }
 
 // RegisterToolProvider only accepts *MCPProvider; logs its Name().
@@ -38,9 +59,9 @@ func (t *MCPTransport) RegisterToolProvider(
 	ctx context.Context,
 	provider Provider,
 ) ([]Tool, error) {
-	prov, ok := provider.(*MCPProvider)
-	if !ok {
-		return nil, errors.New("can only be used with MCPProvider")
+	prov, err := t.provider(provider)
+	if err != nil {
+		return nil, err
 	}
 	t.logger("Registered MCP provider '%s'", prov.Name())
 	return nil, nil
@@ -51,23 +72,12 @@ func (t *MCPTransport) DeregisterToolProvider(
 	ctx context.Context,
 	provider Provider,
 ) error {
-	prov, ok := provider.(*MCPProvider)
-	if !ok {
-		return errors.New("can only be used with MCPProvider")
+	prov, err := t.provider(provider)
+	if err != nil {
+		return err
 	}
 	t.logger("Deregistered MCP provider '%s'", prov.Name())
 	return nil
-}
-
-// notImplErr is a custom error so errors.Is() works.
-type notImplErr struct{}
-
-func (e notImplErr) Error() string {
-	return "MCP transport invocation not implemented yet"
-}
-
-func (e notImplErr) Is(target error) bool {
-	return target != nil && target.Error() == e.Error()
 }
 
 // CallTool only accepts *MCPProvider and returns the “not implemented” error.
@@ -78,8 +88,8 @@ func (t *MCPTransport) CallTool(
 	provider Provider,
 	version *string,
 ) (any, error) {
-	if _, ok := provider.(*MCPProvider); !ok {
-		return nil, errors.New("can only be used with MCPProvider")
+	if _, err := t.provider(provider); err != nil {
+		return nil, err
 	}
-	return nil, notImplErr{}
+	return nil, ErrNotImplemented
 }
