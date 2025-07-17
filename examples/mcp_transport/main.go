@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("Error invoking tool: %v\n", err)
 	} else {
-		fmt.Printf("Tool result: %v\n", result)
+		fmt.Printf("✅ Tool response: %#v\n", result)
 	}
 
 	// Deregister the provider when done
