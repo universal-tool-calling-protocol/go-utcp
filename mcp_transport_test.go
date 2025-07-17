@@ -2,7 +2,6 @@ package UTCP
 
 import (
 	"context"
-	"errors"
 	"testing"
 )
 
@@ -22,7 +21,9 @@ func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("deregister error: %v", err)
 	}
 
-	if _, err := tr.CallTool(ctx, "foo", nil, prov, nil); !errors.Is(err, ErrToolCallingNotImplemented) {
-		t.Fatalf("expected ErrToolCallingNotImplemented, got %v", err)
+	if res, err := tr.CallTool(ctx, "foo", nil, prov, nil); err != nil {
+		t.Fatalf("call error: %v", err)
+	} else if res == nil {
+		t.Fatalf("expected non-nil result")
 	}
 }
