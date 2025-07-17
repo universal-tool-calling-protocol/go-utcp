@@ -1,13 +1,7 @@
-github.com/Raezil/UTCP v1.0.5 h1:FwdL2Bcas3Rale9osBowoozR6182Ptik+hDnNrw/77E=
-github.com/Raezil/UTCP v1.0.5/go.mod h1:cWOOIqbXiigOvVqcAJQrXpT/9nwIrSH1xk2qYq7BJYc=
-github.com/Raezil/UTCP v1.0.7 h1:0vlQLkVHdthJsKuOBK25fMC2bxIJEyQ6dCn9ctM7uXA=
-github.com/Raezil/UTCP v1.0.7/go.mod h1:cWOOIqbXiigOvVqcAJQrXpT/9nwIrSH1xk2qYq7BJYc=
-github.com/Raezil/UTCP v1.0.8 h1:2NDi7kmCSwEuAPWfJUikepRYE0xJSfI06wUqs41eklY=
-github.com/Raezil/UTCP v1.0.8/go.mod h1:cWOOIqbXiigOvVqcAJQrXpT/9nwIrSH1xk2qYq7BJYc=
-github.com/Raezil/UTCP v1.0.9 h1:3UVAarTSxwojHrpQ8y1GdQsptDu+1yp7KZDawdNG4xk=
-github.com/Raezil/UTCP v1.0.9/go.mod h1:cWOOIqbXiigOvVqcAJQrXpT/9nwIrSH1xk2qYq7BJYc=
 github.com/Raezil/UTCP v1.1.0 h1:wUJoFvnFd59MmKjF+9/ClfX1Rt7gIYi3QdiE//DuPwg=
 github.com/Raezil/UTCP v1.1.0/go.mod h1:cWOOIqbXiigOvVqcAJQrXpT/9nwIrSH1xk2qYq7BJYc=
+github.com/Raezil/UTCP v1.1.1 h1:xqBaaaNURcljvmvBabpAFfZ1HVtZuMk7dBxIDJR0PfY=
+github.com/Raezil/UTCP v1.1.1/go.mod h1:h3n+4GdIomqg4ZxzkyFBdtzgRFwvfFUi93iYNxnxnVI=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
 github.com/machinebox/graphql v0.2.2 h1:dWKpJligYKhYKO5A2gvNhkJdQMNZeChZYyBbrZkBZfo=

@@ -17,7 +17,7 @@ func main() {
 	}
 
 	fmt.Println("Creating UTCP client...")
-	client, err := UTCP.NewUtcpClient(ctx, cfg, nil, nil)
+	client, err := UTCP.NewUTCPClient(ctx, cfg, nil, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create UTCP client: %v\n", err)
 		os.Exit(1)

@@ -34,7 +34,7 @@ type UtcpClient struct {
 }
 
 // NewUtcpClient constructs a new client, loading providers if configured.
-func NewUtcpClient(
+func NewUTCPClient(
 	ctx context.Context,
 	cfg *UtcpClientConfig,
 	repo ToolRepository,
