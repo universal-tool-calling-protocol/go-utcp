@@ -67,3 +67,12 @@ func TestMCPProvider_Basic(t *testing.T) {
 		t.Fatalf("Name mismatch")
 	}
 }
+
+func TestUnmarshalAuth_Errors(t *testing.T) {
+	if _, err := unmarshalAuth([]byte(`{"auth_type":"unknown"}`)); err == nil {
+		t.Fatalf("expected error for unknown type")
+	}
+	if _, err := unmarshalAuth([]byte(`{`)); err == nil {
+		t.Fatalf("expected json error")
+	}
+}
