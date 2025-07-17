@@ -114,6 +114,9 @@ func defaultTransports() map[string]ClientTransport {
 		"graphql": NewGraphQLClientTransport(func(msg string, err error) {
 			fmt.Printf("GraphQL Transport: %s: %v\n", msg, err)
 		}),
+		"webrtc": NewWebRTCClientTransport(func(format string, args ...interface{}) {
+			fmt.Printf("WebRTC Transport: "+format+"\n", args...)
+		}),
 	}
 }
 
