@@ -72,3 +72,16 @@ func TestHttpClientTransport_handleOAuth2(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestHttpClientTransport_handleOAuth2_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad", http.StatusBadRequest)
+	}))
+	defer server.Close()
+	tr := NewHttpClientTransport(nil)
+	tr.httpClient = server.Client()
+	oauth := &OAuth2Auth{AuthType: OAuth2Type, TokenURL: server.URL, ClientID: "id", ClientSecret: "sec", Scope: ptr("s")}
+	if _, err := tr.handleOAuth2(context.Background(), oauth); err == nil {
+		t.Fatalf("expected error")
+	}
+}
