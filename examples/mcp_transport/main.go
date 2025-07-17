@@ -4,19 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/Raezil/UTCP"
+	UTCP "github.com/Raezil/UTCP"
 )
 
 func main() {
 	// Create a base context
 	ctx := context.Background()
 
-	// Initialize the MCP transport with a custom HTTP client and default logger
-	client := &http.Client{Timeout: 10 * time.Second}
-	transport := UTCP.NewMCPTransportWithClient(client, nil)
+	// Initialize the MCP transport with a custom logger
+	transport := UTCP.NewMCPTransport(func(format string, args ...interface{}) {
+		fmt.Printf("[MCP] "+format+"\n", args...)
+	})
 
 	// Create an MCPProvider instance with a name (use your own configuration)
 	provider := UTCP.NewMCPProvider("ExampleProvider")
