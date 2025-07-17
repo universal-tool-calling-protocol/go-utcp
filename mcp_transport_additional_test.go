@@ -22,10 +22,11 @@ func TestMCPTransport_Errors(t *testing.T) {
 	if _, err := tr.CallTool(ctx, "t", nil, &CliProvider{}, nil); err == nil {
 		t.Fatalf("expected error for wrong provider")
 	}
-	// proper provider returns ErrToolCallingNotImplemented
-	_, err := tr.CallTool(ctx, "t", nil, NewMCPProvider("m"), nil)
-	if !errors.Is(err, ErrToolCallingNotImplemented) {
-		t.Fatalf("expected ErrToolCallingNotImplemented, got %v", err)
+	// proper provider succeeds
+	if res, err := tr.CallTool(ctx, "t", nil, NewMCPProvider("m"), nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if res == nil {
+		t.Fatalf("expected non-nil result")
 	}
 }
 
