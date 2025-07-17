@@ -124,6 +124,9 @@ func defaultTransports() map[string]ClientTransport {
 				fmt.Printf("UDP Transport: "+format+"\n", args...)
 			},
 		),
+		"grpc": NewGRPCClientTransport(func(format string, args ...interface{}) {
+			fmt.Printf("gRPC Transport: "+format+"\n", args...)
+		}),
 		"text": NewTextTransport(""), // You'll need to implement these
 		"graphql": NewGraphQLClientTransport(func(msg string, err error) {
 			fmt.Printf("GraphQL Transport: %s: %v\n", msg, err)

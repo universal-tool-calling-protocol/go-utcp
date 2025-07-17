@@ -1,0 +1,29 @@
+syntax = "proto3";
+package grpcpb;
+option go_package = "github.com/Raezil/UTCP/grpcpb";
+
+message Empty {}
+
+message Tool {
+  string name = 1;
+  string description = 2;
+}
+
+message Manual {
+  string version = 1;
+  repeated Tool tools = 2;
+}
+
+message ToolCallRequest {
+  string tool = 1;
+  string args_json = 2;
+}
+
+message ToolCallResponse {
+  string result_json = 1;
+}
+
+service UTCPService {
+  rpc GetManual(Empty) returns (Manual);
+  rpc CallTool(ToolCallRequest) returns (ToolCallResponse);
+}
