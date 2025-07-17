@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// LoggerFunc is the signature for an optional logger.
+// LoggerFunc defines the signature for optional logging callbacks.
+// It matches fmt.Printf to ease integration with standard loggers.
 type LoggerFunc func(format string, args ...interface{})
 
 // defaultLogger just forwards to the standard library.
@@ -45,23 +46,14 @@ func NewMCPTransportWithClient(client *http.Client, logger LoggerFunc) *MCPTrans
 	return &MCPTransport{client: client, logger: logger}
 }
 
-// provider ensures the given Provider is an MCPProvider.
-func (t *MCPTransport) provider(p Provider) (*MCPProvider, error) {
-	prov, ok := p.(*MCPProvider)
-	if !ok {
-		return nil, ErrMCPProviderRequired
-	}
-	return prov, nil
-}
-
 // RegisterToolProvider only accepts *MCPProvider; logs its Name().
 func (t *MCPTransport) RegisterToolProvider(
 	ctx context.Context,
 	provider Provider,
 ) ([]Tool, error) {
-	prov, err := t.provider(provider)
-	if err != nil {
-		return nil, err
+	prov, ok := provider.(*MCPProvider)
+	if !ok {
+		return nil, ErrMCPProviderRequired
 	}
 	t.logger("Registered MCP provider '%s'", prov.Name())
 	return nil, nil
@@ -72,9 +64,9 @@ func (t *MCPTransport) DeregisterToolProvider(
 	ctx context.Context,
 	provider Provider,
 ) error {
-	prov, err := t.provider(provider)
-	if err != nil {
-		return err
+	prov, ok := provider.(*MCPProvider)
+	if !ok {
+		return ErrMCPProviderRequired
 	}
 	t.logger("Deregistered MCP provider '%s'", prov.Name())
 	return nil
@@ -88,8 +80,8 @@ func (t *MCPTransport) CallTool(
 	provider Provider,
 	version *string,
 ) (any, error) {
-	if _, err := t.provider(provider); err != nil {
-		return nil, err
+	if _, ok := provider.(*MCPProvider); !ok {
+		return nil, ErrMCPProviderRequired
 	}
 	return nil, ErrToolCallingNotImplemented
 }
