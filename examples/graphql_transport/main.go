@@ -1,153 +1,151 @@
+// examples/graphql_transport/main.go
+// A simple example demonstrating how to use GraphQLClientTransport
+// This version also spins up a local mock GraphQL server at http://localhost:8080/graphql
+
 package main
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	utcp "github.com/Raezil/UTCP"
 )
 
-// LaunchService interface for dependency injection
-type LaunchService interface {
-	GetLaunches(ctx context.Context, limit string) (interface{}, error)
-}
+// --- Mock server implementation ---
+func startMockServer(addr string) {
+	http.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "only POST allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
-// GraphQLLaunchService implements LaunchService using GraphQL providers
-type GraphQLLaunchService struct {
-	transport *utcp.GraphQLClientTransport
-	primary   *utcp.GraphQLProvider
-	fallback  *utcp.GraphQLProvider
-}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "could not read body", http.StatusBadRequest)
+			return
+		}
+		var req struct {
+			Query     string                 `json:"query"`
+			Variables map[string]interface{} `json:"variables"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
 
-func NewGraphQLLaunchService(transport *utcp.GraphQLClientTransport, primary, fallback *utcp.GraphQLProvider) *GraphQLLaunchService {
-	return &GraphQLLaunchService{
-		transport: transport,
-		primary:   primary,
-		fallback:  fallback,
-	}
-}
-
-func (s *GraphQLLaunchService) GetLaunches(ctx context.Context, limit string) (interface{}, error) {
-	if limit == "" {
-		limit = "3"
-	}
-	args := map[string]interface{}{"limit": limit}
-
-	// Try primary provider first
-	res, err := s.transport.CallTool(ctx, "launchesPast", args, s.primary, nil)
-	if err == nil {
-		return res, nil
-	}
-	log.Printf("warning: primary provider failed: %v", err)
-
-	// Fall back to public SpaceX API
-	res, err = s.transport.CallTool(ctx, "launchesPast", args, s.fallback, nil)
-	if err != nil {
-		return nil, fmt.Errorf("both primary and fallback providers failed: %w", err)
-	}
-	return res, nil
-}
-
-// MockLaunchService for testing
-type MockLaunchService struct {
-	shouldFail bool
-	response   interface{}
-}
-
-func (m *MockLaunchService) GetLaunches(ctx context.Context, limit string) (interface{}, error) {
-	if m.shouldFail {
-		return nil, fmt.Errorf("mock service failure")
-	}
-
-	// Return mock data based on limit
-	if limit == "1" {
-		return map[string]interface{}{
-			"data": []interface{}{
-				map[string]interface{}{
-					"mission_name": "Test Mission 1",
-					"launch_date":  "2024-01-01",
+		// Handle introspection queries
+		if strings.Contains(req.Query, "__schema") {
+			// Return minimal schema with launchesPast field
+			schema := map[string]interface{}{
+				"__schema": map[string]interface{}{
+					"queryType": map[string]interface{}{ // root queries
+						"name": "Query",
+						"fields": []map[string]interface{}{ // list of available fields
+							{"name": "launchesPast", "description": "Mocked launchesPast field"},
+						},
+					},
+					"mutationType": nil,
 				},
-			},
-		}, nil
+			}
+			resp := map[string]interface{}{"data": schema}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Very naive routing based on presence of "launchesPast" in the query
+		if strings.Contains(req.Query, "launchesPast") {
+			// Prepare a fake list of 3 launches
+			launches := []map[string]interface{}{
+				{"id": "1", "mission_name": "FalconSat"},
+				{"id": "2", "mission_name": "DemoSat"},
+				{"id": "3", "mission_name": "Trailblazer"},
+			}
+
+			resp := map[string]interface{}{"data": map[string]interface{}{"launchesPast": launches}}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Unknown query
+		http.Error(w, "unknown query", http.StatusBadRequest)
+	})
+	log.Printf("Mock GraphQL server running at %s/graphql", addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		log.Fatalf("mock server failed: %v", err)
 	}
-
-	return map[string]interface{}{
-		"data": []interface{}{
-			map[string]interface{}{
-				"mission_name": "Test Mission 1",
-				"launch_date":  "2024-01-01",
-			},
-			map[string]interface{}{
-				"mission_name": "Test Mission 2",
-				"launch_date":  "2024-01-02",
-			},
-			map[string]interface{}{
-				"mission_name": "Test Mission 3",
-				"launch_date":  "2024-01-03",
-			},
-		},
-	}, nil
-}
-
-// Global service instance (for dependency injection)
-var launchService LaunchService
-
-func launchesHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	limit := r.URL.Query().Get("limit")
-
-	data, err := launchService.GetLaunches(ctx, limit)
-	if err != nil {
-		log.Printf("error fetching launches: %v", err)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Service temporarily unavailable"})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
 }
 
 func main() {
-	logger := func(msg string, err error) {
+	// Spin up the mock server in the background
+	go startMockServer(":8080")
+
+	// Give it a moment to start
+	time.Sleep(200 * time.Millisecond)
+
+	// 1) Initialize a new GraphQL transport with a logger
+	transport := utcp.NewGraphQLClientTransport(func(msg string, err error) {
 		if err != nil {
-			log.Printf("[GraphQLTransport] %s: %v", msg, err)
+			log.Printf("[GraphQL][ERROR] %s: %v", msg, err)
 		} else {
-			log.Printf("[GraphQLTransport] %s", msg)
+			log.Printf("[GraphQL] %s", msg)
 		}
+	})
+	defer func() {
+		if err := transport.Close(); err != nil {
+			log.Printf("Error closing transport: %v", err)
+		}
+	}()
+
+	// 2) Define the GraphQL endpoint and optional headers/auth
+	provider := &utcp.GraphQLProvider{
+		URL:     "http://localhost:8080/graphql", // point to local mock server
+		Headers: map[string]string{"X-Custom-Header": "example"},
+		Auth:    nil, // no authentication for this example
 	}
 
-	transport := utcp.NewGraphQLClientTransport(logger)
-	defer transport.Close()
+	// 3) Create a context with timeout for all GraphQL operations
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	primary := &utcp.GraphQLProvider{
-		URL:     "http://localhost:8080/graphql",
-		Headers: map[string]string{"Content-Type": "application/json"},
-	}
-
-	// Fixed fallback URL - should be different from primary
-	fallback := &utcp.GraphQLProvider{
-		URL:     "https://api.spacex.land/graphql/", // Real SpaceX API endpoint
-		Headers: map[string]string{"Content-Type": "application/json"},
-	}
-
-	// Initialize the service
-	launchService = NewGraphQLLaunchService(transport, primary, fallback)
-
-	// Example direct call
-	ctx := context.Background()
-	res, err := launchService.GetLaunches(ctx, "2")
+	// 4) Discover available operations (queries & mutations)
+	tools, err := transport.RegisterToolProvider(ctx, provider)
 	if err != nil {
-		log.Printf("error fetching launches: %v", err)
-	} else {
-		fmt.Printf("Direct call result: %+v\n", res)
+		log.Fatalf("failed to register GraphQL provider: %v", err)
 	}
 
-	http.HandleFunc("/launches", launchesHandler)
+	// Print discovered endpoints
+	fmt.Println("Discovered GraphQL operations:")
+	for _, t := range tools {
+		fmt.Printf("  • %s: %s\n", t.Name, t.Description)
+	}
 
-	log.Println("Server starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// 5) Execute a sample query: fetch the last 3 past SpaceX launches
+	variables := map[string]any{
+		"limit": "3",
+	}
+	result, err := transport.CallTool(ctx, "launchesPast", variables, provider, nil)
+	if err != nil {
+		log.Fatalf("GraphQL query failed: %v", err)
+	}
+
+	// 6) Handle and display the result
+	launches, ok := result.([]interface{})
+	if !ok {
+		log.Fatalf("unexpected result type: %T", result)
+	}
+	fmt.Println("Last 3 past SpaceX launches:")
+	for i, l := range launches {
+		launch := l.(map[string]interface{})
+		exid, _ := launch["id"]
+		name, _ := launch["mission_name"]
+		fmt.Printf("  %d. %s (ID: %s)\n", i+1, name, exid)
+	}
 }
