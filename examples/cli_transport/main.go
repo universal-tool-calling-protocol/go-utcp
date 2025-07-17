@@ -6,18 +6,18 @@ import (
 	"os"
 	"time"
 
-	"github.com/Raezil/UTCP"
+	utcp "github.com/Raezil/UTCP"
 )
 
 func main() {
 	ctx := context.Background()
 
-	cfg := &UTCP.UtcpClientConfig{
+	cfg := &utcp.UtcpClientConfig{
 		ProvidersFilePath: "providers.json",
 	}
 
 	fmt.Println("Creating UTCP client...")
-	client, err := UTCP.NewUTCPClient(ctx, cfg, nil, nil)
+	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create UTCP client: %v\n", err)
 		os.Exit(1)

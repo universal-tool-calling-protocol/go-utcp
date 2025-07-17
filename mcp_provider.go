@@ -1,4 +1,3 @@
-// mcp_provider.go
 package UTCP
 
 // MCPProvider is the concrete provider your transport expects.

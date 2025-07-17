@@ -42,7 +42,7 @@ func (t *MCPTransport) RegisterToolProvider(
 	if !ok {
 		return nil, errors.New("can only be used with MCPProvider")
 	}
-	t.logger("Registered MCP provider '%s'", prov.Name)
+	t.logger("Registered MCP provider '%s'", prov.Name())
 	return nil, nil
 }
 
@@ -55,7 +55,7 @@ func (t *MCPTransport) DeregisterToolProvider(
 	if !ok {
 		return errors.New("can only be used with MCPProvider")
 	}
-	t.logger("Deregistered MCP provider '%s'", prov.Name)
+	t.logger("Deregistered MCP provider '%s'", prov.Name())
 	return nil
 }
 
