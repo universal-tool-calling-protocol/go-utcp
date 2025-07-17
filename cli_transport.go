@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -131,7 +132,17 @@ func (t *CliTransport) DeregisterToolProvider(ctx context.Context, prov Provider
 // formatArguments converts a map of args to CLI flags.
 func (t *CliTransport) formatArguments(args map[string]interface{}) []string {
 	var parts []string
-	for k, v := range args {
+
+	// Gather and sort keys to ensure deterministic ordering
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Build the argument slice in key order
+	for _, k := range keys {
+		v := args[k]
 		switch val := v.(type) {
 		case bool:
 			if val {
