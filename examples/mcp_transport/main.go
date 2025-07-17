@@ -32,7 +32,7 @@ func main() {
 
 	// Call a tool via the transport (replace "toolName" and parameters accordingly)
 	result, err := transport.CallTool(ctx, "toolName", map[string]interface{}{"param1": "value1"}, provider, nil)
-	if errors.Is(err, UTCP.ErrNotImplemented) {
+	if errors.Is(err, UTCP.ErrToolCallingNotImplemented) {
 		fmt.Println("Tool calling not implemented yet")
 	} else if err != nil {
 		fmt.Printf("Error invoking tool: %v\n", err)

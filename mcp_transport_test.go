@@ -22,7 +22,7 @@ func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("deregister error: %v", err)
 	}
 
-	if _, err := tr.CallTool(ctx, "foo", nil, prov, nil); !errors.Is(err, ErrNotImplemented) {
-		t.Fatalf("expected ErrNotImplemented, got %v", err)
+	if _, err := tr.CallTool(ctx, "foo", nil, prov, nil); !errors.Is(err, ErrToolCallingNotImplemented) {
+		t.Fatalf("expected ErrToolCallingNotImplemented, got %v", err)
 	}
 }

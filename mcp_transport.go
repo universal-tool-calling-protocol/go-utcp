@@ -19,8 +19,8 @@ func defaultLogger(format string, args ...interface{}) {
 var (
 	// ErrMCPProviderRequired indicates a function was called with the wrong provider type.
 	ErrMCPProviderRequired = errors.New("can only be used with MCPProvider")
-	// ErrNotImplemented is returned by CallTool as this transport has no implementation yet.
-	ErrNotImplemented = errors.New("MCP transport invocation not implemented yet")
+	// ErrToolCallingNotImplemented is returned by CallTool as this transport has no implementation yet.
+	ErrToolCallingNotImplemented = errors.New("tool calling not implemented yet")
 )
 
 // MCPTransport implements ClientTransport over MCPProvider.
@@ -91,5 +91,5 @@ func (t *MCPTransport) CallTool(
 	if _, err := t.provider(provider); err != nil {
 		return nil, err
 	}
-	return nil, ErrNotImplemented
+	return nil, ErrToolCallingNotImplemented
 }
