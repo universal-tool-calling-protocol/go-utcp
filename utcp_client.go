@@ -514,22 +514,34 @@ func (r InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string)
 }
 
 // SaveProviderWithTools implements ToolRepository.
-func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, provider Provider, tools []Tool) error {
-	// Check context cancellation for robustness
+func (r *InMemoryToolRepository) SaveProviderWithTools(
+	ctx context.Context,
+	provider Provider,
+	tools []Tool,
+) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Save under provider’s own Name (e.g. “hello”)
+	// the clone in RegisterToolProvider has already had p.Name set
+	var providerName string
+	switch p := provider.(type) {
+	case *CliProvider:
+		providerName = p.Name
+	// add other cases here if you support them:
+	// case *HttpProvider:
+	//     providerName = p.Name
+	default:
+		return fmt.Errorf("unsupported provider type for saving: %T", provider)
+	}
+	r.providers[providerName] = provider
+	r.tools[providerName] = tools
 
-	// Save using provider.Type as the key
-	r.providers[string(provider.Type())] = provider
-	r.tools[string(provider.Type())] = tools
-
-	fmt.Printf("Saved provider of type '%s' with %d tool(s)\n", provider.Type, len(tools))
+	fmt.Printf("Saved provider of type '%s' with %d tool(s)\n",
+		providerName, len(tools))
 	return nil
 }
 
