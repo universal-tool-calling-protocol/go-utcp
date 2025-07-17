@@ -116,6 +116,9 @@ func defaultTransports() map[string]ClientTransport {
 		"tcp": NewTCPClientTransport(
 			func(format string, args ...interface{}) {
 				fmt.Printf("TCP Transport: "+format+"\n", args...)
+
+			},
+		),
 		"udp": NewUDPTransport(
 			func(format string, args ...interface{}) {
 				fmt.Printf("UDP Transport: "+format+"\n", args...)
