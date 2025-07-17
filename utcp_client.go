@@ -1,4 +1,7 @@
+//go:build ignore
+
 // file: utcp_client.go
+
 package UTCP
 
 import (
