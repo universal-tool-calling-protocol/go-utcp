@@ -8,8 +8,10 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	// import your server package
 )
 
@@ -438,9 +440,166 @@ func (c *UtcpClient) getVariable(key string, cfg *UtcpClientConfig) (string, err
 // Helper functions that you'll need to implement:
 
 // NewInMemoryToolRepository creates an in-memory tool repository
+// NewInMemoryToolRepository returns a simple in-memory implementation of
+// ToolRepository. It is concurrency safe and stores providers and tools in
+// maps keyed by name.
 func NewInMemoryToolRepository() ToolRepository {
-	// You'll need to implement this based on your ToolRepository interface
-	panic("NewInMemoryToolRepository not implemented")
+	return &InMemoryToolRepository{
+		providers:     make(map[string]Provider),
+		tools:         make(map[string]Tool),
+		providerTools: make(map[string]map[string]struct{}),
+	}
+}
+
+// InMemoryToolRepository is a naive ToolRepository backed by in-memory maps.
+// It is meant for demonstration/testing purposes only.
+type InMemoryToolRepository struct {
+	mu            sync.RWMutex
+	providers     map[string]Provider
+	tools         map[string]Tool
+	providerTools map[string]map[string]struct{}
+}
+
+// SaveProviderWithTools stores the provider and its tools.
+func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, provider Provider, tools []Tool) error {
+	name := getProviderName(provider)
+	if name == "" {
+		return fmt.Errorf("provider has no name")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.providers[name] = provider
+	if _, ok := r.providerTools[name]; !ok {
+		r.providerTools[name] = make(map[string]struct{})
+	} else {
+		// remove any existing tools first
+		for t := range r.providerTools[name] {
+			delete(r.tools, t)
+		}
+		r.providerTools[name] = make(map[string]struct{})
+	}
+	for _, t := range tools {
+		r.tools[t.Name] = t
+		r.providerTools[name][t.Name] = struct{}{}
+	}
+	return nil
+}
+
+// RemoveProvider deletes a provider and all its tools by name.
+func (r *InMemoryToolRepository) RemoveProvider(ctx context.Context, providerName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.providers[providerName]; !ok {
+		return fmt.Errorf("provider not found: %s", providerName)
+	}
+
+	delete(r.providers, providerName)
+	if tools, ok := r.providerTools[providerName]; ok {
+		for t := range tools {
+			delete(r.tools, t)
+		}
+		delete(r.providerTools, providerName)
+	}
+	return nil
+}
+
+// RemoveTool removes a single tool by name.
+func (r *InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.tools[toolName]; !ok {
+		return fmt.Errorf("tool not found: %s", toolName)
+	}
+	delete(r.tools, toolName)
+	for _, tools := range r.providerTools {
+		delete(tools, toolName)
+	}
+	return nil
+}
+
+// GetTool retrieves a tool by name.
+func (r *InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*Tool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if t, ok := r.tools[toolName]; ok {
+		tc := t
+		return &tc, nil
+	}
+	return nil, nil
+}
+
+// GetTools returns all tools in the repository.
+func (r *InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]Tool, 0, len(r.tools))
+	for _, t := range r.tools {
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// GetToolsByProvider returns all tools registered for a provider.
+func (r *InMemoryToolRepository) GetToolsByProvider(ctx context.Context, providerName string) ([]Tool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	toolNames, ok := r.providerTools[providerName]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]Tool, 0, len(toolNames))
+	for tn := range toolNames {
+		if t, ok := r.tools[tn]; ok {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// GetProvider retrieves a provider by name.
+func (r *InMemoryToolRepository) GetProvider(ctx context.Context, providerName string) (*Provider, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if p, ok := r.providers[providerName]; ok {
+		cp := p
+		return &cp, nil
+	}
+	return nil, nil
+}
+
+// GetProviders returns all registered providers.
+func (r *InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]Provider, 0, len(r.providers))
+	for _, p := range r.providers {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// getProviderName extracts the Name field from any provider struct using
+// reflection. Returns an empty string if the field cannot be found.
+func getProviderName(prov Provider) string {
+	v := reflect.ValueOf(prov)
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	if v.Kind() == reflect.Struct {
+		if f := v.FieldByName("Name"); f.IsValid() && f.Kind() == reflect.String {
+			return f.String()
+		}
+	}
+	return ""
 }
 
 // TextTransport interface for setting base path
