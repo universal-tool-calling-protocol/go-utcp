@@ -113,11 +113,17 @@ func defaultTransports() map[string]ClientTransport {
 		"tcp": NewTCPClientTransport(
 			func(format string, args ...interface{}) {
 				fmt.Printf("TCP Transport: "+format+"\n", args...)
+		"udp": NewUDPTransport(
+			func(format string, args ...interface{}) {
+				fmt.Printf("UDP Transport: "+format+"\n", args...)
 			},
 		),
 		"text": NewTextTransport(""), // You'll need to implement these
 		"graphql": NewGraphQLClientTransport(func(msg string, err error) {
 			fmt.Printf("GraphQL Transport: %s: %v\n", msg, err)
+		}),
+		"webrtc": NewWebRTCClientTransport(func(format string, args ...interface{}) {
+			fmt.Printf("WebRTC Transport: "+format+"\n", args...)
 		}),
 	}
 }
