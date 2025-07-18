@@ -12,78 +12,56 @@ import (
 )
 
 func main() {
-	// 1) Start a simple HTTP server that provides tools
-	go startToolServer(":8080")
-	time.Sleep(200 * time.Millisecond)
+	// 1) Start a mock server that streams JSON numbers
+	go startStreamingServer(":8080")
+	time.Sleep(100 * time.Millisecond) // give it a moment
 
+	// 2) Build your transport
 	logger := func(format string, args ...interface{}) {
 		log.Printf(format, args...)
 	}
-
 	transport := UTCP.NewStreamableHTTPTransport(logger)
 
-	// Use the UTCP-defined provider type so the type-assertion passes:
+	// 3) Point at your provider
 	provider := &UTCP.StreamableHttpProvider{
 		URL:     "http://localhost:8080/tools",
-		Headers: map[string]string{},
+		Headers: map[string]string{}, // add auth here if needed
 	}
 
+	// 4) Call the "streamNumbers" tool
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tools, err := transport.RegisterToolProvider(ctx, provider)
+	var lastChunk string
+	res, err := transport.CallTool(ctx, "streamNumbers", nil, provider, &lastChunk)
 	if err != nil {
-		log.Fatalf("failed to register tool provider: %v", err)
-	}
-	fmt.Println("Discovered tools:")
-	for _, t := range tools {
-		fmt.Printf(" • %s: %s", t.Name, t.Description)
+		log.Fatalf("CallTool error: %v", err)
 	}
 
-	// Call the translateText tool
-	result, err := transport.CallTool(ctx, "translateText", map[string]interface{}{
-		"text": "Hello, world!",
-		"to":   "es",
-	}, provider, nil)
-	if err != nil {
-		log.Fatalf("tool call failed: %v", err)
-	}
-	fmt.Printf("\nTranslation result: %#v", result)
-
-	if err := transport.DeregisterToolProvider(ctx, provider); err != nil {
-		log.Printf("warning: failed to deregister provider: %v", err)
-	}
+	// 5) Inspect what you got
+	fmt.Printf("Full result: %#v\n", res)
+	fmt.Printf("Last raw chunk: %s\n", lastChunk)
 }
 
-var toolList = []UTCP.Tool{
-	{Name: "translateText", Description: "Translates text to a target language"},
-}
+// startStreamingServer streams five JSON objects, one every 200ms
+func startStreamingServer(addr string) {
+	http.HandleFunc("/tools/streamNumbers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
 
-func startToolServer(addr string) {
-	http.HandleFunc("/tools", listToolsHandler)
-	http.HandleFunc("/tools/translateText", callTranslateHandler)
-
-	log.Printf("🔧 Tool provider listening on %s …", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
-}
-
-func listToolsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"tools": toolList})
-}
-
-func callTranslateHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Text string `json:"text"`
-		To   string `json:"to"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-	result := map[string]string{"translatedText": fmt.Sprintf("%s (%s)", req.Text, req.To)}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"result": result})
+		for i := 1; i <= 5; i++ {
+			obj := map[string]int{"number": i}
+			if data, err := json.Marshal(obj); err == nil {
+				fmt.Fprint(w, string(data), "\n")
+				flusher.Flush()
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	})
+	log.Printf("🔧 Streaming tool server on %s…", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
