@@ -1,11 +1,10 @@
-module github.com/universal-tool-calling-protocol/UTCP
+module main
 
 go 1.23.0
 
-toolchain go1.24.3
-
 require (
-	github.com/gorilla/websocket v1.5.0
+	github.com/Raezil/UTCP v1.2.3
+	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/machinebox/graphql v0.2.2
 	github.com/pion/webrtc/v3 v3.3.5
@@ -18,8 +17,6 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/mux v1.8.1 // indirect
-	github.com/matryer/is v1.4.1 // indirect
 	github.com/pion/datachannel v1.5.8 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/ice/v2 v2.3.36 // indirect
