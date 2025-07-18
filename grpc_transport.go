@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/Raezil/UTCP/grpcpb"
+	"github.com/universal-tool-calling-protocol/UTCP/grpcpb"
 )
 
 // GRPCClientTransport implements ClientTransport over gRPC using the UTCPService.
