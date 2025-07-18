@@ -1,4 +1,4 @@
-module github.com/universal-tool-calling-protocol/UTCP
+module github.com/universal-tool-calling-protocol/go-utcp
 
 go 1.23.0
 

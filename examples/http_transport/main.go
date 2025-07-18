@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/universal-tool-calling-protocol/UTCP"
+	UTCP "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
 // Tool metadata

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/UTCP"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
 type udpServer struct {

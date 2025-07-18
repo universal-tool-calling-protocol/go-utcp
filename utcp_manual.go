@@ -1,4 +1,4 @@
-package UTCP
+package utcp
 
 // OpenAPIConverter helps converting OpenAPI specs into a UtcpManual.
 type OpenAPIConverter struct {

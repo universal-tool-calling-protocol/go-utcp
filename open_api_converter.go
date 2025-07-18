@@ -1,6 +1,6 @@
 //go:build ignore
 
-package UTCP
+package utcp
 
 import (
 	"fmt"

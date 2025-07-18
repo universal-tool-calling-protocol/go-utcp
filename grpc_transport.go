@@ -1,4 +1,4 @@
-package UTCP
+package utcp
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/universal-tool-calling-protocol/UTCP/grpcpb"
+	"github.com/universal-tool-calling-protocol/go-utcp/grpcpb"
 )
 
 // GRPCClientTransport implements ClientTransport over gRPC using the UTCPService.

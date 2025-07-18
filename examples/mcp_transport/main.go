@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/universal-tool-calling-protocol/UTCP"
+	UTCP "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
 func main() {

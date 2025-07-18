@@ -1,4 +1,4 @@
-package UTCP
+package utcp
 
 import (
 	"context"

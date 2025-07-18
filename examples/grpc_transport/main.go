@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/UTCP"
-	"github.com/universal-tool-calling-protocol/UTCP/grpcpb"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/grpcpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )

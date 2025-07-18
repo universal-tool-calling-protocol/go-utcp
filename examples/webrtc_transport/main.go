@@ -8,7 +8,7 @@ import (
 	"time"
 
 	webrtc "github.com/pion/webrtc/v3"
-	utcp "github.com/universal-tool-calling-protocol/UTCP"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
 // signaling server and WebRTC peer

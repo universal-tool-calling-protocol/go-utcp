@@ -1,5 +1,5 @@
 // sse_client_transport.go
-package UTCP
+package utcp
 
 import (
 	"bufio"

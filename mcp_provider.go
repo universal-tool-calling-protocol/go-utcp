@@ -1,4 +1,4 @@
-package UTCP
+package utcp
 
 // MCPProvider is the concrete provider your transport expects.
 type MCPProvider struct {
