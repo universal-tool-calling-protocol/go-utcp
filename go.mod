@@ -1,4 +1,4 @@
-module github.com/Raezil/UTCP
+module github.com/universal-tool-calling-protocol/UTCP
 
 go 1.23.0
 
