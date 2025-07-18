@@ -1,5 +1,5 @@
 # UTCP-Golang
-[![Go Report Card](https://goreportcard.com/badge/github.com/Raezil/UTCP)](https://goreportcard.com/report/github.com/Raezil/UTCP)
+[![Go Report Card](https://goreportcard.com/badge/github.com/universal-tool-calling-protocol/UTCP)](https://goreportcard.com/report/github.com/universal-tool-calling-protocol/UTCP)
 
 Universal Tool Calling Protocol (UTCP) reference implementation in Go.
 
