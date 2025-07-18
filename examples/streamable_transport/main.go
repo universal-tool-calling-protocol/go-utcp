@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Raezil/UTCP" // where your streamable_transport.go lives
+	"github.com/universal-tool-calling-protocol/UTCP"
 )
 
 func main() {

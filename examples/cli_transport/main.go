@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	utcp "github.com/Raezil/UTCP"
+	utcp "github.com/universal-tool-calling-protocol/UTCP"
 )
 
 func main() {

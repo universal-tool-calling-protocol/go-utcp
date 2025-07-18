@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	UTCP "github.com/Raezil/UTCP"
+	"github.com/universal-tool-calling-protocol/UTCP"
 )
 
 func main() {

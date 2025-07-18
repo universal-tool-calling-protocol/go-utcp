@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	utcp "github.com/Raezil/UTCP"
 	webrtc "github.com/pion/webrtc/v3"
+	utcp "github.com/universal-tool-calling-protocol/UTCP"
 )
 
 // signaling server and WebRTC peer

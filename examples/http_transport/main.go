@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Raezil/UTCP"
 	"github.com/gorilla/mux"
+	"github.com/universal-tool-calling-protocol/UTCP"
 )
 
 // Tool metadata

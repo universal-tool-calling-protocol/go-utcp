@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	utcp "github.com/Raezil/UTCP"
 	"github.com/gorilla/websocket"
+	utcp "github.com/universal-tool-calling-protocol/UTCP"
 )
 
 var upgrader = websocket.Upgrader{}
