@@ -3,13 +3,13 @@ module main
 go 1.23.0
 
 require (
-	github.com/Raezil/UTCP v1.2.3
+	github.com/Raezil/UTCP v1.1.9
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/machinebox/graphql v0.2.2
 	github.com/pion/webrtc/v3 v3.3.5
 	github.com/stretchr/testify v1.10.0
-	google.golang.org/grpc v1.74.0
+	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v2 v2.4.0
 )
