@@ -48,7 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("tool call failed: %v", err)
 	}
-	fmt.Printf("Translation result: %#v", result)
+	fmt.Printf("\nTranslation result: %#v", result)
 
 	if err := transport.DeregisterToolProvider(ctx, provider); err != nil {
 		log.Printf("warning: failed to deregister provider: %v", err)
