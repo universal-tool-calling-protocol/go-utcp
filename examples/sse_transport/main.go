@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/universal-tool-calling-protocol/UTCP"
@@ -41,6 +42,31 @@ func startMockServer(addr string) {
 		var in map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		name, _ := in["name"].(string)
+
+		// Check if client requested SSE
+		if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+				return
+			}
+
+			// Stream two parts of the greeting
+			parts := []map[string]string{{"result": "Hello,"}, {"result": fmt.Sprintf(" %s!", name)}}
+			for _, part := range parts {
+				b, _ := json.Marshal(part)
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
+				flusher.Flush()
+				time.Sleep(100 * time.Millisecond)
+			}
+			return
+		}
+
+		// Fallback JSON
 		out := map[string]interface{}{"result": fmt.Sprintf("Hello, %s!", name)}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(out)
@@ -60,6 +86,7 @@ func runClient(baseURL string) {
 	}
 	transport := UTCP.NewSSETransport(logger)
 
+	// Discovery endpoint
 	provider := &UTCP.SSEProvider{URL: baseURL + "/tools"}
 	tools, err := transport.RegisterToolProvider(ctx, provider)
 	if err != nil {
@@ -72,11 +99,22 @@ func runClient(baseURL string) {
 
 	// Update URL for tool calls
 	provider.URL = baseURL
-	result, err := transport.CallTool(ctx, "hello", map[string]interface{}{"name": "UTCP"}, provider, nil)
+	// Call with streaming
+	res, err := transport.CallTool(ctx, "hello", map[string]interface{}{"name": "UTCP"}, provider, nil)
 	if err != nil {
 		panic(fmt.Errorf("failed to call tool: %w", err))
 	}
-	fmt.Printf("Tool response: %#v\n", result)
+
+	// Print streaming result
+	switch ev := res.(type) {
+	case []interface{}:
+		fmt.Println("Streamed tool response:")
+		for i, chunk := range ev {
+			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+		}
+	default:
+		fmt.Printf("Tool response: %#v\n", ev)
+	}
 
 	// Ensure logs flush before exit
 	time.Sleep(500 * time.Millisecond)

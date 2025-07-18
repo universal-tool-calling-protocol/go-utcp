@@ -1,6 +1,8 @@
+// sse_client_transport.go
 package UTCP
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -46,7 +49,8 @@ func (t *SSEClientTransport) RegisterToolProvider(ctx context.Context, prov Prov
 	if !ok {
 		return nil, errors.New("SSEClientTransport can only be used with SSEProvider")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sseProv.URL, nil)
+	url := sseProv.URL
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -72,13 +76,16 @@ func (t *SSEClientTransport) DeregisterToolProvider(ctx context.Context, prov Pr
 	return nil
 }
 
-// CallTool invokes a named tool over SSE by POSTing inputs and decoding JSON output.
-func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, l *string) (interface{}, error) {
+// CallTool invokes a named tool, using SSE if available.
+func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, lastEventID *string) (interface{}, error) {
 	sseProv, ok := prov.(*SSEProvider)
 	if !ok {
 		return nil, errors.New("SSEClientTransport can only be used with SSEProvider")
 	}
+	// build URL for the tool
 	url := fmt.Sprintf("%s/%s", sseProv.URL, toolName)
+
+	// prepare payload
 	payload := args
 	if sseProv.BodyField != nil {
 		payload = map[string]interface{}{*sseProv.BodyField: args}
@@ -87,22 +94,75 @@ func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args
 	if err != nil {
 		return nil, err
 	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if lastEventID != nil {
+		req.Header.Set("Last-Event-ID", *lastEventID)
+	}
 	for k, v := range sseProv.Headers {
 		req.Header.Set(k, v)
 	}
+
 	resp, err := t.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
+
+	// detect SSE vs JSON
+	ct := resp.Header.Get("Content-Type")
+	if strings.Contains(ct, "event-stream") {
+		return t.handleSSE(resp.Body)
+	}
+
+	// fallback to JSON
 	defer resp.Body.Close()
 	var result interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// handleSSE reads and parses an event-stream, returning slices of parsed JSON events.
+func (t *SSEClientTransport) handleSSE(body io.ReadCloser) ([]interface{}, error) {
+	defer body.Close()
+	reader := bufio.NewReader(body)
+	var events []interface{}
+	var dataBuf strings.Builder
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return events, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		// end of event
+		if line == "" {
+			if dataBuf.Len() > 0 {
+				var evt interface{}
+				if err := json.Unmarshal([]byte(dataBuf.String()), &evt); err != nil {
+					t.logger("failed to unmarshal SSE data: %v", err)
+				} else {
+					events = append(events, evt)
+					t.logger("Received SSE event: %v", evt)
+				}
+				dataBuf.Reset()
+			}
+			continue
+		}
+
+		// accumulate data lines
+		if strings.HasPrefix(line, "data: ") {
+			dataBuf.WriteString(line[len("data: "):])
+		}
+	}
+	return events, nil
 }
