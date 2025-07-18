@@ -24,7 +24,8 @@ func main() {
 
 	// Use the UTCP-defined provider type so the type-assertion passes:
 	provider := &UTCP.StreamableHttpProvider{
-		URL: "http://localhost:8080/tools",
+		URL:     "http://localhost:8080/tools",
+		Headers: map[string]string{},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -36,7 +37,7 @@ func main() {
 	}
 	fmt.Println("Discovered tools:")
 	for _, t := range tools {
-		fmt.Printf(" • %s: %s\n", t.Name, t.Description)
+		fmt.Printf(" • %s: %s", t.Name, t.Description)
 	}
 
 	// Call the translateText tool
@@ -47,24 +48,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("tool call failed: %v", err)
 	}
-	fmt.Printf("Translation result: %#v\n", result)
+	fmt.Printf("Translation result: %#v", result)
 
 	if err := transport.DeregisterToolProvider(ctx, provider); err != nil {
 		log.Printf("warning: failed to deregister provider: %v", err)
 	}
 }
 
-// Tool metadata returned by our local server
-type Tool struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-var toolList = []Tool{
-	{
-		Name:        "translateText",
-		Description: "Translates text to a target language",
-	},
+var toolList = []UTCP.Tool{
+	{Name: "translateText", Description: "Translates text to a target language"},
 }
 
 func startToolServer(addr string) {

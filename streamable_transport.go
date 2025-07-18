@@ -1,3 +1,4 @@
+// UTCP/streamable_transport.go
 package UTCP
 
 import (
@@ -27,7 +28,7 @@ func NewStreamableHTTPTransport(logger func(format string, args ...interface{}))
 	}
 }
 
-// RegisterToolProvider registers an HTTP streaming provider by fetching its tool list.
+// RegisterToolProvider fetches and returns the list of tools from the provider.
 func (t *StreamableHTTPClientTransport) RegisterToolProvider(ctx context.Context, prov Provider) ([]Tool, error) {
 	streamProv, ok := prov.(*StreamableHttpProvider)
 	if !ok {
@@ -45,10 +46,11 @@ func (t *StreamableHTTPClientTransport) RegisterToolProvider(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 	return decodeToolsResponse(resp.Body)
 }
 
-// CallTool invokes a named tool via HTTP POST for streaming providers.
+// CallTool invokes a named tool via HTTP POST and returns its result.
 func (t *StreamableHTTPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, l *string) (interface{}, error) {
 	streamProv, ok := prov.(*StreamableHttpProvider)
 	if !ok {
@@ -81,6 +83,5 @@ func (t *StreamableHTTPClientTransport) CallTool(ctx context.Context, toolName s
 
 // DeregisterToolProvider clears any streaming-specific state (no-op).
 func (t *StreamableHTTPClientTransport) DeregisterToolProvider(ctx context.Context, prov Provider) error {
-	// No persistent state to clean up
 	return nil
 }
