@@ -1,6 +1,6 @@
 syntax = "proto3";
 package grpcpb;
-option go_package = "github.com/Raezil/UTCP/grpcpb";
+option go_package = "github.com/universal-tool-calling-protocol/UTCP/grpcpb";
 
 message Empty {}
 
