@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "tools": [
+    {
+      "name": "hello",
+      "description": "Generates a greeting for the given name.",
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" }
+        },
+        "required": ["name"]
+      },
+      "outputs": {
+        "type": "object",
+        "properties": {
+          "greeting": { "type": "string" }
+        },
+        "required": ["greeting"]
+      }
+    }
+  ]
+}

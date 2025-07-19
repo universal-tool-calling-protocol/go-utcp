@@ -1,0 +1,8 @@
+[
+  {
+    "provider_type": "grpc",
+    "name": "grpc",
+    "host": "127.0.0.1",
+    "port": 9090
+  }
+]

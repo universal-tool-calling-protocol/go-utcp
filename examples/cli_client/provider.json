@@ -1,0 +1,8 @@
+[
+  {
+    "provider_type": "cli",
+    "name": "hello",
+    "command_name": "./discover_hello.sh",
+    "execute_command": "./hello_tool.sh --name {{.Inputs.name}}"
+  }
+]
