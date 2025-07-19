@@ -86,6 +86,28 @@ func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, prov
 	switch p := provider.(type) {
 	case *CliProvider:
 		providerName = p.Name
+	case *HttpProvider:
+		providerName = p.Name
+	case *SSEProvider:
+		providerName = p.Name
+	case *StreamableHttpProvider:
+		providerName = p.Name
+	case *WebSocketProvider:
+		providerName = p.Name
+	case *GRPCProvider:
+		providerName = p.Name
+	case *GraphQLProvider:
+		providerName = p.Name
+	case *TCPProvider:
+		providerName = p.Name
+	case *UDPProvider:
+		providerName = p.Name
+	case *WebRTCProvider:
+		providerName = p.Name
+	case *MCPProvider:
+		providerName = p.Name()
+	case *TextProvider:
+		providerName = p.Name
 	default:
 		return fmt.Errorf("unsupported provider type for saving: %T", provider)
 	}
