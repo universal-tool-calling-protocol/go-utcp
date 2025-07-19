@@ -1,0 +1,8 @@
+[
+  {
+    "provider_type": "http_stream",
+    "name": "stream",
+    "url": "http://localhost:8080/tools",
+    "http_method": "GET"
+  }
+]

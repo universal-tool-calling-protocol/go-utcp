@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "tools": [
+    {
+      "name": "hello",
+      "description": "Simple greeting",
+      "inputs": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "required": ["name"]
+      }
+    }
+  ]
+}

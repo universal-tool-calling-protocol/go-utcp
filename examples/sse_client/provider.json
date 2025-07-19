@@ -1,0 +1,7 @@
+[
+  {
+    "provider_type": "sse",
+    "name": "sse",
+    "url": "http://localhost:8080"
+  }
+]
