@@ -10,37 +10,75 @@ import (
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
-var upgrader = websocket.Upgrader{}
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow connections from any origin
+	},
+}
 
-func wsHandler(w http.ResponseWriter, r *http.Request) {
+func toolsHandler(w http.ResponseWriter, r *http.Request) {
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Printf("upgrade error: %v", err)
 		return
 	}
 	defer c.Close()
 
-	switch r.URL.Path {
-	case "/tools":
-		_, msg, err := c.ReadMessage()
-		if err != nil || string(msg) != "manual" {
-			return
-		}
-		manual := utcp.UtcpManual{Version: "1.0", Tools: []utcp.Tool{{Name: "echo", Description: "Echo"}}}
-		c.WriteJSON(manual)
-	case "/echo":
-		var in map[string]any
-		if err := c.ReadJSON(&in); err != nil {
-			return
-		}
-		c.WriteJSON(map[string]any{"result": in["msg"]})
+	// Read the "manual" message
+	_, msg, err := c.ReadMessage()
+	if err != nil || string(msg) != "manual" {
+		log.Printf("expected 'manual' message, got: %s, err: %v", string(msg), err)
+		return
+	}
+
+	// Send the manual/schema
+	manual := utcp.UtcpManual{
+		Version: "1.0",
+		Tools: []utcp.Tool{
+			{
+				Name:        "echo",
+				Description: "Echo back the provided message",
+			},
+		},
+	}
+
+	if err := c.WriteJSON(manual); err != nil {
+		log.Printf("error writing manual: %v", err)
+	}
+}
+
+func echoHandler(w http.ResponseWriter, r *http.Request) {
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("upgrade error: %v", err)
+		return
+	}
+	defer c.Close()
+
+	// Read the tool call request
+	var in map[string]any
+	if err := c.ReadJSON(&in); err != nil {
+		log.Printf("error reading JSON: %v", err)
+		return
+	}
+
+	log.Printf("Received tool call: %#v", in)
+
+	// Echo back the message
+	response := map[string]any{
+		"result": in["msg"],
+	}
+
+	if err := c.WriteJSON(response); err != nil {
+		log.Printf("error writing response: %v", err)
 	}
 }
 
 func startServer(addr string) {
-	http.HandleFunc("/tools", wsHandler)
-	http.HandleFunc("/echo", wsHandler)
+	http.HandleFunc("/tools", toolsHandler)
+	http.HandleFunc("/websocket.echo", echoHandler)
 	log.Printf("WebSocket server listening on %s", addr)
-	http.ListenAndServe(addr, nil)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func main() {
