@@ -7,24 +7,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
-
-var manual = utcp.UtcpManual{
-	Version: "1.0",
-	Tools: []utcp.Tool{
-		{
-			Name:        "echo",
-			Description: "Echo back a message",
-		},
-		{
-			Name:        "timestamp",
-			Description: "Current server timestamp",
-		},
-	},
-}
 
 // discovered flags whether we've serviced the UTCP discovery call yet
 var discovered bool
@@ -36,7 +23,6 @@ func startServer(addr string) {
 			return
 		}
 
-		// 1) Read the full body
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to read body: %v", err), http.StatusBadRequest)
@@ -46,47 +32,31 @@ func startServer(addr string) {
 
 		log.Printf("Received raw request: %s", string(raw))
 
-		// 2) Discovery: first empty-body => discovery
+		// Discovery: first empty-body => discovery
 		if len(raw) == 0 && !discovered {
 			discovered = true
-			w.Header().Set("Content-Type", "application/json")
-			discoveryResponse := map[string]interface{}{ // UTCP discovery response
-				"version": "1.0",
-				"tools": []map[string]interface{}{
-					{
-						"name":        "echo",
-						"description": "Echo back a message",
-						"inputs": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"message": map[string]interface{}{"type": "string"},
-							},
-							"required": []string{"message"},
-						},
-					},
-					{
-						"name":        "timestamp",
-						"description": "Current server timestamp",
-						"inputs":      map[string]interface{}{"type": "object"},
-					},
-				},
-			}
-			jsonBytes, err := json.Marshal(discoveryResponse)
+			// Read discovery response from tools.json
+			data, err := os.ReadFile("tools.json")
 			if err != nil {
-				log.Printf("Failed to marshal discovery response: %v", err)
-				http.Error(w, fmt.Sprintf("marshal error: %v", err), http.StatusInternalServerError)
+				log.Printf("Failed to read tools.json: %v", err)
+				http.Error(w, fmt.Sprintf("failed to read tools.json: %v", err), http.StatusInternalServerError)
 				return
 			}
-			log.Printf("Discovery response JSON: %s", string(jsonBytes))
+			var discoveryResponse map[string]interface{}
+			if err := json.Unmarshal(data, &discoveryResponse); err != nil {
+				log.Printf("Failed to unmarshal tools.json: %v", err)
+				http.Error(w, fmt.Sprintf("invalid tools.json format: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(discoveryResponse); err != nil {
 				log.Printf("Failed to encode discovery response: %v", err)
-				http.Error(w, fmt.Sprintf("encode error: %v", err), http.StatusInternalServerError)
 			}
-			log.Printf("Discovery response sent successfully")
 			return
 		}
 
-		// 3) Empty-body after discovery => timestamp call
+		// Empty-body after discovery => timestamp call
 		if len(raw) == 0 {
 			log.Printf("Empty body – timestamp call")
 			w.Header().Set("Content-Type", "application/json")
@@ -94,14 +64,14 @@ func startServer(addr string) {
 			return
 		}
 
-		// 4) Try to parse the JSON
+		// Try to parse the JSON
 		var probe map[string]interface{}
 		if err := json.Unmarshal(raw, &probe); err != nil {
 			http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
 			return
 		}
 
-		// 5) Standard tool call (has "tool" field)
+		// Standard tool call (has "tool" field)
 		if toolName, hasToolField := probe["tool"].(string); hasToolField && toolName != "" {
 			var req struct {
 				Tool string                 `json:"tool"`
@@ -127,7 +97,7 @@ func startServer(addr string) {
 			return
 		}
 
-		// 6) Direct echo call (has "message" field)
+		// Direct echo call (has "message" field)
 		if _, hasMessage := probe["message"]; hasMessage {
 			log.Printf("Direct echo call with args: %v", probe)
 			w.Header().Set("Content-Type", "application/json")
