@@ -13,6 +13,8 @@ import (
 	webrtc "github.com/pion/webrtc/v3"
 )
 
+var newPeerConnection = webrtc.NewPeerConnection
+
 // WebRTCClientTransport implements ClientTransport using WebRTC data channels.
 type WebRTCClientTransport struct {
 	pc      *webrtc.PeerConnection
@@ -35,7 +37,7 @@ func (t *WebRTCClientTransport) openConnection(ctx context.Context, prov *WebRTC
 		return nil, nil
 	}
 	config := webrtc.Configuration{}
-	pc, err := webrtc.NewPeerConnection(config)
+	pc, err := newPeerConnection(config)
 	if err != nil {
 		return nil, err
 	}
