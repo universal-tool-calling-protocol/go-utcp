@@ -50,180 +50,77 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
-	"net/http"
+	"os"
 	"time"
 
-	"github.com/gorilla/mux"
-	UTCP "github.com/universal-tool-calling-protocol/go-utcp"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
-// Tool metadata
-type Tool struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"input_schema,omitempty"`
-}
-
-// Our in‑memory tool list
-var tools = []Tool{
-	{
-		Name:        "echo",
-		Description: "Returns back the message you send it.",
-		InputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{"message": map[string]string{"type": "string"}},
-			"required":   []string{"message"},
-		},
-	},
-	{
-		Name:        "timestamp",
-		Description: "Returns the current server timestamp in RFC3339.",
-	},
-}
-
 func main() {
-	// 1) Start the HTTP server in a goroutine
-	go startToolServer(":8080")
+	ctx := context.Background()
 
-	// 2) Give the server a moment to come up
-	time.Sleep(200 * time.Millisecond)
-
-	// 3) Run the client that discovers & calls "echo"
-	runClient("http://localhost:8080/tools")
-}
-
-// startToolServer boots the HTTP API that lists & invokes tools.
-func startToolServer(addr string) {
-	r := mux.NewRouter()
-	r.HandleFunc("/tools", listToolsHandler).Methods("GET")
-	r.HandleFunc("/tools/{name}/call", callToolHandler).Methods("POST")
-
-	srv := &http.Server{
-		Handler:      r,
-		Addr:         addr,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+	cfg := &utcp.UtcpClientConfig{
+		ProvidersFilePath: "providers.json",
 	}
 
-	log.Printf("🔧 Tool provider listening on %s …", addr)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
-}
-
-func listToolsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// Return in UTCP manual format for proper tool discovery
-	response := map[string]interface{}{
-		"version": "1.0",
-		"tools":   tools,
+	fmt.Println("Creating UTCP client...")
+	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create UTCP client: %v\n", err)
+		os.Exit(1)
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
+	// Give the client time to fully initialize
+	fmt.Println("Waiting for initialization...")
+	time.Sleep(500 * time.Millisecond)
 
-func callToolHandler(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
-	var args map[string]interface{}
-
-	// Handle empty body for tools that don't need arguments
-	if r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-	} else {
-		args = make(map[string]interface{})
+	fmt.Println("\n=== Tool Discovery ===")
+	tools, err := client.SearchTools("", 10)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "search error: %v\n", err)
+		os.Exit(1)
 	}
 
-	var result interface{}
-	var err error
+	if len(tools) == 0 {
+		fmt.Println("No tools found!")
+		os.Exit(1)
+	}
 
-	switch name {
-	case "echo":
-		msg, ok := args["message"].(string)
-		if !ok {
-			err = fmt.Errorf("missing or invalid 'message'")
+	tool := tools[0]
+	fmt.Printf("Found tool: %s\n", tool.Name)
+	fmt.Printf("Tool description: %s\n", tool.Description)
+
+	// Test the tool call
+	fmt.Println("\n=== Tool Call Test ===")
+	input := map[string]interface{}{
+		"name": "Kamil",
+	}
+
+	fmt.Printf("Calling tool '%s' with input: %v\n", tool.Name, input)
+	result, err := client.CallTool(ctx, tool.Name, input)
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+
+		// Try to understand the error better
+		fmt.Printf("Error type: %T\n", err)
+		fmt.Printf("Error string: %s\n", err.Error())
+
+		// Let's try a direct search for the provider
+		fmt.Println("\n=== Searching for provider directly ===")
+		providerTools, err2 := client.SearchTools("hello", 10)
+		if err2 != nil {
+			fmt.Printf("Provider search failed: %v\n", err2)
 		} else {
-			result = map[string]string{"echo": msg}
+			fmt.Printf("Provider search returned %d tools\n", len(providerTools))
+			for i, t := range providerTools {
+				fmt.Printf("  %d: %s\n", i, t.Name)
+			}
 		}
-	case "timestamp":
-		result = map[string]string{"timestamp": time.Now().Format(time.RFC3339)}
-	default:
-		http.Error(w, "unknown tool: "+name, http.StatusNotFound)
-		return
+
+	} else {
+		fmt.Printf("SUCCESS: %v\n", result)
 	}
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"result": result})
-}
-
-// runClient demonstrates UTCP discovering tools and calling both "echo" and "timestamp".
-func runClient(baseURL string) {
-	logger := func(format string, args ...interface{}) {
-		log.Printf(format, args...)
-	}
-
-	transport := UTCP.NewHttpClientTransport(logger)
-
-	// Provider for tool discovery
-	discoveryProvider := &UTCP.HttpProvider{
-		URL:        baseURL,
-		HTTPMethod: "GET",
-		Headers:    map[string]string{"Accept": "application/json"},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Discover tools
-	tools, err := transport.RegisterToolProvider(ctx, discoveryProvider)
-	if err != nil {
-		log.Fatalf("Failed to register provider: %v", err)
-	}
-	log.Printf("Discovered %d tools:", len(tools))
-	for _, t := range tools {
-		log.Printf(" • %s: %s", t.Name, t.Description)
-	}
-
-	// Provider for tool calling (different URL pattern and POST method)
-	callProvider := &UTCP.HttpProvider{
-		URL:        "http://localhost:8080/tools/echo/call",
-		HTTPMethod: "POST",
-		Headers:    map[string]string{"Content-Type": "application/json"},
-	}
-
-	// Call "echo" tool
-	args := map[string]interface{}{"message": "Hello from Go!"}
-	result, err := transport.CallTool(ctx, "echo", args, callProvider, nil)
-	if err != nil {
-		log.Fatalf("CallTool error: %v", err)
-	}
-	fmt.Printf("✅ Echo tool response: %#v\n", result)
-
-	// Call "timestamp" tool (send empty JSON object)
-	timestampProvider := &UTCP.HttpProvider{
-		URL:        "http://localhost:8080/tools/timestamp/call",
-		HTTPMethod: "POST",
-		Headers:    map[string]string{"Content-Type": "application/json"},
-	}
-
-	timestampResult, err := transport.CallTool(ctx, "timestamp", map[string]interface{}{}, timestampProvider, nil)
-	if err != nil {
-		log.Fatalf("CallTool timestamp error: %v", err)
-	}
-	fmt.Printf("✅ Timestamp tool response: %#v\n", timestampResult)
 }
 ```
 
