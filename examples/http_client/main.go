@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -11,38 +12,137 @@ import (
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
-var manual = utcp.UtcpManual{Version: "1.0", Tools: []utcp.Tool{
-	{Name: "echo", Description: "Echo back a message"},
-	{Name: "timestamp", Description: "Current time"},
-}}
+var manual = utcp.UtcpManual{
+	Version: "1.0",
+	Tools: []utcp.Tool{
+		{
+			Name:        "echo",
+			Description: "Echo back a message",
+		},
+		{
+			Name:        "timestamp",
+			Description: "Current server timestamp",
+		},
+	},
+}
+
+// discovered flags whether we've serviced the UTCP discovery call yet
+var discovered bool
 
 func startServer(addr string) {
 	http.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.ContentLength == 0 {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// 1) Read the full body
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to read body: %v", err), http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		log.Printf("Received raw request: %s", string(raw))
+
+		// 2) Discovery: first empty-body => discovery
+		if len(raw) == 0 && !discovered {
+			discovered = true
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(manual)
+			discoveryResponse := map[string]interface{}{ // UTCP discovery response
+				"version": "1.0",
+				"tools": []map[string]interface{}{
+					{
+						"name":        "echo",
+						"description": "Echo back a message",
+						"inputs": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"message": map[string]interface{}{"type": "string"},
+							},
+							"required": []string{"message"},
+						},
+					},
+					{
+						"name":        "timestamp",
+						"description": "Current server timestamp",
+						"inputs":      map[string]interface{}{"type": "object"},
+					},
+				},
+			}
+			jsonBytes, err := json.Marshal(discoveryResponse)
+			if err != nil {
+				log.Printf("Failed to marshal discovery response: %v", err)
+				http.Error(w, fmt.Sprintf("marshal error: %v", err), http.StatusInternalServerError)
+				return
+			}
+			log.Printf("Discovery response JSON: %s", string(jsonBytes))
+			if err := json.NewEncoder(w).Encode(discoveryResponse); err != nil {
+				log.Printf("Failed to encode discovery response: %v", err)
+				http.Error(w, fmt.Sprintf("encode error: %v", err), http.StatusInternalServerError)
+			}
+			log.Printf("Discovery response sent successfully")
 			return
 		}
-		var req struct {
-			Tool string                 `json:"tool"`
-			Args map[string]interface{} `json:"args"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		switch req.Tool {
-		case "echo":
-			msg, _ := req.Args["message"].(string)
-			json.NewEncoder(w).Encode(map[string]any{"result": msg})
-		case "timestamp":
+
+		// 3) Empty-body after discovery => timestamp call
+		if len(raw) == 0 {
+			log.Printf("Empty body – timestamp call")
+			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{"result": time.Now().Format(time.RFC3339)})
-		default:
-			http.Error(w, "unknown tool", http.StatusNotFound)
+			return
 		}
+
+		// 4) Try to parse the JSON
+		var probe map[string]interface{}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// 5) Standard tool call (has "tool" field)
+		if toolName, hasToolField := probe["tool"].(string); hasToolField && toolName != "" {
+			var req struct {
+				Tool string                 `json:"tool"`
+				Args map[string]interface{} `json:"args"`
+			}
+			if err := json.Unmarshal(raw, &req); err != nil {
+				http.Error(w, fmt.Sprintf("invalid JSON for tool call: %v", err), http.StatusBadRequest)
+				return
+			}
+
+			log.Printf("Standard tool call: %s with args: %v", req.Tool, req.Args)
+			w.Header().Set("Content-Type", "application/json")
+
+			switch req.Tool {
+			case "echo":
+				msg, _ := req.Args["message"].(string)
+				json.NewEncoder(w).Encode(map[string]any{"result": msg})
+			case "timestamp":
+				json.NewEncoder(w).Encode(map[string]any{"result": time.Now().Format(time.RFC3339)})
+			default:
+				http.Error(w, "unknown tool", http.StatusNotFound)
+			}
+			return
+		}
+
+		// 6) Direct echo call (has "message" field)
+		if _, hasMessage := probe["message"]; hasMessage {
+			log.Printf("Direct echo call with args: %v", probe)
+			w.Header().Set("Content-Type", "application/json")
+			msg, _ := probe["message"].(string)
+			json.NewEncoder(w).Encode(map[string]any{"result": msg})
+			return
+		}
+
+		// Unknown request format
+		log.Printf("Unknown request format: %v", probe)
+		http.Error(w, "unknown request format", http.StatusBadRequest)
 	})
+
 	log.Printf("HTTP mock server on %s", addr)
-	http.ListenAndServe(addr, nil)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func main() {
@@ -56,6 +156,7 @@ func main() {
 		log.Fatalf("client error: %v", err)
 	}
 
+	// Discover tools
 	tools, err := client.SearchTools("", 10)
 	if err != nil {
 		log.Fatalf("search: %v", err)
@@ -65,12 +166,14 @@ func main() {
 		fmt.Printf(" - %s\n", t.Name)
 	}
 
+	// Call the "echo" tool
 	res, err := client.CallTool(ctx, "http.echo", map[string]any{"message": "hi"})
 	if err != nil {
 		log.Fatalf("call echo: %v", err)
 	}
 	fmt.Printf("Echo result: %#v\n", res)
 
+	// Call the "timestamp" tool
 	ts, err := client.CallTool(ctx, "http.timestamp", map[string]any{})
 	if err != nil {
 		log.Fatalf("call timestamp: %v", err)
