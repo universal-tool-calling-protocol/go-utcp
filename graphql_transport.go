@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -29,6 +30,12 @@ type OAuth2TokenResponse struct {
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"`
 	Scope       string `json:"scope"`
+}
+
+// TypedArgument allows passing type information with arguments
+type TypedArgument struct {
+	Value interface{}
+	Type  string // GraphQL type like "String", "Int", "Boolean", "MyInputType"
 }
 
 // NewGraphQLClientTransport creates a new transport instance.
@@ -148,6 +155,30 @@ func (t *GraphQLClientTransport) prepareHeaders(
 	return headers, nil
 }
 
+// inferGraphQLType attempts to infer GraphQL type from Go value
+func (t *GraphQLClientTransport) inferGraphQLType(value interface{}) string {
+	if value == nil {
+		return "String" // fallback
+	}
+
+	switch reflect.TypeOf(value).Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return "Int"
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "Int"
+	case reflect.Float32, reflect.Float64:
+		return "Float"
+	case reflect.Bool:
+		return "Boolean"
+	case reflect.String:
+		return "String"
+	case reflect.Map, reflect.Struct, reflect.Slice, reflect.Array:
+		return "JSON" // fallback for complex types
+	default:
+		return "String" // safe fallback
+	}
+}
+
 // RegisterToolProvider discovers schema and registers tools.
 func (t *GraphQLClientTransport) RegisterToolProvider(ctx context.Context, manualProv Provider) ([]Tool, error) {
 	prov, ok := manualProv.(*GraphQLProvider)
@@ -211,7 +242,7 @@ func (t *GraphQLClientTransport) DeregisterToolProvider(ctx context.Context, man
 	return nil
 }
 
-// CallTool executes a GraphQL operation by name.
+// CallTool executes a GraphQL operation by name with proper type support.
 func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider Provider, l *string) (any, error) {
 	prov, ok := toolProvider.(*GraphQLProvider)
 	if !ok {
@@ -227,14 +258,26 @@ func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, 
 	client := graphql.NewClient(prov.URL)
 	client.Log = func(s string) { t.log(s, nil) }
 
-	// build simple query
+	// build query with proper types
 	var b strings.Builder
 	b.WriteString("query ")
 	var defs, passes []string
-	for k := range arguments {
-		defs = append(defs, fmt.Sprintf("$%s: String", k))
+
+	for k, v := range arguments {
+		var gqlType string
+
+		// Check if argument is a TypedArgument with explicit type
+		if typedArg, ok := v.(TypedArgument); ok {
+			gqlType = typedArg.Type
+		} else {
+			// Infer type from Go value
+			gqlType = t.inferGraphQLType(v)
+		}
+
+		defs = append(defs, fmt.Sprintf("$%s: %s", k, gqlType))
 		passes = append(passes, fmt.Sprintf("%s: $%s", k, k))
 	}
+
 	if len(defs) > 0 {
 		b.WriteString("(" + strings.Join(defs, ", ") + ") ")
 	}
@@ -243,14 +286,22 @@ func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, 
 		b.WriteString("(" + strings.Join(passes, ", ") + ")")
 	}
 	b.WriteString(" }")
+
 	req := graphql.NewRequest(b.String())
 
+	// Set variables with actual values
 	for k, v := range arguments {
-		req.Var(k, v)
+		if typedArg, ok := v.(TypedArgument); ok {
+			req.Var(k, typedArg.Value)
+		} else {
+			req.Var(k, v)
+		}
 	}
+
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+
 	var resp map[string]interface{}
 	if err := client.Run(ctx, req, &resp); err != nil {
 		return nil, err
