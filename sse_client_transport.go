@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // SSEClientTransport implements Server-Sent Events over HTTP for UTCP tools.
@@ -32,13 +31,14 @@ func decodeToolsResponse(r io.ReadCloser) ([]Tool, error) {
 	return resp.Tools, nil
 }
 
-// NewSSETransport constructs a new SSEClientTransport.
+// NewSSETransport constructs a new SSEClientTransport without a built-in timeout,
+// allowing long-lived streams to be managed by context.
 func NewSSETransport(logger func(format string, args ...interface{})) *SSEClientTransport {
 	if logger == nil {
 		logger = func(format string, args ...interface{}) {}
 	}
 	return &SSEClientTransport{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{},
 		logger: logger,
 	}
 }
@@ -50,6 +50,7 @@ func (t *SSEClientTransport) RegisterToolProvider(ctx context.Context, prov Prov
 		return nil, errors.New("SSEClientTransport can only be used with SSEProvider")
 	}
 	url := sseProv.URL
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -58,9 +59,16 @@ func (t *SSEClientTransport) RegisterToolProvider(ctx context.Context, prov Prov
 	for k, v := range sseProv.Headers {
 		req.Header.Set(k, v)
 	}
+
 	resp, err := t.client.Do(req)
 	if err != nil {
 		return nil, err
+	}
+	// Fail fast on non-2xx status codes
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("register provider %q error: %s: %s", sseProv.Name, resp.Status, string(body))
 	}
 	return decodeToolsResponse(resp.Body)
 }
@@ -113,6 +121,13 @@ func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args
 		return nil, err
 	}
 
+	// Fail fast on non-2xx status codes
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("tool %q error: %s: %s", toolName, resp.Status, string(body))
+	}
+
 	// detect SSE vs JSON
 	ct := resp.Header.Get("Content-Type")
 	if strings.Contains(ct, "event-stream") {
@@ -144,7 +159,15 @@ func (t *SSEClientTransport) handleSSE(body io.ReadCloser) ([]interface{}, error
 			return events, err
 		}
 		line = strings.TrimRight(line, "\r\n")
-		// end of event
+
+		// capture event-id for reconnect support
+		if strings.HasPrefix(line, "id: ") {
+			lastID := line[len("id: "):]
+			t.logger("SSE last-event-id now: %s", lastID)
+			continue
+		}
+
+		// end of event, decode accumulated data
 		if line == "" {
 			if dataBuf.Len() > 0 {
 				var evt interface{}
@@ -159,8 +182,11 @@ func (t *SSEClientTransport) handleSSE(body io.ReadCloser) ([]interface{}, error
 			continue
 		}
 
-		// accumulate data lines
+		// accumulate data lines, preserving literal newlines between them
 		if strings.HasPrefix(line, "data: ") {
+			if dataBuf.Len() > 0 {
+				dataBuf.WriteByte('\n')
+			}
 			dataBuf.WriteString(line[len("data: "):])
 		}
 	}
