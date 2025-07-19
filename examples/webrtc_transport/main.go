@@ -5,14 +5,21 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
-	webrtc "github.com/pion/webrtc/v3"
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+
+	webrtc "github.com/pion/webrtc/v3"
 )
 
-// signaling server and WebRTC peer
-func startServer(addr string, dcName string) {
+// ---- Signaling Server ----
+var (
+	peers   = map[string]*webrtc.PeerConnection{}
+	peersMu sync.Mutex
+)
+
+func startServer(addr, dcName string) {
 	http.HandleFunc("/connect", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			PeerID string `json:"peer_id"`
@@ -22,32 +29,40 @@ func startServer(addr string, dcName string) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
+		// Create peer
 		pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-
+		// collect ICE
+		local := []webrtc.ICECandidateInit{}
+		pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+			if c != nil {
+				local = append(local, c.ToJSON())
+			}
+		})
+		// handle data channel and echo tool
 		pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 			if dc.Label() != dcName {
 				return
 			}
 			dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-				var call struct {
-					Tool string         `json:"tool"`
-					Args map[string]any `json:"args"`
-				}
-				if err := json.Unmarshal(msg.Data, &call); err != nil {
+				var env map[string]any
+				if err := json.Unmarshal(msg.Data, &env); err != nil {
 					return
 				}
-				if call.Tool == "echo" {
-					out, _ := json.Marshal(map[string]any{"result": call.Args["msg"]})
-					dc.SendText(string(out))
+				id, _ := env["id"].(string)
+				tool, _ := env["tool"].(string)
+				args, _ := env["args"].(map[string]any)
+				if tool == "echo" {
+					resp := map[string]any{"id": id, "result": args["msg"]}
+					b, _ := json.Marshal(resp)
+					dc.SendText(string(b))
 				}
 			})
 		})
-
+		// complete handshake
 		offer := webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: req.SDP}
 		if err := pc.SetRemoteDescription(offer); err != nil {
 			http.Error(w, err.Error(), 500)
@@ -63,43 +78,49 @@ func startServer(addr string, dcName string) {
 			return
 		}
 		<-webrtc.GatheringCompletePromise(pc)
-
-		manual := utcp.UtcpManual{Version: "1.0", Tools: []utcp.Tool{{Name: "echo", Description: "Echo"}}}
-		resp := map[string]any{"sdp": pc.LocalDescription().SDP, "manual": manual}
+		// store
+		peersMu.Lock()
+		peers[req.PeerID] = pc
+		peersMu.Unlock()
+		// respond
+		tools := []utcp.Tool{{Name: "echo", Description: "Echo tool"}}
+		resp := struct {
+			SDP        string                    `json:"sdp"`
+			Tools      []utcp.Tool               `json:"tools"`
+			Candidates []webrtc.ICECandidateInit `json:"candidates"`
+		}{pc.LocalDescription().SDP, tools, local}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	})
 
-	log.Printf("WebRTC signaling server listening on %s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("server failed: %v", err)
-	}
+	log.Printf("Signaling server on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func main() {
 	const dcName = "data"
+	// start signaling
 	go startServer(":8080", dcName)
+	// allow server to start
 	time.Sleep(200 * time.Millisecond)
 
-	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := utcp.NewWebRTCClientTransport(logger)
-	prov := &utcp.WebRTCProvider{SignalingServer: "http://localhost:8080", PeerID: "client", DataChannelName: dcName}
-
+	// client setup
 	ctx := context.Background()
+	transport := utcp.NewWebRTCClientTransport(log.Printf)
+	prov := &utcp.WebRTCProvider{SignalingServer: "http://localhost:8080", PeerID: "client", DataChannelName: dcName}
+	// register & discover
 	tools, err := transport.RegisterToolProvider(ctx, prov)
 	if err != nil {
-		log.Fatalf("register: %v", err)
+		log.Fatalf("register error: %v", err)
 	}
-	log.Printf("Discovered tools:")
-	for _, t := range tools {
-		log.Printf(" - %s", t.Name)
-	}
+	log.Printf("Discovered tools: %+v", tools)
 
-	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "hello"}, prov, nil)
+	// call echo
+	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "Hello, WebRTC!"}, prov, nil)
 	if err != nil {
-		log.Fatalf("call: %v", err)
+		log.Fatalf("call error: %v", err)
 	}
-	log.Printf("Result: %#v", res)
+	log.Printf("Echo result: %v", res)
 
-	_ = transport.DeregisterToolProvider(ctx, prov)
+	transport.DeregisterToolProvider(ctx, prov)
 }
