@@ -191,12 +191,17 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p Provid
 }
 
 // CallTool calls a specific tool on the HTTP provider.
+// CallTool calls a specific tool on the HTTP provider.
 func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p Provider, l *string) (any, error) {
 	hp, ok := p.(*HttpProvider)
 	if !ok {
 		return nil, errors.New("HttpTransport can only be used with HttpProvider")
 	}
+
+	// Use the URL as-is from the provider - this allows flexibility in URL patterns
 	urlTemplate := hp.URL
+
+	// Handle URL template substitution for path parameters
 	for key, val := range args {
 		placeholder := fmt.Sprintf("{%s}", key)
 		if strings.Contains(urlTemplate, placeholder) {
@@ -204,27 +209,51 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 			delete(args, key)
 		}
 	}
+
 	u, err := url.Parse(urlTemplate)
 	if err != nil {
 		return nil, err
 	}
-	q := u.Query()
-	for k, v := range args {
-		q.Set(k, fmt.Sprintf("%v", v))
-	}
-	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, hp.HTTPMethod, u.String(), nil)
-	if err != nil {
-		return nil, err
+	var req *http.Request
+
+	// Determine request method and body based on remaining args and HTTP method
+	if len(args) > 0 && hp.HTTPMethod == "POST" {
+		// POST with JSON body
+		jsonData, err := json.Marshal(args)
+		if err != nil {
+			return nil, err
+		}
+		req, err = http.NewRequestWithContext(ctx, hp.HTTPMethod, u.String(), strings.NewReader(string(jsonData)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header = make(http.Header)
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		// GET or POST with query parameters
+		q := u.Query()
+		for k, v := range args {
+			q.Set(k, fmt.Sprintf("%v", v))
+		}
+		u.RawQuery = q.Encode()
+
+		req, err = http.NewRequestWithContext(ctx, hp.HTTPMethod, u.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header = make(http.Header)
 	}
-	req.Header = make(http.Header)
+
+	// Copy headers from provider config
 	for k, v := range hp.Headers {
 		req.Header.Set(k, v)
 	}
+
 	if err := t.applyAuth(req, hp); err != nil {
 		return nil, err
 	}
+
 	// OAuth2
 	if hp.Auth != nil {
 		authIfc := *hp.Auth
@@ -243,10 +272,15 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("tool %s returned error status: %s", toolName, resp.Status)
 	}
+
 	var result interface{}
-	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
