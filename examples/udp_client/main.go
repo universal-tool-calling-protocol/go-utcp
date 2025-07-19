@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
@@ -36,18 +37,29 @@ func (s *udpServer) loop() {
 			return
 		}
 		data := buf[:n]
+
+		// Discovery already works
 		if string(data) == "DISCOVER" {
-			manual := utcp.UtcpManual{Version: "1.0", Tools: []utcp.Tool{{Name: "udp_echo", Description: "Echo"}}}
+			manual := utcp.UtcpManual{
+				Version: "1.0",
+				Tools:   []utcp.Tool{{Name: "udp_echo", Description: "Echo"}},
+			}
 			out, _ := json.Marshal(manual)
 			s.conn.WriteToUDP(out, remote)
 			continue
 		}
+
 		var req map[string]any
 		if err := json.Unmarshal(data, &req); err == nil {
-			if req["tool"] == "udp_echo" {
-				args := req["args"].(map[string]any)
-				resp, _ := json.Marshal(map[string]any{"result": args["msg"]})
-				s.conn.WriteToUDP(resp, remote)
+			// Get the raw tool string, e.g. "udp.udp_echo"
+			if raw, ok := req["tool"].(string); ok {
+				parts := strings.Split(raw, ".")
+				base := parts[len(parts)-1] // "udp_echo"
+				if base == "udp_echo" {
+					args := req["args"].(map[string]any)
+					resp, _ := json.Marshal(map[string]any{"result": args["msg"]})
+					s.conn.WriteToUDP(resp, remote)
+				}
 			}
 		}
 	}
