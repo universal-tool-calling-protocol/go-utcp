@@ -116,7 +116,14 @@ func startToolServer(addr string) {
 
 func listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(tools); err != nil {
+
+	// Return in UTCP manual format for proper tool discovery
+	response := map[string]interface{}{
+		"version": "1.0",
+		"tools":   tools,
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -124,9 +131,15 @@ func listToolsHandler(w http.ResponseWriter, r *http.Request) {
 func callToolHandler(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	var args map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-		return
+
+	// Handle empty body for tools that don't need arguments
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else {
+		args = make(map[string]interface{})
 	}
 
 	var result interface{}
@@ -156,14 +169,16 @@ func callToolHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"result": result})
 }
 
-// runClient demonstrates UTCP discovering tools and calling "echo".
+// runClient demonstrates UTCP discovering tools and calling both "echo" and "timestamp".
 func runClient(baseURL string) {
 	logger := func(format string, args ...interface{}) {
 		log.Printf(format, args...)
 	}
 
 	transport := UTCP.NewHttpClientTransport(logger)
-	provider := &UTCP.HttpProvider{
+
+	// Provider for tool discovery
+	discoveryProvider := &UTCP.HttpProvider{
 		URL:        baseURL,
 		HTTPMethod: "GET",
 		Headers:    map[string]string{"Accept": "application/json"},
@@ -172,8 +187,8 @@ func runClient(baseURL string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Discover
-	tools, err := transport.RegisterToolProvider(ctx, provider)
+	// Discover tools
+	tools, err := transport.RegisterToolProvider(ctx, discoveryProvider)
 	if err != nil {
 		log.Fatalf("Failed to register provider: %v", err)
 	}
@@ -182,14 +197,33 @@ func runClient(baseURL string) {
 		log.Printf(" • %s: %s", t.Name, t.Description)
 	}
 
-	// Call "echo"
+	// Provider for tool calling (different URL pattern and POST method)
+	callProvider := &UTCP.HttpProvider{
+		URL:        "http://localhost:8080/tools/echo/call",
+		HTTPMethod: "POST",
+		Headers:    map[string]string{"Content-Type": "application/json"},
+	}
+
+	// Call "echo" tool
 	args := map[string]interface{}{"message": "Hello from Go!"}
-	result, err := transport.CallTool(ctx, "echo", args, provider, nil)
+	result, err := transport.CallTool(ctx, "echo", args, callProvider, nil)
 	if err != nil {
 		log.Fatalf("CallTool error: %v", err)
 	}
+	fmt.Printf("✅ Echo tool response: %#v\n", result)
 
-	fmt.Printf("✅ Tool response: %#v\n", result)
+	// Call "timestamp" tool (send empty JSON object)
+	timestampProvider := &UTCP.HttpProvider{
+		URL:        "http://localhost:8080/tools/timestamp/call",
+		HTTPMethod: "POST",
+		Headers:    map[string]string{"Content-Type": "application/json"},
+	}
+
+	timestampResult, err := transport.CallTool(ctx, "timestamp", map[string]interface{}{}, timestampProvider, nil)
+	if err != nil {
+		log.Fatalf("CallTool timestamp error: %v", err)
+	}
+	fmt.Printf("✅ Timestamp tool response: %#v\n", timestampResult)
 }
 ```
 
