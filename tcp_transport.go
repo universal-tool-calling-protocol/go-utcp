@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"time"
 )
@@ -66,25 +67,37 @@ func (t *TCPClientTransport) DeregisterToolProvider(ctx context.Context, prov Pr
 }
 
 // CallTool connects to the provider and sends a tool invocation request.
-func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, l *string) (any, error) {
+func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, requestID *string) (any, error) {
 	tcpProv, ok := prov.(*TCPProvider)
 	if !ok {
 		return nil, errors.New("TCPClientTransport can only be used with TCPProvider")
 	}
+
+	// Open the TCP connection using the provider's connection info
 	conn, err := t.dial(ctx, tcpProv)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tcp_transport: dial error: %w", err)
 	}
 	defer conn.Close()
 
+	// Send the request payload
 	req := map[string]any{"tool": toolName, "args": args}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tcp_transport: encode error: %w", err)
 	}
+
+	// Read the response
+	dec := json.NewDecoder(bufio.NewReader(conn))
 	var result any
-	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&result); err != nil {
-		return nil, err
+	if err := dec.Decode(&result); err != nil {
+		// If the peer just closed the socket without a payload, treat it as no result
+		if errors.Is(err, io.EOF) {
+			t.logger("tcp_transport: EOF reading result for tool %q, returning nil", toolName)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("tcp_transport: decode error: %w", err)
 	}
+
 	return result, nil
 }
 

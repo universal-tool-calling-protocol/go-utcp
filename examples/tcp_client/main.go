@@ -46,16 +46,38 @@ func (s *tcpServer) handle(c net.Conn) {
 	dec := json.NewDecoder(bufio.NewReader(c))
 	var req toolRequest
 	if err := dec.Decode(&req); err != nil {
+		log.Printf("decode error: %v", err)
 		return
 	}
+
+	log.Printf("Received request: %+v", req)
+
 	if req.Action == "list" {
-		manual := utcp.UtcpManual{Version: "1.0", Tools: []utcp.Tool{{Name: "ping", Description: "Ping"}}}
-		json.NewEncoder(c).Encode(manual)
+		manual := map[string]interface{}{
+			"version": "1.0",
+			"tools": []map[string]interface{}{
+				{
+					"name":        "ping",
+					"description": "Ping tool that responds with pong",
+				},
+			},
+		}
+		if err := json.NewEncoder(c).Encode(manual); err != nil {
+			log.Printf("encode manual error: %v", err)
+		}
 		return
 	}
+
 	if req.Tool == "ping" {
-		json.NewEncoder(c).Encode(map[string]any{"pong": true})
+		result := map[string]any{"pong": true}
+		if err := json.NewEncoder(c).Encode(result); err != nil {
+			log.Printf("encode result error: %v", err)
+		}
+		return
 	}
+
+	// Unknown tool
+	log.Printf("Unknown tool: %s", req.Tool)
 }
 
 func main() {
@@ -67,25 +89,38 @@ func main() {
 
 	time.Sleep(200 * time.Millisecond)
 
+	logger := func(format string, args ...interface{}) { log.Printf("[CLIENT] "+format, args...) }
+	transport := utcp.NewTCPClientTransport(logger)
+	prov := &utcp.TCPProvider{
+		BaseProvider: utcp.BaseProvider{
+			Name:         "tcp",
+			ProviderType: utcp.ProviderTCP,
+		},
+		Host:    "127.0.0.1",
+		Port:    9090,
+		Timeout: 1000,
+	}
+
 	ctx := context.Background()
-	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: "provider.json"}
-	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
+	tools, err := transport.RegisterToolProvider(ctx, prov)
 	if err != nil {
-		log.Fatalf("client error: %v", err)
+		log.Fatalf("register error: %v", err)
 	}
 
-	tools, err := client.SearchTools("", 10)
-	if err != nil {
-		log.Fatalf("search: %v", err)
-	}
-	log.Printf("Discovered tools:")
+	log.Printf("Discovered %d tools:", len(tools))
 	for _, t := range tools {
-		log.Printf(" - %s", t.Name)
+		log.Printf(" - %s: %s", t.Name, t.Description)
 	}
 
-	res, err := client.CallTool(ctx, "tcp.ping", map[string]any{})
+	if len(tools) == 0 {
+		log.Fatal("No tools discovered!")
+	}
+
+	res, err := transport.CallTool(ctx, "ping", map[string]any{}, prov, nil)
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
 	log.Printf("Result: %#v", res)
+
+	_ = transport.DeregisterToolProvider(ctx, prov)
 }
