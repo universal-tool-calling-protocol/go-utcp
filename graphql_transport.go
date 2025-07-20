@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gorilla/websocket"
 	"github.com/machinebox/graphql"
 )
 
@@ -317,31 +319,41 @@ func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, 
 	if !ok {
 		return nil, errors.New("GraphQLClientTransport can only be used with GraphQLProvider")
 	}
+
 	if err := t.enforceHTTPSOrLocalhost(prov.URL); err != nil {
 		return nil, err
 	}
+
 	headers, err := t.prepareHeaders(ctx, prov)
 	if err != nil {
 		return nil, err
 	}
+
 	client := graphql.NewClient(prov.URL)
 	client.Log = func(s string) { t.log(s, nil) }
 
-	// build operation with proper types
+	// Build operation with proper types
 	var b strings.Builder
 	opType := "query"
 	if prov.OperationType != "" {
 		opType = strings.ToLower(prov.OperationType)
 	}
+
+	// Validate operation type
+	if opType != "query" && opType != "mutation" && opType != "subscription" {
+		return nil, fmt.Errorf("invalid operation type: %s. Must be query, mutation, or subscription", opType)
+	}
+
 	b.WriteString(opType + " ")
+
 	if prov.OperationName != nil {
 		b.WriteString(*prov.OperationName + " ")
 	}
-	var defs, passes []string
 
+	// Build variable definitions and argument passes
+	var defs, passes []string
 	for k, v := range arguments {
 		var gqlType string
-
 		// Check if argument is a TypedArgument with explicit type
 		if typedArg, ok := v.(TypedArgument); ok {
 			gqlType = typedArg.Type
@@ -349,7 +361,6 @@ func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, 
 			// Infer type from Go value
 			gqlType = t.inferGraphQLType(v)
 		}
-
 		defs = append(defs, fmt.Sprintf("$%s: %s", k, gqlType))
 		passes = append(passes, fmt.Sprintf("%s: $%s", k, k))
 	}
@@ -357,6 +368,7 @@ func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, 
 	if len(defs) > 0 {
 		b.WriteString("(" + strings.Join(defs, ", ") + ") ")
 	}
+
 	b.WriteString("{ " + toolName)
 	if len(passes) > 0 {
 		b.WriteString("(" + strings.Join(passes, ", ") + ")")
@@ -374,18 +386,192 @@ func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, 
 		}
 	}
 
+	// Set headers
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 
+	// Handle different operation types
+	switch opType {
+	case "subscription":
+		return t.handleSubscription(ctx, client, req, toolName, prov, b.String(), arguments)
+	case "mutation":
+		return t.handleMutation(ctx, client, req, toolName)
+	default: // query
+		return t.handleQuery(ctx, client, req, toolName)
+	}
+}
+
+// handleQuery processes GraphQL queries
+func (t *GraphQLClientTransport) handleQuery(ctx context.Context, client *graphql.Client, req *graphql.Request, toolName string) (any, error) {
 	var resp map[string]interface{}
 	if err := client.Run(ctx, req, &resp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query execution failed: %w", err)
 	}
+
 	if data, ok := resp[toolName]; ok {
 		return data, nil
 	}
 	return resp, nil
+}
+
+// handleMutation processes GraphQL mutations
+func (t *GraphQLClientTransport) handleMutation(ctx context.Context, client *graphql.Client, req *graphql.Request, toolName string) (any, error) {
+	var resp map[string]interface{}
+	if err := client.Run(ctx, req, &resp); err != nil {
+		return nil, fmt.Errorf("mutation execution failed: %w", err)
+	}
+
+	// Check for GraphQL errors in response
+	if errors, ok := resp["errors"]; ok {
+		return nil, fmt.Errorf("mutation returned errors: %v", errors)
+	}
+
+	if data, ok := resp[toolName]; ok {
+		return data, nil
+	}
+	return resp, nil
+}
+
+// handleSubscription processes GraphQL subscriptions
+func (t *GraphQLClientTransport) handleSubscription(ctx context.Context, client *graphql.Client, req *graphql.Request, toolName string, prov *GraphQLProvider, query string, variables map[string]any) (any, error) {
+	// For subscriptions, we need WebSocket support which the standard graphql.Client doesn't provide
+	// Check if the URL is a WebSocket URL
+	if strings.HasPrefix(prov.URL, "ws://") || strings.HasPrefix(prov.URL, "wss://") {
+		return t.handleWebSocketSubscription(ctx, req, toolName, prov, query, variables)
+	}
+
+	// Fallback: Some GraphQL servers support subscriptions over POST (like GraphQL over SSE)
+	var resp map[string]interface{}
+	if err := client.Run(ctx, req, &resp); err != nil {
+		return nil, fmt.Errorf("subscription execution failed: %w", err)
+	}
+
+	// For subscriptions over HTTP, return the response (might be a single result or setup info)
+	if data, ok := resp[toolName]; ok {
+		return data, nil
+	}
+	return resp, nil
+}
+
+// handleWebSocketSubscription handles WebSocket-based subscriptions
+func (t *GraphQLClientTransport) handleWebSocketSubscription(ctx context.Context, req *graphql.Request, toolName string, prov *GraphQLProvider, query string, variables map[string]any) (any, error) {
+	// Create WebSocket connection
+	conn, _, err := websocket.DefaultDialer.Dial(prov.URL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to WebSocket: %w", err)
+	}
+
+	// Send connection init message (GraphQL WebSocket Protocol)
+	initMsg := map[string]interface{}{
+		"type": "connection_init",
+	}
+	if err := conn.WriteJSON(initMsg); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to send connection init: %w", err)
+	}
+
+	// Wait for connection_ack
+	var ackMsg map[string]interface{}
+	if err := conn.ReadJSON(&ackMsg); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to read connection ack: %w", err)
+	}
+
+	if ackMsg["type"] != "connection_ack" {
+		conn.Close()
+		return nil, fmt.Errorf("expected connection_ack, got: %v", ackMsg["type"])
+	}
+
+	// Prepare variables with proper values
+	processedVars := make(map[string]interface{})
+	for k, v := range variables {
+		if typedArg, ok := v.(TypedArgument); ok {
+			processedVars[k] = typedArg.Value
+		} else {
+			processedVars[k] = v
+		}
+	}
+
+	// Send subscription start message
+	startMsg := map[string]interface{}{
+		"id":   "subscription-1",
+		"type": "start",
+		"payload": map[string]interface{}{
+			"query":     query,         // Use the query string we built
+			"variables": processedVars, // Use processed variables
+		},
+	}
+
+	if err := conn.WriteJSON(startMsg); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to send subscription start: %w", err)
+	}
+
+	// Return a subscription result that manages the WebSocket connection
+	return &SubscriptionResult{
+		conn:     conn,
+		toolName: toolName,
+		ctx:      ctx,
+	}, nil
+}
+
+// SubscriptionResult represents the result of a GraphQL subscription
+type SubscriptionResult struct {
+	conn     *websocket.Conn
+	toolName string
+	ctx      context.Context
+}
+
+// Next returns the next piece of data from the subscription
+func (sr *SubscriptionResult) Next() (interface{}, error) {
+	for {
+		var msg map[string]interface{}
+		if err := sr.conn.ReadJSON(&msg); err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				return nil, fmt.Errorf("websocket error: %w", err)
+			}
+			return nil, io.EOF
+		}
+
+		msgType, ok := msg["type"].(string)
+		if !ok {
+			continue
+		}
+
+		switch msgType {
+		case "data":
+			if payload, ok := msg["payload"].(map[string]interface{}); ok {
+				if data, ok := payload["data"].(map[string]interface{}); ok {
+					if toolData, ok := data[sr.toolName]; ok {
+						return toolData, nil
+					}
+					return data, nil
+				}
+			}
+		case "error":
+			if payload, ok := msg["payload"]; ok {
+				return nil, fmt.Errorf("subscription error: %v", payload)
+			}
+			return nil, fmt.Errorf("subscription error")
+		case "complete":
+			return nil, io.EOF
+		}
+	}
+}
+
+// Close closes the subscription connection
+func (sr *SubscriptionResult) Close() error {
+	if sr.conn != nil {
+		// Send stop message
+		stopMsg := map[string]interface{}{
+			"id":   "subscription-1",
+			"type": "stop",
+		}
+		sr.conn.WriteJSON(stopMsg)
+		return sr.conn.Close()
+	}
+	return nil
 }
 
 // Close clears cached tokens.
