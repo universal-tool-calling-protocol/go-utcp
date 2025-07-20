@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -15,12 +17,19 @@ import (
 func startServer(addr string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]any{
-			"version": "1.0",
-			"tools":   []map[string]any{{"name": "hello", "description": "Greeting"}},
+		// Open the JSON file
+		f, err := os.Open("tools.json")
+		if err != nil {
+			http.Error(w, "could not load tools.json: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
+		defer f.Close()
+
+		// Serve it directly
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if _, err := io.Copy(w, f); err != nil {
+			log.Printf("error writing tools.json: %v", err)
+		}
 	})
 	mux.HandleFunc("/tools/sse.hello", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
