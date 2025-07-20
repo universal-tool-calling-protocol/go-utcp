@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +18,17 @@ type udpServer struct {
 }
 
 func startServer(addr string) (*udpServer, error) {
+	// Load tools.json into a UtcpManual
+	data, err := os.ReadFile("tools.json")
+	if err != nil {
+		return nil, fmt.Errorf("reading tools.json: %w", err)
+	}
+
+	var manual utcp.UtcpManual
+	if err := json.Unmarshal(data, &manual); err != nil {
+		return nil, fmt.Errorf("parsing tools.json: %w", err)
+	}
+
 	a, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, err
@@ -25,11 +38,11 @@ func startServer(addr string) (*udpServer, error) {
 		return nil, err
 	}
 	s := &udpServer{conn: c}
-	go s.loop()
+	go s.loop(manual)
 	return s, nil
 }
 
-func (s *udpServer) loop() {
+func (s *udpServer) loop(manual utcp.UtcpManual) {
 	buf := make([]byte, 65535)
 	for {
 		n, remote, err := s.conn.ReadFromUDP(buf)
@@ -38,12 +51,8 @@ func (s *udpServer) loop() {
 		}
 		data := buf[:n]
 
-		// Discovery already works
+		// Discovery request
 		if string(data) == "DISCOVER" {
-			manual := utcp.UtcpManual{
-				Version: "1.0",
-				Tools:   []utcp.Tool{{Name: "udp_echo", Description: "Echo"}},
-			}
 			out, _ := json.Marshal(manual)
 			s.conn.WriteToUDP(out, remote)
 			continue
@@ -51,12 +60,12 @@ func (s *udpServer) loop() {
 
 		var req map[string]any
 		if err := json.Unmarshal(data, &req); err == nil {
-			// Get the raw tool string, e.g. "udp.udp_echo"
 			if raw, ok := req["tool"].(string); ok {
 				parts := strings.Split(raw, ".")
-				base := parts[len(parts)-1] // "udp_echo"
+				base := parts[len(parts)-1]
 				if base == "udp_echo" {
 					args := req["args"].(map[string]any)
+					// Echo back the message
 					resp, _ := json.Marshal(map[string]any{"result": args["msg"]})
 					s.conn.WriteToUDP(resp, remote)
 				}
@@ -81,6 +90,7 @@ func main() {
 		log.Fatalf("client error: %v", err)
 	}
 
+	// Discover available tools via SearchTools
 	tools, err := client.SearchTools("", 10)
 	if err != nil {
 		log.Fatalf("search: %v", err)
@@ -90,6 +100,7 @@ func main() {
 		log.Printf(" - %s", t.Name)
 	}
 
+	// Call the udp_echo tool
 	res, err := client.CallTool(ctx, "udp.udp_echo", map[string]any{"msg": "hi"})
 	if err != nil {
 		log.Fatalf("call: %v", err)
