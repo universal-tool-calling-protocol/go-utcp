@@ -179,8 +179,11 @@ func (t *GraphQLClientTransport) inferGraphQLType(value interface{}) string {
 	}
 }
 
-// RegisterToolProvider discovers schema and registers tools.
-func (t *GraphQLClientTransport) RegisterToolProvider(ctx context.Context, manualProv Provider) ([]Tool, error) {
+// RegisterToolProvider discovers the schema and registers GraphQL fields as tools.
+func (t *GraphQLClientTransport) RegisterToolProvider(
+	ctx context.Context,
+	manualProv Provider,
+) ([]Tool, error) {
 	prov, ok := manualProv.(*GraphQLProvider)
 	if !ok {
 		return nil, errors.New("GraphQLClientTransport can only be used with GraphQLProvider")
@@ -192,48 +195,86 @@ func (t *GraphQLClientTransport) RegisterToolProvider(ctx context.Context, manua
 	if err != nil {
 		return nil, err
 	}
+
 	client := graphql.NewClient(prov.URL)
 	client.Log = func(s string) { t.log(s, nil) }
 
-	// Introspection
-	var schema struct {
-		__Schema struct {
-			QueryType struct {
-				Fields []struct {
-					Name        string
-					Description *string
-				}
-			}
-			MutationType struct {
-				Fields []struct {
-					Name        string
-					Description *string
-				}
-			}
-		} `json:"__schema"`
-	}
-	req := graphql.NewRequest(`query { __schema { queryType { fields { name description } } mutationType { fields { name description } } } }`)
+	// corrected introspection query
+	introspectionQuery := `
+      query IntrospectionQuery {
+        __schema {
+          queryType {
+            fields {
+              name
+              description
+            }
+          }
+          mutationType {
+            fields {
+              name
+              description
+            }
+          }
+        }
+      }
+    `
+	req := graphql.NewRequest(introspectionQuery)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	if err := client.Run(ctx, req, &schema); err != nil {
-		return nil, err
+
+	// top-level struct must have an exported field for "__schema"
+	var resp struct {
+		Schema struct {
+			QueryType struct {
+				Fields []struct {
+					Name        string  `json:"name"`
+					Description *string `json:"description"`
+				} `json:"fields"`
+			} `json:"queryType"`
+			// make this a pointer so we can check for no mutations
+			MutationType *struct {
+				Fields []struct {
+					Name        string  `json:"name"`
+					Description *string `json:"description"`
+				} `json:"fields"`
+			} `json:"mutationType"`
+		} `json:"__schema"`
 	}
+	if err := client.Run(ctx, req, &resp); err != nil {
+		return nil, fmt.Errorf("introspection failed: %w", err)
+	}
+
 	var toolsList []Tool
-	for _, f := range schema.__Schema.QueryType.Fields {
+	// register query fields
+	for _, f := range resp.Schema.QueryType.Fields {
 		desc := ""
 		if f.Description != nil {
 			desc = *f.Description
 		}
-		toolsList = append(toolsList, Tool{Name: f.Name, Description: desc, Inputs: ToolInputOutputSchema{Required: nil}, Provider: prov})
+		toolsList = append(toolsList, Tool{
+			Name:        fmt.Sprintf("%s.%s", prov.Name, f.Name),
+			Description: desc,
+			Inputs:      ToolInputOutputSchema{Required: nil},
+			Provider:    prov,
+		})
 	}
-	for _, f := range schema.__Schema.MutationType.Fields {
-		desc := ""
-		if f.Description != nil {
-			desc = *f.Description
+	// register mutation fields if present
+	if resp.Schema.MutationType != nil {
+		for _, f := range resp.Schema.MutationType.Fields {
+			desc := ""
+			if f.Description != nil {
+				desc = *f.Description
+			}
+			toolsList = append(toolsList, Tool{
+				Name:        fmt.Sprintf("%s.%s", prov.Name, f.Name),
+				Description: desc,
+				Inputs:      ToolInputOutputSchema{Required: nil},
+				Provider:    prov,
+			})
 		}
-		toolsList = append(toolsList, Tool{Name: f.Name, Description: desc, Inputs: ToolInputOutputSchema{Required: nil}, Provider: prov})
 	}
+
 	return toolsList, nil
 }
 
