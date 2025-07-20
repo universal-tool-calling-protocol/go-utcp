@@ -20,7 +20,8 @@ func TestGraphQLClientTransport_RegisterAndCall(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			resp := map[string]interface{}{"data": map[string]interface{}{"__schema": map[string]interface{}{
 				"queryType":    map[string]interface{}{"fields": []map[string]interface{}{{"name": "hello", "description": "hi"}}},
-				"mutationType": map[string]interface{}{"fields": []map[string]interface{}{}}}}}
+				"mutationType": map[string]interface{}{"fields": []map[string]interface{}{}},
+			}}}
 			json.NewEncoder(w).Encode(resp)
 			return
 		}
@@ -43,8 +44,9 @@ func TestGraphQLClientTransport_RegisterAndCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register error: %v", err)
 	}
-	if len(tools) != 0 {
-		t.Fatalf("unexpected tools: %+v", tools)
+	// Expect exactly one tool for the 'hello' query
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d: %+v", len(tools), tools)
 	}
 
 	res, err := tr.CallTool(ctx, "hello", map[string]interface{}{"name": "bob"}, prov, nil)
