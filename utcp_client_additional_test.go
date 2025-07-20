@@ -122,7 +122,6 @@ func TestGetAndSetProviderName(t *testing.T) {
 		&UDPProvider{BaseProvider: BaseProvider{Name: "udp", ProviderType: ProviderUDP}},
 		&WebRTCProvider{BaseProvider: BaseProvider{Name: "rtc", ProviderType: ProviderWebRTC}},
 		NewMCPProvider("m"),
-		&TextProvider{BaseProvider: BaseProvider{Name: "txt", ProviderType: ProviderText}},
 	}
 	for _, p := range providers {
 		c.setProviderName(p, "new")
@@ -164,7 +163,7 @@ func TestCreateProviderOfTypeAll(t *testing.T) {
 	types := []ProviderType{
 		ProviderHTTP, ProviderCLI, ProviderSSE, ProviderHTTPStream,
 		ProviderWebSocket, ProviderGRPC, ProviderGraphQL, ProviderTCP,
-		ProviderUDP, ProviderWebRTC, ProviderMCP, ProviderText,
+		ProviderUDP, ProviderWebRTC, ProviderMCP,
 	}
 	for _, pt := range types {
 		p := c.createProviderOfType(pt)
@@ -213,17 +212,13 @@ func TestCreateProviderOfTypeAll(t *testing.T) {
 			if _, ok := p.(*MCPProvider); !ok {
 				t.Fatalf("type %s", pt)
 			}
-		case ProviderText:
-			if _, ok := p.(*TextProvider); !ok {
-				t.Fatalf("type %s", pt)
-			}
 		}
 	}
 }
 
 func TestDefaultTransportsKeys(t *testing.T) {
 	tr := defaultTransports()
-	keys := []string{"http", "cli", "sse", "http_stream", "mcp", "udp", "tcp", "websocket", "text", "graphql", "grpc"}
+	keys := []string{"http", "cli", "sse", "http_stream", "mcp", "udp", "tcp", "websocket", "graphql", "grpc"}
 	for _, k := range keys {
 		if _, ok := tr[k]; !ok {
 			t.Fatalf("missing transport %s", k)

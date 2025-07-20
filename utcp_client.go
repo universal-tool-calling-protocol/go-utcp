@@ -127,7 +127,6 @@ func defaultTransports() map[string]ClientTransport {
 		"grpc": NewGRPCClientTransport(func(format string, args ...interface{}) {
 			fmt.Printf("gRPC Transport: "+format+"\n", args...)
 		}),
-		"text": NewTextTransport(""), // You'll need to implement these
 		"graphql": NewGraphQLClientTransport(func(msg string, err error) {
 			fmt.Printf("GraphQL Transport: %s: %v\n", msg, err)
 		}),
@@ -199,8 +198,6 @@ func (c *UtcpClient) getProviderName(prov Provider) string {
 		return p.Name
 	case *MCPProvider:
 		return p.Name()
-	case *TextProvider:
-		return p.Name
 	default:
 		return "unknown"
 	}
@@ -231,8 +228,6 @@ func (c *UtcpClient) setProviderName(prov Provider, name string) {
 		p.Name = name
 	case *MCPProvider:
 		p.name = name
-	case *TextProvider:
-		p.Name = name
 	}
 }
 
@@ -396,8 +391,6 @@ func (c *UtcpClient) createProviderOfType(ptype ProviderType) Provider {
 		return &WebRTCProvider{}
 	case ProviderMCP:
 		return &MCPProvider{}
-	case ProviderText:
-		return &TextProvider{}
 	default:
 		return &HttpProvider{} // fallback
 	}

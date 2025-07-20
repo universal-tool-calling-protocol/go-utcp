@@ -106,8 +106,6 @@ func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, prov
 		providerName = p.Name
 	case *MCPProvider:
 		providerName = p.Name()
-	case *TextProvider:
-		providerName = p.Name
 	default:
 		return fmt.Errorf("unsupported provider type for saving: %T", provider)
 	}

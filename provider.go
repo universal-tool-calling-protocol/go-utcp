@@ -20,7 +20,6 @@ const (
 	ProviderUDP        ProviderType = "udp"
 	ProviderWebRTC     ProviderType = "webrtc"
 	ProviderMCP        ProviderType = "mcp"
-	ProviderText       ProviderType = "text"
 )
 
 // Provider is implemented by all concrete provider types.
@@ -167,13 +166,6 @@ type McpConfig struct {
 	McpServers map[string]McpServer `json:"mcpServers"`
 }
 
-// TextProvider reads tool defs from a file.
-type TextProvider struct {
-	BaseProvider
-	FilePath string `json:"file_path"`
-	// auth always nil
-}
-
 // UnmarshalProvider inspects "provider_type" and returns the right struct.
 func UnmarshalProvider(data []byte) (Provider, error) {
 	var base struct {
@@ -222,12 +214,6 @@ func UnmarshalProvider(data []byte) (Provider, error) {
 		return p, nil
 	case ProviderMCP:
 		p := &MCPProvider{}
-		if err := json.Unmarshal(data, p); err != nil {
-			return nil, err
-		}
-		return p, nil
-	case ProviderText:
-		p := &TextProvider{}
 		if err := json.Unmarshal(data, p); err != nil {
 			return nil, err
 		}

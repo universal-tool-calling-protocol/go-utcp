@@ -40,7 +40,6 @@ func TestUnmarshalProvider_MoreTypes(t *testing.T) {
 		{`{"provider_type":"websocket","name":"ws","url":"ws://x","auth":{"auth_type":"api_key","api_key":"k","var_name":"X","location":"header"}}`, ProviderWebSocket},
 		{`{"provider_type":"grpc","name":"g","host":"h","port":1,"service_name":"s","method_name":"m","auth":{"auth_type":"api_key","api_key":"k","var_name":"X","location":"header"}}`, ProviderGRPC},
 		{`{"provider_type":"graphql","name":"gql","url":"http://g","operation_type":"query","auth":{"auth_type":"api_key","api_key":"k","var_name":"X","location":"header"}}`, ProviderGraphQL},
-		{`{"provider_type":"text","name":"txt","file_path":"/tmp/f"}`, ProviderText},
 		{`{"provider_type":"webrtc","name":"w","signaling_server":"s","peer_id":"p","data_channel_name":"d"}`, ProviderWebRTC},
 	}
 	for _, c := range cases {
