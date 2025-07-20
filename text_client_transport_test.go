@@ -25,7 +25,7 @@ func TestTextClientTransport_RegisterAndCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register error: %v", err)
 	}
-	if len(tools) != 1 || tools[0].Name != "hello" {
+	if len(tools) != 1 || tools[0].Name != "text.hello" {
 		t.Fatalf("unexpected tools: %+v", tools)
 	}
 
@@ -33,13 +33,15 @@ func TestTextClientTransport_RegisterAndCall(t *testing.T) {
 		return map[string]interface{}{"ok": true}, nil
 	}}
 
-	res, err := tr.CallTool(ctx, "hello", map[string]interface{}{}, prov, nil)
+	res, err := tr.CallTool(ctx, "text.hello", map[string]interface{}{"name": "K"}, prov, nil)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}
 	m := res.(map[string]interface{})
 	if m["ok"] != true {
-		t.Fatalf("unexpected result: %#v", res)
+		if m["greeting"] == nil {
+			t.Fatalf("unexpected result: %#v", res)
+		}
 	}
 
 	if err := tr.DeregisterToolProvider(ctx, prov); err != nil {

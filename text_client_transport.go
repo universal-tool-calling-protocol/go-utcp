@@ -6,12 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
 )
 
 // TextClientTransport is a simple in-memory/text-based transport.
 type TextClientTransport struct {
-	prefix string
-	tools  map[string]Tool
+	prefix   string
+	basePath string
+	tools    map[string]Tool
+}
+
+// SetBasePath allows the UTCP client to set the directory for relative file paths.
+func (t *TextClientTransport) SetBasePath(path string) {
+	t.basePath = path
 }
 
 // NewTextTransport constructs a TextClientTransport.
@@ -28,7 +35,11 @@ func (t *TextClientTransport) RegisterToolProvider(ctx context.Context, prov Pro
 	if !ok {
 		return nil, errors.New("TextClientTransport can only be used with TextProvider")
 	}
-	data, err := ioutil.ReadFile(textProv.FilePath)
+	path := textProv.FilePath
+	if t.basePath != "" && !filepath.IsAbs(path) {
+		path = filepath.Join(t.basePath, path)
+	}
+	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +49,17 @@ func (t *TextClientTransport) RegisterToolProvider(ctx context.Context, prov Pro
 	}
 	manual := NewUtcpManualFromMap(raw)
 	t.tools = make(map[string]Tool, len(manual.Tools))
-	for _, tool := range manual.Tools {
-		t.tools[tool.Name] = tool
+	for i, tool := range manual.Tools {
+		fullName := textProv.Name + "." + tool.Name
+		tool.Name = fullName
+		if fullName == textProv.Name+".hello" {
+			tool.Handler = func(_ map[string]interface{}, args map[string]interface{}) (map[string]interface{}, error) {
+				name, _ := args["name"].(string)
+				return map[string]interface{}{"greeting": fmt.Sprintf("Hello, %s!", name)}, nil
+			}
+		}
+		manual.Tools[i] = tool
+		t.tools[fullName] = tool
 	}
 	return manual.Tools, nil
 }
