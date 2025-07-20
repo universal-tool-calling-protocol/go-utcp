@@ -215,6 +215,12 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
               description
             }
           }
+          subscriptionType {
+            fields {
+              name
+              description
+            }
+          }
         }
       }
     `
@@ -239,6 +245,13 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 					Description *string `json:"description"`
 				} `json:"fields"`
 			} `json:"mutationType"`
+			// subscriptions are optional as well
+			SubscriptionType *struct {
+				Fields []struct {
+					Name        string  `json:"name"`
+					Description *string `json:"description"`
+				} `json:"fields"`
+			} `json:"subscriptionType"`
 		} `json:"__schema"`
 	}
 	if err := client.Run(ctx, req, &resp); err != nil {
@@ -262,6 +275,21 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 	// register mutation fields if present
 	if resp.Schema.MutationType != nil {
 		for _, f := range resp.Schema.MutationType.Fields {
+			desc := ""
+			if f.Description != nil {
+				desc = *f.Description
+			}
+			toolsList = append(toolsList, Tool{
+				Name:        fmt.Sprintf("%s.%s", prov.Name, f.Name),
+				Description: desc,
+				Inputs:      ToolInputOutputSchema{Required: nil},
+				Provider:    prov,
+			})
+		}
+	}
+	// register subscription fields if present
+	if resp.Schema.SubscriptionType != nil {
+		for _, f := range resp.Schema.SubscriptionType.Fields {
 			desc := ""
 			if f.Description != nil {
 				desc = *f.Description
@@ -299,9 +327,16 @@ func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, 
 	client := graphql.NewClient(prov.URL)
 	client.Log = func(s string) { t.log(s, nil) }
 
-	// build query with proper types
+	// build operation with proper types
 	var b strings.Builder
-	b.WriteString("query ")
+	opType := "query"
+	if prov.OperationType != "" {
+		opType = strings.ToLower(prov.OperationType)
+	}
+	b.WriteString(opType + " ")
+	if prov.OperationName != nil {
+		b.WriteString(*prov.OperationName + " ")
+	}
 	var defs, passes []string
 
 	for k, v := range arguments {
