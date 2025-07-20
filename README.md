@@ -42,8 +42,7 @@ go get github.com/universal-tool-calling-protocol/go-utcp@latest
 
 You can then construct a client and call tools using any of the built-in
 transports. The library ships transports for HTTP, Server-Sent Events,
-streaming HTTP, CLI, WebSocket, gRPC, GraphQL, TCP, UDP, WebRTC, MCP and
-text-based providers.
+streaming HTTP, CLI, WebSocket, gRPC, GraphQL, TCP, UDP, WebRTC and MCP providers.
 
 ```go
 package main
