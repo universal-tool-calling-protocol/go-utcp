@@ -17,17 +17,19 @@ func main() {
 		log.Fatalf("Failed to read provider.json: %v", err)
 	}
 
+	// 2) Initialize MCPProvider
 	provider, err := utcp.NewMCPProviderFromJSON(data)
 	if err != nil {
 		log.Fatalf("Invalid provider.json: %v", err)
 	}
 
-	// 2) Create transport and register
+	// 3) Create transport and register
 	transport := utcp.NewMCPTransport(func(format string, args ...interface{}) {
 		fmt.Printf("[mcp] "+format+"\n", args...)
 	})
 
 	ctx := context.Background()
+
 	tools, err := transport.RegisterToolProvider(ctx, provider)
 	if err != nil {
 		log.Fatalf("Register failed: %v", err)
@@ -38,21 +40,41 @@ func main() {
 		fmt.Printf(" - %s: %s\n", t.Name, t.Description)
 	}
 
-	// 3) Call the "hello" tool
+	// 4) Synchronous call
 	argsMap := map[string]any{"name": "Kamil"}
 	result, err := transport.CallTool(ctx, "hello", argsMap, provider, nil)
 	if err != nil {
 		log.Fatalf("CallTool failed: %v", err)
 	}
 
-	// result is interface{} — unwrap it
 	if resMap, ok := result.(map[string]interface{}); ok {
-		fmt.Println("Tool result:", resMap["result"])
+		fmt.Println("Sync result:", resMap["result"])
 	} else {
 		fmt.Printf("Unexpected result type: %#v\n", result)
 	}
 
-	// 4) Clean up
+	// 5) Streaming call demonstration
+	stream, err := transport.CallToolStream(ctx, "call_stream", argsMap, provider)
+	if err != nil {
+		log.Fatalf("CallToolStream failed: %v", err)
+	}
+
+	fmt.Println("Streaming responses:")
+	for msg := range stream {
+		switch v := msg.(type) {
+		case error:
+			fmt.Println("Stream error:", v)
+		default:
+			// Expecting the same result structure
+			if partMap, ok := v.(map[string]interface{}); ok {
+				fmt.Println(partMap["result"])
+			} else {
+				fmt.Printf("Received: %#v\n", v)
+			}
+		}
+	}
+
+	// 6) Clean up
 	if err := transport.DeregisterToolProvider(ctx, provider); err != nil {
 		fmt.Printf("Warning: deregister error: %v\n", err)
 	}
