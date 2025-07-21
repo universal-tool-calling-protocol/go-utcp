@@ -2,19 +2,28 @@ package utcp
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
 func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m := map[string]any{"version": "1.0", "tools": []any{map[string]any{"name": "foo"}}}
+		_ = json.NewEncoder(w).Encode(m)
+	}))
+	defer server.Close()
+
 	tr := NewMCPTransport(nil)
-	prov := NewMCPProvider("mcp")
+	prov := NewMCPProvider(server.URL)
 	ctx := context.Background()
 	tools, err := tr.RegisterToolProvider(ctx, prov)
 	if err != nil {
 		t.Fatalf("register error: %v", err)
 	}
-	if tools != nil {
-		t.Fatalf("expected nil tools, got %v", tools)
+	if len(tools) != 1 || tools[0].Name != "foo" {
+		t.Fatalf("unexpected tools: %v", tools)
 	}
 
 	if err := tr.DeregisterToolProvider(ctx, prov); err != nil {

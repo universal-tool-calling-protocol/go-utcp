@@ -2,9 +2,11 @@ package utcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -56,7 +58,35 @@ func (t *MCPTransport) RegisterToolProvider(
 		return nil, ErrMCPProviderRequired
 	}
 	t.logger("Registered MCP provider '%s'", prov.Name())
-	return nil, nil
+
+	// Fetch the tool list from a UTCP discovery endpoint.
+	// If the provider name looks like a URL, use it; otherwise fall back to a local server.
+	url := prov.Name()
+	if !(strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")) {
+		url = "http://localhost:8000"
+	}
+	if !strings.HasSuffix(url, "/utcp") {
+		if strings.HasSuffix(url, "/") {
+			url += "utcp"
+		} else {
+			url += "/utcp"
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var raw map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+	manual := NewUtcpManualFromMap(raw)
+	return manual.Tools, nil
 }
 
 // DeregisterToolProvider only accepts *MCPProvider; logs its Name().
