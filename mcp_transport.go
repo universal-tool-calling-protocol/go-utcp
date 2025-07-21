@@ -378,3 +378,100 @@ func (t *MCPTransport) cleanupProcess(process *mcpProcess) {
 		process.cmd.Wait()
 	}
 }
+
+func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (<-chan any, error) {
+	mp, ok := p.(*MCPProvider)
+	if !ok {
+		return nil, errors.New("MCPTransport can only be used with MCPProvider")
+	}
+
+	t.mutex.RLock()
+	process, exists := t.processes[mp.Name]
+	t.mutex.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("MCP provider '%s' is not registered", mp.Name)
+	}
+
+	t.logger("Starting streaming call for tool '%s' on provider '%s'", toolName, mp.Name)
+
+	// Prepare request
+	request := mcpRequest{
+		JSONRPC: "2.0",
+		ID:      generateStreamID(),
+		Method:  "tools/call",
+		Params: map[string]interface{}{
+			"name":      toolName,
+			"arguments": args,
+		},
+	}
+
+	// Send and stream
+	return t.sendMCPStreamRequest(ctx, process, request, mp.Timeout)
+}
+
+// sendMCPStreamRequest writes a JSON-RPC request and returns a channel streaming matching responses.
+func (t *MCPTransport) sendMCPStreamRequest(ctx context.Context, process *mcpProcess, request mcpRequest, timeoutSeconds int) (<-chan any, error) {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 30
+	}
+
+	// Serialize request
+	reqData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Write request
+	process.mutex.Lock()
+	if _, err := process.stdin.Write(append(reqData, '\n')); err != nil {
+		process.mutex.Unlock()
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	process.mutex.Unlock()
+
+	// Create result channel
+	out := make(chan any)
+
+	// Start reader goroutine
+	go func() {
+		defer close(out)
+		scanner := bufio.NewScanner(process.stdout)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+
+			var msg mcpResponse
+			if err := json.Unmarshal([]byte(line), &msg); err != nil {
+				t.logger("Skipping unparsable MCP message: %v", err)
+				continue
+			}
+
+			// Match by ID to our request
+			if msg.ID == request.ID {
+				if msg.Error != nil {
+					// Send error and terminate streaming
+					out <- fmt.Errorf("streaming MCP error %d: %s", msg.Error.Code, msg.Error.Message)
+					return
+				}
+				out <- msg.Result
+			}
+		}
+	}()
+
+	return out, nil
+}
+
+// generateStreamID generates a unique request ID for streaming calls.
+// This example uses a timestamp-based approach.
+func generateStreamID() int {
+	return int(time.Now().UnixNano())
+}
