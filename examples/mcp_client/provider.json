@@ -1,7 +1,7 @@
 {
   "provider_type": "mcp",
   "name": "demo_tools",
-  "command": ["python3", "-u", "server.py"],
+  "command": ["python3", "-u", "../../scripts/server.py"],
   "args": [],
   "env": {},
   "workingDir": ".",

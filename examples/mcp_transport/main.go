@@ -18,7 +18,7 @@ func main() {
 	// Configure your provider to launch the Python MCP server
 	provider := utcp.NewMCPProvider(
 		"ExampleProvider",
-		[]string{"python3", "server.py"},
+		[]string{"python3", "../../scripts/server.py"},
 	)
 
 	// Register the provider and retrieve the available tools
