@@ -1,6 +1,10 @@
-[
-  {
-    "provider_type": "mcp",
-    "name": "mcp"
-  }
-]
+{
+  "provider_type": "mcp",
+  "name": "demo_tools",
+  "command": ["python3", "-u", "server.py"],
+  "args": [],
+  "env": {},
+  "workingDir": ".",
+  "stdinData": "",
+  "timeout": 30
+}

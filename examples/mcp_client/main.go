@@ -3,24 +3,58 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
 func main() {
-	ctx := context.Background()
-	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: "provider.json"}
-	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
+	// 1) Load provider.json
+	data, err := ioutil.ReadFile("provider.json")
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to read provider.json: %v", err)
 	}
 
-	tools, err := client.SearchTools("", 10)
+	provider, err := utcp.NewMCPProviderFromJSON(data)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Invalid provider.json: %v", err)
 	}
-	fmt.Printf("Discovered %d tools\n", len(tools))
+
+	// 2) Create transport and register
+	transport := utcp.NewMCPTransport(func(format string, args ...interface{}) {
+		fmt.Printf("[mcp] "+format+"\n", args...)
+	})
+
+	ctx := context.Background()
+	tools, err := transport.RegisterToolProvider(ctx, provider)
+	if err != nil {
+		log.Fatalf("Register failed: %v", err)
+	}
+
+	fmt.Println("Discovered tools:")
 	for _, t := range tools {
-		fmt.Printf(" - %s\n", t.Name)
+		fmt.Printf(" - %s: %s\n", t.Name, t.Description)
 	}
+
+	// 3) Call the "hello" tool
+	argsMap := map[string]any{"name": "Kamil"}
+	result, err := transport.CallTool(ctx, "hello", argsMap, provider, nil)
+	if err != nil {
+		log.Fatalf("CallTool failed: %v", err)
+	}
+
+	// result is interface{} — unwrap it
+	if resMap, ok := result.(map[string]interface{}); ok {
+		fmt.Println("Tool result:", resMap["result"])
+	} else {
+		fmt.Printf("Unexpected result type: %#v\n", result)
+	}
+
+	// 4) Clean up
+	if err := transport.DeregisterToolProvider(ctx, provider); err != nil {
+		fmt.Printf("Warning: deregister error: %v\n", err)
+	}
+	os.Exit(0)
 }

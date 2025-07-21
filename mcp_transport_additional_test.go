@@ -2,7 +2,7 @@ package utcp
 
 import (
 	"context"
-	"errors"
+	
 	"testing"
 )
 
@@ -23,28 +23,23 @@ func TestMCPTransport_Errors(t *testing.T) {
 		t.Fatalf("expected error for wrong provider")
 	}
 	// proper provider succeeds
-	if res, err := tr.CallTool(ctx, "t", nil, NewMCPProvider("m"), nil); err != nil {
+	prov := NewMCPProvider("m", []string{"/home/raezil/go-utcp/examples/mcp_client/mcp_server"})
+	if _, err := tr.RegisterToolProvider(ctx, prov); err != nil {
+		t.Fatalf("register err: %v", err)
+	}
+	if res, err := tr.CallTool(ctx, "t", nil, prov, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	} else if res == nil {
 		t.Fatalf("expected non-nil result")
 	}
 }
 
-// TestErrToolCallingNotImplemented verifies Error and Is behaviour.
-func TestErrToolCallingNotImplemented(t *testing.T) {
-	var e error = ErrToolCallingNotImplemented
-	if !errors.Is(e, ErrToolCallingNotImplemented) {
-		t.Fatalf("errors.Is failed")
-	}
-	if e.Error() == "" {
-		t.Fatalf("empty error message")
-	}
-}
+
 
 func TestMCPTransport_SuccessPaths(t *testing.T) {
 	tr := NewMCPTransport(nil)
 	ctx := context.Background()
-	prov := NewMCPProvider("m")
+	prov := NewMCPProvider("m", []string{"/home/raezil/go-utcp/examples/mcp_client/mcp_server"})
 	if _, err := tr.RegisterToolProvider(ctx, prov); err != nil {
 		t.Fatalf("register err: %v", err)
 	}

@@ -197,7 +197,7 @@ func (c *UtcpClient) getProviderName(prov Provider) string {
 	case *WebRTCProvider:
 		return p.Name
 	case *MCPProvider:
-		return p.Name()
+		return p.Name
 	default:
 		return "unknown"
 	}
@@ -227,7 +227,7 @@ func (c *UtcpClient) setProviderName(prov Provider, name string) {
 	case *WebRTCProvider:
 		p.Name = name
 	case *MCPProvider:
-		p.name = name
+		p.Name = name
 	}
 }
 

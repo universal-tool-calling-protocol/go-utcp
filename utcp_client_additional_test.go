@@ -121,7 +121,7 @@ func TestGetAndSetProviderName(t *testing.T) {
 		&TCPProvider{BaseProvider: BaseProvider{Name: "tcp", ProviderType: ProviderTCP}},
 		&UDPProvider{BaseProvider: BaseProvider{Name: "udp", ProviderType: ProviderUDP}},
 		&WebRTCProvider{BaseProvider: BaseProvider{Name: "rtc", ProviderType: ProviderWebRTC}},
-		NewMCPProvider("m"),
+		NewMCPProvider("m", []string{"/home/raezil/go-utcp/examples/mcp_client/mcp_server"}),
 	}
 	for _, p := range providers {
 		c.setProviderName(p, "new")
