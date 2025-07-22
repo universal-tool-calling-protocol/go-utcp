@@ -8,7 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
 )
 
 func main() {
@@ -23,7 +24,7 @@ func main() {
 	transport := utcp.NewStreamableHTTPTransport(logger)
 
 	// 3) Point at your provider
-	provider := &utcp.StreamableHttpProvider{
+	provider := &providers.StreamableHttpProvider{
 		URL:     "http://localhost:8080/tools",
 		Headers: map[string]string{}, // add auth here if needed
 	}

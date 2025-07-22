@@ -14,7 +14,8 @@ import (
 	"strings"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/graphql"
 )
 
 // --- Mock server implementation ---
@@ -105,7 +106,7 @@ func main() {
 	}()
 
 	// 2) Define the GraphQL endpoint and optional headers/auth
-	provider := &utcp.GraphQLProvider{
+	provider := &providers.GraphQLProvider{
 		URL:     "http://localhost:8080/graphql", // point to local mock server
 		Headers: map[string]string{"X-Custom-Header": "example"},
 		Auth:    nil, // no authentication for this example

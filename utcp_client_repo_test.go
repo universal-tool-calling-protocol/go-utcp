@@ -3,6 +3,9 @@ package utcp
 import (
 	"context"
 	"testing"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
 )
 
 func TestInMemoryToolRepository_CRUD(t *testing.T) {

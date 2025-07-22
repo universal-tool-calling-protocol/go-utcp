@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	UTCP "github.com/universal-tool-calling-protocol/go-utcp"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/http"
 )
 
 // Tool metadata
@@ -127,10 +128,10 @@ func runClient(baseURL string) {
 		log.Printf(format, args...)
 	}
 
-	transport := UTCP.NewHttpClientTransport(logger)
+	transport := utcp.NewHttpClientTransport(logger)
 
 	// Provider for tool discovery
-	discoveryProvider := &UTCP.HttpProvider{
+	discoveryProvider := &providers.HttpProvider{
 		URL:        baseURL,
 		HTTPMethod: "GET",
 		Headers:    map[string]string{"Accept": "application/json"},
@@ -150,7 +151,7 @@ func runClient(baseURL string) {
 	}
 
 	// Provider for tool calling (different URL pattern and POST method)
-	callProvider := &UTCP.HttpProvider{
+	callProvider := &providers.HttpProvider{
 		URL:        "http://localhost:8080/tools/echo/call",
 		HTTPMethod: "POST",
 		Headers:    map[string]string{"Content-Type": "application/json"},
@@ -165,7 +166,7 @@ func runClient(baseURL string) {
 	fmt.Printf("✅ Echo tool response: %#v\n", result)
 
 	// Call "timestamp" tool (send empty JSON object)
-	timestampProvider := &UTCP.HttpProvider{
+	timestampProvider := &providers.HttpProvider{
 		URL:        "http://localhost:8080/tools/timestamp/call",
 		HTTPMethod: "POST",
 		Headers:    map[string]string{"Content-Type": "application/json"},
