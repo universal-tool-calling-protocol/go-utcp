@@ -256,6 +256,57 @@ func TestLoadProviders(t *testing.T) {
 	}
 }
 
+func TestRegisterToolProvidersFromBytes(t *testing.T) {
+	repo := NewInMemoryToolRepository()
+	st := &stubTransport{}
+	client := &UtcpClient{
+		config:         NewClientConfig(),
+		transports:     map[string]ClientTransport{"cli": st},
+		toolRepository: repo,
+		searchStrategy: NewTagSearchStrategy(repo, 1.0),
+	}
+	data := []byte(`[{"provider_type":"cli","name":"rb","command_name":"echo"}]`)
+	if err := client.RegisterToolProvidersFromBytes(context.Background(), data); err != nil {
+		t.Fatalf("register bytes err: %v", err)
+	}
+	if !st.registerCalled {
+		t.Fatalf("transport not used")
+	}
+	if _, err := repo.GetProvider(context.Background(), "rb"); err != nil {
+		t.Fatalf("provider not saved: %v", err)
+	}
+}
+
+func TestRegisterToolProvidersFromFile(t *testing.T) {
+	repo := NewInMemoryToolRepository()
+	st := &stubTransport{}
+	client := &UtcpClient{
+		config:         NewClientConfig(),
+		transports:     map[string]ClientTransport{"cli": st},
+		toolRepository: repo,
+		searchStrategy: NewTagSearchStrategy(repo, 1.0),
+	}
+	data := `[{"provider_type":"cli","name":"rf","command_name":"echo"}]`
+	f, err := os.CreateTemp("", "prov.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(data); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if err := client.RegisterToolProvidersFromFile(context.Background(), f.Name()); err != nil {
+		t.Fatalf("register file err: %v", err)
+	}
+	if !st.registerCalled {
+		t.Fatalf("transport not used")
+	}
+	if _, err := repo.GetProvider(context.Background(), "rf"); err != nil {
+		t.Fatalf("provider not saved: %v", err)
+	}
+}
+
 func TestNewUTCPClientBasic(t *testing.T) {
 	c, err := NewUTCPClient(context.Background(), nil, nil, nil)
 	if err != nil || c == nil {

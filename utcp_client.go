@@ -142,10 +142,19 @@ func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 	if err != nil {
 		return fmt.Errorf("could not read providers file %q: %w", path, err)
 	}
+	return c.RegisterToolProvidersFromBytes(ctx, data)
+}
 
+// RegisterToolProvidersFromFile reads providers from a JSON file and registers them.
+func (c *UtcpClient) RegisterToolProvidersFromFile(ctx context.Context, path string) error {
+	return c.loadProviders(ctx, path)
+}
+
+// RegisterToolProvidersFromBytes registers providers defined in a JSON array.
+func (c *UtcpClient) RegisterToolProvidersFromBytes(ctx context.Context, data []byte) error {
 	var rawList []map[string]any
 	if err := json.Unmarshal(data, &rawList); err != nil {
-		return fmt.Errorf("invalid JSON in providers file %q: %w", path, err)
+		return fmt.Errorf("invalid providers JSON: %w", err)
 	}
 
 	for _, raw := range rawList {
