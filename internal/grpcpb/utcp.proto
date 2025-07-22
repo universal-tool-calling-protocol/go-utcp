@@ -1,6 +1,6 @@
 syntax = "proto3";
 package grpcpb;
-option go_package = "github.com/universal-tool-calling-protocol/go-utcp/grpcpb";
+option go_package = "github.com/universal-tool-calling-protocol/go-utcp//internal/grpcpb";
 
 message Empty {}
 

@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/internal"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
 )
 

@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/grpcpb"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/grpcpb"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
 	"google.golang.org/grpc"
