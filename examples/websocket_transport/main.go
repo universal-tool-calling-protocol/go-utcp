@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/universal-tool-calling-protocol/go-utcp/src"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/websocket"
+	src "github.com/universal-tool-calling-protocol/go-utcp/concepts"
+	"github.com/universal-tool-calling-protocol/go-utcp/concepts/providers"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp/concepts/transports/websocket"
 )
 
 var upgrader = websocket.Upgrader{}
