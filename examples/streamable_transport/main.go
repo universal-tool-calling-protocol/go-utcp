@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/concepts/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/concepts/transports/streamable"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/streamable"
 )
 
 func main() {

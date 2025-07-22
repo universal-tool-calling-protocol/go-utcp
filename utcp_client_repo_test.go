@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/concepts"
-	. "github.com/universal-tool-calling-protocol/go-utcp/concepts/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
 )
 
 func TestInMemoryToolRepository_CRUD(t *testing.T) {

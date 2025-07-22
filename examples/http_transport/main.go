@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	providers "github.com/universal-tool-calling-protocol/go-utcp/concepts/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/concepts/transports/http"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/http"
 )
 
 // Tool metadata

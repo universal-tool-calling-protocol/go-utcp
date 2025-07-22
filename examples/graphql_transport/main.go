@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	providers "github.com/universal-tool-calling-protocol/go-utcp/concepts/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/concepts/transports/graphql"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/graphql"
 )
 
 // --- Mock server implementation ---

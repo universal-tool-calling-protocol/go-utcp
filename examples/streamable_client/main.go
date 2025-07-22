@@ -9,7 +9,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
-	. "github.com/universal-tool-calling-protocol/go-utcp/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal"
 )
 
 func startStreamingServer(addr string) {
