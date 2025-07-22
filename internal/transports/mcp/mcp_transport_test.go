@@ -9,7 +9,7 @@ import (
 
 func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
 	tr := NewMCPTransport(nil)
-	prov := NewMCPProvider("python3", []string{"python3", "./scripts/server.py"})
+	prov := NewMCPProvider("pytgon3", []string{"python3", "../../../scripts/server.py"})
 	ctx := context.Background()
 	tools, err := tr.RegisterToolProvider(ctx, prov)
 	if err != nil {
