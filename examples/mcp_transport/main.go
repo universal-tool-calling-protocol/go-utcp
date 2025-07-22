@@ -3,50 +3,65 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"strings"
+	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp"
+	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 )
 
 func main() {
+	// Give providers a moment to start
+	time.Sleep(200 * time.Millisecond)
+
 	ctx := context.Background()
-
-	// Initialize the MCP transport with a simple logger
-	transport := utcp.NewMCPTransport(func(format string, args ...interface{}) {
-		fmt.Printf("[MCP] "+format+"\n", args...)
-	})
-
-	// Configure your provider to launch the Python MCP server
-	provider := utcp.NewMCPProvider(
-		"ExampleProvider",
-		[]string{"python3", "../../scripts/server.py"},
-	)
-
-	// Register the provider and retrieve the available tools
-	tools, err := transport.RegisterToolProvider(ctx, provider)
+	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: "provider.json"}
+	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
 	if err != nil {
-		fmt.Printf("Error registering provider: %v\n", err)
-		return
+		log.Fatalf("failed to create UTCP client: %v", err)
 	}
-	fmt.Printf("Registered provider '%s' with tools: %v\n", provider.Name, tools)
 
-	// Choose a tool to call (for example, the first one)
+	// 1) Discover available tools
+	tools, err := client.SearchTools("", 10)
+	if err != nil {
+		log.Fatalf("SearchTools failed: %v", err)
+	}
 	if len(tools) == 0 {
-		fmt.Println("No tools available to call.")
-		return
+		log.Fatal("no tools found")
 	}
-	toolID := tools[0] // or pick by name: tools.Find("tool_name")
 
-	// Prepare arguments for the tool call
-	// Replace the slice below with the actual arguments your tool expects
-	args := map[string]any{"name": "Kamil"}
+	fmt.Println("Tools were found:")
+	for _, t := range tools {
+		fmt.Printf(" - %s\n", t.Name)
+	}
 
-	// Call the tool and handle the response
-	resp, err := transport.CallTool(ctx, toolID.Name, args, provider, nil)
+	// 2) Choose the "hello" tool if available, otherwise pick the first one
+	var toolName string
+	for _, t := range tools {
+		if strings.HasSuffix(t.Name, ".hello") {
+			toolName = t.Name
+			break
+		}
+	}
+	if toolName == "" {
+		toolName = tools[0].Name
+		fmt.Printf("WARNING: \".hello\" not found; defaulting to %s\n", toolName)
+	}
+
+	// 3) Call the tool synchronously
+	argsMap := map[string]any{"name": "Kamil"}
+	result, err := client.CallTool(ctx, toolName, argsMap)
 	if err != nil {
-		fmt.Printf("Error calling tool '%s': %v\n", toolID, err)
-		return
+		log.Fatalf("CallTool failed: %v", err)
 	}
 
-	// Process the result (resp.Result is typically a JSON-decoded value)
-	fmt.Printf("Tool '%s' returned: %v\n", toolID, resp)
+	// 4) Print the response
+	if resMap, ok := result.(map[string]interface{}); ok {
+		fmt.Println("Sync result:", resMap["result"])
+	} else {
+		fmt.Printf("Unexpected result type: %#v\n", result)
+	}
+
+	os.Exit(0)
 }

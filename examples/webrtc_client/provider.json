@@ -1,9 +1,11 @@
-[
-  {
-    "provider_type": "webrtc",
-    "name": "webrtc",
-    "signaling_server": "http://localhost:8080",
-    "peer_id": "client",
-    "data_channel_name": "data"
-  }
-]
+{
+  "providers": [
+    {
+      "provider_type": "webrtc",
+      "name": "webrtc",
+      "signaling_server": "http://localhost:8080",
+      "peer_id": "client",
+      "data_channel_name": "data"
+    }
+  ]
+}

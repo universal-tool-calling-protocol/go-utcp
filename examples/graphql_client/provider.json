@@ -1,9 +1,11 @@
-[
-  {
-    "provider_type": "graphql",
-    "name": "graphql",
-    "url": "http://localhost:8080/graphql",
-    "operation_type": "query",
-    "operation_name": "echo"
-  }
-]
+{
+  "providers": [
+    {
+      "provider_type": "graphql",
+      "name": "graphql",
+      "url": "http://localhost:8080/graphql",
+      "operation_type": "query",
+      "operation_name": "echo"
+    }
+  ]
+}

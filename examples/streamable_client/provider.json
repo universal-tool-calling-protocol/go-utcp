@@ -1,8 +1,10 @@
-[
-  {
-    "provider_type": "http_stream",
-    "name": "http_stream",
-    "url": "http://localhost:8080/tools",
-    "http_method": "POST"
-  }
-]
+{
+  "providers": [
+    {
+      "provider_type": "http_stream",
+      "name": "http_stream",
+      "url": "http://localhost:8080/tools",
+      "http_method": "POST"
+    }
+  ]
+}

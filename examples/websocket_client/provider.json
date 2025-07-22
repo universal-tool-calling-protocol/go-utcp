@@ -1,7 +1,9 @@
-[
-  {
-    "provider_type": "websocket",
-    "name": "websocket",
-    "url": "ws://localhost:8080/tools"
-  }
-]
+{
+  "providers": [
+    {
+      "provider_type": "websocket",
+      "name": "websocket",
+      "url": "ws://localhost:8080/tools"
+    }
+  ]
+}

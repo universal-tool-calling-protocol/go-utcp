@@ -1,10 +1,14 @@
 {
-  "provider_type": "mcp",
-  "name": "demo_tools",
-  "command": ["python3", "-u", "../../scripts/server.py"],
-  "args": [],
-  "env": {},
-  "workingDir": ".",
-  "stdinData": "",
-  "timeout": 30
+  "providers": [
+    {
+      "name": "demo_tools",
+      "provider_type": "mcp",
+      "command": ["python3", "-u", "../../scripts/server.py"],
+      "args": [],
+      "env": {},
+      "workingDir": ".",
+      "stdinData": "",
+      "timeout": 30
+    }
+  ]
 }

@@ -136,37 +136,34 @@ func defaultTransports() map[string]ClientTransport {
 	}
 }
 
-// loadProviders reads a JSON array of providers, substitutes variables, and registers each.
+// Updated loadProviders method using the new parser
 func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("could not read providers file %q: %w", path, err)
 	}
-
-	var rawList []map[string]any
-	if err := json.Unmarshal(data, &rawList); err != nil {
-		return fmt.Errorf("invalid JSON in providers file %q: %w", path, err)
+	rawList, err := parseProvidersJSON(data)
+	if err != nil {
+		return fmt.Errorf("error parsing providers JSON: %w", err)
 	}
 
-	for _, raw := range rawList {
-		ptype, ok := raw["provider_type"].(string)
-		if !ok || ptype == "" {
-			fmt.Fprintf(os.Stderr, "warning: skipping provider without type: %v\n", raw)
+	var errors []string
+	successCount := 0
+
+	for i, raw := range rawList {
+		if err := c.processProvider(ctx, raw, i); err != nil {
+			errors = append(errors, fmt.Sprintf("provider %d: %v", i, err))
 			continue
 		}
+		successCount++
+	}
 
-		// substitute inline variables first
-		subbed := c.replaceVarsInAny(raw, c.config).(map[string]any)
+	fmt.Printf("Successfully registered %d out of %d providers\n", successCount, len(rawList))
 
-		blob, _ := json.Marshal(subbed)
-		prov, err := UnmarshalProvider(blob)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error decoding provider %q: %v\n", ptype, err)
-			continue
-		}
-
-		if _, err := c.RegisterToolProvider(ctx, prov); err != nil {
-			fmt.Fprintf(os.Stderr, "error registering provider %q: %v\n", c.getProviderName(prov), err)
+	if len(errors) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: %d providers failed to load:\n", len(errors))
+		for _, errMsg := range errors {
+			fmt.Fprintf(os.Stderr, "  - %s\n", errMsg)
 		}
 	}
 
@@ -249,7 +246,6 @@ func (c *UtcpClient) RegisterToolProvider(
 	if err != nil {
 		return nil, err
 	}
-
 	// Prefix tool names with provider name if not already prefixed
 	for i := range tools {
 		if !strings.HasPrefix(tools[i].Name, name+".") {
@@ -324,7 +320,14 @@ func (c *UtcpClient) CallTool(
 		return nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
 	}
 
-	return tr.CallTool(ctx, toolName, args, *prov, nil)
+	// Determine remote method name for MCP transport
+	callName := toolName
+	if (*prov).Type() == ProviderMCP {
+		// Strip provider prefix for MCP transport
+		callName = parts[1]
+	}
+
+	return tr.CallTool(ctx, callName, args, *prov, nil)
 }
 
 func (c *UtcpClient) SearchTools(query string, limit int) ([]Tool, error) {
@@ -445,4 +448,101 @@ func (c *UtcpClient) getVariable(key string, cfg *UtcpClientConfig) (string, err
 		return env, nil
 	}
 	return "", &UtcpVariableNotFound{VariableName: key}
+}
+
+func parseProvidersJSON(data []byte) ([]map[string]any, error) {
+	var rawData interface{}
+	if err := json.Unmarshal(data, &rawData); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	switch v := rawData.(type) {
+	case []interface{}:
+		// Direct array of providers
+		return convertInterfaceArrayToMapArray(v)
+
+	case map[string]interface{}:
+		// Object that might contain providers
+		if providersRaw, exists := v["providers"]; exists {
+			switch providers := providersRaw.(type) {
+			case []interface{}:
+				// providers is an array
+				return convertInterfaceArrayToMapArray(providers)
+			case map[string]interface{}:
+				// providers is a single object
+				converted := convertInterfaceMapToStringMap(providers)
+				return []map[string]any{converted}, nil
+			default:
+				return nil, fmt.Errorf("'providers' field must be an array or object, got %T", providersRaw)
+			}
+		}
+		// Single provider object (no "providers" wrapper)
+		converted := convertInterfaceMapToStringMap(v)
+		return []map[string]any{converted}, nil
+
+	default:
+		return nil, fmt.Errorf("JSON root must be array or object, got %T", rawData)
+	}
+}
+
+func convertInterfaceArrayToMapArray(items []interface{}) ([]map[string]any, error) {
+	result := make([]map[string]any, len(items))
+
+	for i, item := range items {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("item at index %d is not an object, got %T", i, item)
+		}
+		result[i] = convertInterfaceMapToStringMap(itemMap)
+	}
+
+	return result, nil
+}
+
+// convertInterfaceMapToStringMap converts map[string]interface{} to map[string]any
+func convertInterfaceMapToStringMap(input map[string]interface{}) map[string]any {
+	result := make(map[string]any, len(input))
+	for k, v := range input {
+		result[k] = v
+	}
+	return result
+}
+
+// processProvider handles individual provider processing
+func (c *UtcpClient) processProvider(ctx context.Context, raw map[string]any, index int) error {
+	ptype, ok := raw["provider_type"].(string)
+	if !ok || ptype == "" {
+		return fmt.Errorf("missing or invalid provider_type")
+	}
+	// Substitute inline variables
+	subbed := c.replaceVarsInAny(raw, c.config).(map[string]any)
+
+	blob, err := json.Marshal(subbed)
+	if err != nil {
+		return fmt.Errorf("error marshaling provider: %w", err)
+	}
+
+	prov, err := UnmarshalProvider(blob)
+	if err != nil {
+		return fmt.Errorf("error decoding provider %q: %w", ptype, err)
+	}
+
+	// Look up the name; if it's empty, default to "<providerType>_<index>"
+	providerName := c.getProviderName(prov)
+	if providerName == "" {
+		providerName = fmt.Sprintf("%s_%d", ptype, index)
+		c.setProviderName(prov, providerName)
+	} else {
+		// sanitize dots
+		providerName = strings.ReplaceAll(providerName, ".", "_")
+		c.setProviderName(prov, providerName)
+	}
+
+	// Now register
+	tools, err := c.RegisterToolProvider(ctx, prov)
+	if err != nil {
+		return fmt.Errorf("error registering provider %q: %w", providerName, err)
+	}
+	fmt.Printf("Successfully registered provider %s (%d tools)\n", providerName, len(tools))
+	return nil
 }
