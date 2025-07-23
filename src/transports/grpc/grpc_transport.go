@@ -9,9 +9,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // GRPCClientTransport implements ClientTransport over gRPC using the UTCPService.

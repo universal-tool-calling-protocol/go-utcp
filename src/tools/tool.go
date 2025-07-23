@@ -1,4 +1,4 @@
-package concepts
+package tools
 
 import (
 	"reflect"
@@ -45,7 +45,7 @@ type ToolHandler func(ctx map[string]interface{}, inputs map[string]interface{})
 
 // ToolContext keeps the registry of all tools.
 var (
-	tools []Tool
+	Tools []Tool
 )
 
 // AddTool registers a new tool in the global context.
@@ -53,12 +53,12 @@ func AddTool(t Tool) {
 	if t.Name == "" {
 		panic("tool must have a name")
 	}
-	tools = append(tools, t)
+	Tools = append(Tools, t)
 }
 
 // GetTools returns all registered tools.
 func GetTools() []Tool {
-	return tools
+	return Tools
 }
 
 // RegisterTool is the Go equivalent of your @utcp_tool decorator.

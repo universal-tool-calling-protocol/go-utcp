@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/helpers"
 )
 
 func TestDecodeToolsResponse(t *testing.T) {

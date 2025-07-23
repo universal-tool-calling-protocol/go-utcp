@@ -1,4 +1,4 @@
-package concepts
+package manual
 
 import (
 	"encoding/json"
@@ -53,7 +53,7 @@ func TestOpenAPIConverterConvert_MapRaw(t *testing.T) {
 			},
 		},
 	}
-	converter := &OpenAPIConverter{name: "MyAPI", raw: spec}
+	converter := &OpenAPIConverter{Name: "MyAPI", Raw: spec}
 	manual := converter.Convert()
 
 	if manual.Name != "MyAPI" {
@@ -77,7 +77,7 @@ func TestOpenAPIConverterConvert_MapRaw(t *testing.T) {
 func TestOpenAPIConverterConvert_JSONBytes(t *testing.T) {
 	spec := map[string]interface{}{"openapi": "2.0"}
 	b, _ := json.Marshal(spec)
-	converter := &OpenAPIConverter{name: "BytesAPI", raw: b}
+	converter := &OpenAPIConverter{Name: "BytesAPI", Raw: b}
 	manual := converter.Convert()
 
 	if manual.Version != "2.0" {
@@ -87,7 +87,7 @@ func TestOpenAPIConverterConvert_JSONBytes(t *testing.T) {
 
 func TestOpenAPIConverterConvert_JSONString(t *testing.T) {
 	s := `{"openapi":"1.2"}`
-	converter := &OpenAPIConverter{name: "StringAPI", raw: s}
+	converter := &OpenAPIConverter{Name: "StringAPI", Raw: s}
 	manual := converter.Convert()
 
 	if manual.Version != "1.2" {
@@ -96,7 +96,7 @@ func TestOpenAPIConverterConvert_JSONString(t *testing.T) {
 }
 
 func TestOpenAPIConverterConvert_UnsupportedType(t *testing.T) {
-	converter := &OpenAPIConverter{name: "BadAPI", raw: 123}
+	converter := &OpenAPIConverter{Name: "BadAPI", Raw: 123}
 	manual := converter.Convert()
 
 	if manual.Name != "BadAPI" {

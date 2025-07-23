@@ -1,8 +1,10 @@
-package concepts
+package manual
 
 import (
 	"encoding/json"
 	"fmt"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // UtcpManual represents a manual with a version and a set of tools.
@@ -39,11 +41,11 @@ func NewUtcpManualFromMap(m map[string]interface{}) UtcpManual {
 
 // Convert processes the OpenAPI spec and returns a UtcpManual.
 func (c *OpenAPIConverter) Convert() UtcpManual {
-	manual := UtcpManual{Name: c.name}
+	manual := UtcpManual{Name: c.Name}
 
 	// Attempt to coerce raw into a map
 	var specMap map[string]interface{}
-	switch v := c.raw.(type) {
+	switch v := c.Raw.(type) {
 	case map[string]interface{}:
 		specMap = v
 	case []byte:

@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"strings"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
-
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // SSEClientTransport implements Server-Sent Events over HTTP for UTCP tools.

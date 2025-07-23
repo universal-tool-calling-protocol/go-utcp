@@ -1,22 +1,23 @@
-package concepts
+package repository
 
 import (
 	"context"
 	"fmt"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	"sync"
 )
 
 type InMemoryToolRepository struct {
-	tools     map[string][]Tool   // providerName -> tools
-	providers map[string]Provider // providerName -> Provider
+	Tools     map[string][]Tool   // providerName -> tools
+	Providers map[string]Provider // providerName -> Provider
 	mu        sync.RWMutex        // for concurrent access
 }
 
 func (r InMemoryToolRepository) GetProvider(ctx context.Context, providerName string) (*Provider, error) {
-	provider, ok := r.providers[providerName]
+	provider, ok := r.Providers[providerName]
 	if !ok {
 		return nil, nil
 	}
@@ -25,14 +26,14 @@ func (r InMemoryToolRepository) GetProvider(ctx context.Context, providerName st
 
 func (r InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, error) {
 	var providers []Provider
-	for _, p := range r.providers {
+	for _, p := range r.Providers {
 		providers = append(providers, p)
 	}
 	return providers, nil
 }
 
 func (r InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*Tool, error) {
-	for _, tools := range r.tools {
+	for _, tools := range r.Tools {
 		for _, tool := range tools {
 			if tool.Name == toolName {
 				return &tool, nil
@@ -44,14 +45,14 @@ func (r InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*
 
 func (r InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
 	var all []Tool
-	for _, tools := range r.tools {
+	for _, tools := range r.Tools {
 		all = append(all, tools...)
 	}
 	return all, nil
 }
 
 func (r InMemoryToolRepository) GetToolsByProvider(ctx context.Context, providerName string) ([]Tool, error) {
-	tools, ok := r.tools[providerName]
+	tools, ok := r.Tools[providerName]
 	if !ok {
 		return nil, fmt.Errorf("no tools found for provider %s", providerName)
 	}
@@ -59,19 +60,19 @@ func (r InMemoryToolRepository) GetToolsByProvider(ctx context.Context, provider
 }
 
 func (r InMemoryToolRepository) RemoveProvider(ctx context.Context, providerName string) error {
-	if _, ok := r.providers[providerName]; !ok {
+	if _, ok := r.Providers[providerName]; !ok {
 		return fmt.Errorf("provider not found: %s", providerName)
 	}
-	delete(r.providers, providerName)
-	delete(r.tools, providerName)
+	delete(r.Providers, providerName)
+	delete(r.Tools, providerName)
 	return nil
 }
 
 func (r InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string) error {
-	for providerName, tools := range r.tools {
+	for providerName, tools := range r.Tools {
 		for i, tool := range tools {
 			if tool.Name == toolName {
-				r.tools[providerName] = append(tools[:i], tools[i+1:]...)
+				r.Tools[providerName] = append(tools[:i], tools[i+1:]...)
 				return nil
 			}
 		}
@@ -112,15 +113,15 @@ func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, prov
 	default:
 		return fmt.Errorf("unsupported provider type for saving: %T", provider)
 	}
-	r.providers[providerName] = provider
-	r.tools[providerName] = tools
+	r.Providers[providerName] = provider
+	r.Tools[providerName] = tools
 	return nil
 }
 
 func NewInMemoryToolRepository() ToolRepository {
 	return &InMemoryToolRepository{
-		tools:     make(map[string][]Tool),
-		providers: make(map[string]Provider),
+		Tools:     make(map[string][]Tool),
+		Providers: make(map[string]Provider),
 		mu:        sync.RWMutex{},
 	}
 }

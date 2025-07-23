@@ -1,4 +1,4 @@
-package utcp
+package graphql
 
 import (
 	"context"
@@ -16,8 +16,9 @@ import (
 
 	"github.com/gorilla/websocket"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	"github.com/machinebox/graphql"
 )

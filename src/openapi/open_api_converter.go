@@ -1,4 +1,4 @@
-package concepts
+package openapi
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	"net/url"
 	"strings"

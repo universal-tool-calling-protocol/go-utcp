@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // MCPTransport implements ClientTransportInterface for MCP (Model Context Protocol) providers.
