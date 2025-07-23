@@ -64,7 +64,7 @@ func startStreamingServer(addr string) {
 			"tools": []map[string]interface{}{
 				{
 					"name":        "streamNumbers",
-					"description": "Streams numbers 1 to ",
+					"description": "Streams numbers 1 to 5",
 				},
 			},
 		}
