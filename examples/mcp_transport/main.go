@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/mcp"
 )
 
 func main() {
@@ -16,51 +17,65 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	ctx := context.Background()
-	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: "provider.json"}
-	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
-	if err != nil {
-		log.Fatalf("failed to create UTCP client: %v", err)
+
+	// Create MCPTransport directly
+	logger := func(format string, args ...interface{}) {
+		fmt.Printf("[MCP] "+format+"\n", args...)
+	}
+	transport := transports.NewMCPTransport(logger)
+
+	// Create MCP provider configuration
+	mcpProvider := &providers.MCPProvider{
+		Name:       "demo_tools",
+		Command:    []string{"python3", "-u", "../../scripts/server.py"},
+		Args:       []string{},
+		Env:        make(map[string]string),
+		WorkingDir: ".",
+		StdinData:  "",
+		Timeout:    30,
 	}
 
-	// 1) Discover available tools
-	tools, err := client.SearchTools("", 10)
+	// Register the tool provider and discover tools
+	tools, err := transport.RegisterToolProvider(ctx, mcpProvider)
 	if err != nil {
-		log.Fatalf("SearchTools failed: %v", err)
+		log.Fatalf("failed to register MCP provider: %v", err)
 	}
+
 	if len(tools) == 0 {
 		log.Fatal("no tools found")
 	}
 
 	fmt.Println("Tools were found:")
 	for _, t := range tools {
-		fmt.Printf(" - %s\n", t.Name)
+		fmt.Printf(" - %s: %s\n", t.Name, t.Description)
 	}
 
-	// 2) Choose the "hello" tool if available, otherwise pick the first one
+	// Choose the "hello" tool if available, otherwise pick the first one
 	var toolName string
 	for _, t := range tools {
-		if strings.HasSuffix(t.Name, ".hello") {
+		if strings.HasSuffix(t.Name, "hello") {
 			toolName = t.Name
 			break
 		}
 	}
 	if toolName == "" {
 		toolName = tools[0].Name
-		fmt.Printf("WARNING: \".hello\" not found; defaulting to %s\n", toolName)
+		fmt.Printf("WARNING: \"hello\" tool not found; defaulting to %s\n", toolName)
 	}
 
-	// 3) Call the tool synchronously
+	// Call the tool directly using MCPTransport
 	argsMap := map[string]any{"name": "Kamil"}
-	result, err := client.CallTool(ctx, toolName, argsMap)
+	result, err := transport.CallTool(ctx, toolName, argsMap, mcpProvider, nil)
 	if err != nil {
 		log.Fatalf("CallTool failed: %v", err)
 	}
 
-	// 4) Print the response
-	if resMap, ok := result.(map[string]interface{}); ok {
-		fmt.Println("Sync result:", resMap["result"])
-	} else {
-		fmt.Printf("Unexpected result type: %#v\n", result)
+	// Print the response
+	fmt.Println("Result:", result)
+
+	// Clean up - deregister the provider
+	if err := transport.DeregisterToolProvider(ctx, mcpProvider); err != nil {
+		log.Printf("Warning: failed to deregister provider: %v", err)
 	}
 
 	os.Exit(0)
