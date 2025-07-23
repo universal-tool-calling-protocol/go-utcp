@@ -76,7 +76,7 @@ func startStreamingServer(addr string) {
 		w.Header().Set("Content-Type", "application/json")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			http.Error(w, "streaming unsupported", http.StatussrcServerError)
+			http.Error(w, "streaming unsupported", http.StatusBadRequest)
 			return
 		}
 

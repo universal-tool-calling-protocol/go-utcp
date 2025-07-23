@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	src "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
 
 	webrtc "github.com/pion/webrtc/v3"
@@ -85,10 +85,10 @@ func startServer(addr, dcName string) {
 		peers[req.PeerID] = pc
 		peersMu.Unlock()
 		// respond
-		tools := []src.Tool{{Name: "echo", Description: "Echo tool"}}
+		tools := []Tool{{Name: "echo", Description: "Echo tool"}}
 		resp := struct {
 			SDP        string                    `json:"sdp"`
-			Tools      []src.Tool                `json:"tools"`
+			Tools      []Tool                    `json:"tools"`
 			Candidates []webrtc.ICECandidateInit `json:"candidates"`
 		}{pc.LocalDescription().SDP, tools, local}
 		w.Header().Set("Content-Type", "application/json")

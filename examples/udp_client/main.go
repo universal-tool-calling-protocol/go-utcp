@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
-	src "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 )
 
 type udpServer struct {
@@ -25,7 +26,7 @@ func startServer(addr string) (*udpServer, error) {
 		return nil, fmt.Errorf("reading tools.json: %w", err)
 	}
 
-	var manual src.UtcpManual
+	var manual UtcpManual
 	if err := json.Unmarshal(data, &manual); err != nil {
 		return nil, fmt.Errorf("parsing tools.json: %w", err)
 	}
@@ -43,7 +44,7 @@ func startServer(addr string) (*udpServer, error) {
 	return s, nil
 }
 
-func (s *udpServer) loop(manual src.UtcpManual) {
+func (s *udpServer) loop(manual UtcpManual) {
 	buf := make([]byte, 65535)
 	for {
 		n, remote, err := s.conn.ReadFromUDP(buf)
