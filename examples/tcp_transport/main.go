@@ -8,7 +8,8 @@ import (
 	"net"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/tcp"
 )
 
 type toolRequest struct {
@@ -49,10 +50,19 @@ func (s *tcpServer) handle(c net.Conn) {
 		return
 	}
 	if req.Action == "list" {
-		manual := utcp.UtcpManual{Version: "1.0", Tools: []utcp.Tool{{Name: "ping", Description: "Ping"}}}
+		manual := map[string]interface{}{
+			"version": "1.0",
+			"tools": []map[string]interface{}{
+				{
+					"name":        "ping",
+					"description": "Ping tool that responds with pong",
+				},
+			},
+		}
 		json.NewEncoder(c).Encode(manual)
 		return
 	}
+
 	if req.Tool == "ping" {
 		json.NewEncoder(c).Encode(map[string]any{"pong": true})
 	}
@@ -68,8 +78,8 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := utcp.NewTCPClientTransport(logger)
-	prov := &utcp.TCPProvider{BaseProvider: utcp.BaseProvider{Name: "tcp", ProviderType: utcp.ProviderTCP}, Host: "127.0.0.1", Port: 9090, Timeout: 1000}
+	transport := transports.NewTCPClientTransport(logger)
+	prov := &providers.TCPProvider{BaseProvider: providers.BaseProvider{Name: "tcp", ProviderType: providers.ProviderTCP}, Host: "127.0.0.1", Port: 9090, Timeout: 1000}
 
 	ctx := context.Background()
 	tools, err := transport.RegisterToolProvider(ctx, prov)

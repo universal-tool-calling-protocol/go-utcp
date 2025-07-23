@@ -9,7 +9,22 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	// import your server package
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/sse"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/cli"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/graphql"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/grpc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/http"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/mcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/streamable"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/udp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/webrtc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/websocket"
 )
 
 // UtcpClientInterface defines the public API.
@@ -344,7 +359,7 @@ func (c *UtcpClient) SearchTools(query string, limit int) ([]Tool, error) {
 	return result, nil
 }
 
-// ----- variable substitution helpers -----
+// ----- variable substitution src -----
 
 // substituteProviderVariables dumps to JSON, replaces vars, and re‑unmarshals.
 func (c *UtcpClient) substituteProviderVariables(p Provider) Provider {

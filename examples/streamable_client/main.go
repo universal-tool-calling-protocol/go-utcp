@@ -9,6 +9,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
 )
 
 func startStreamingServer(addr string) {
@@ -17,17 +18,17 @@ func startStreamingServer(addr string) {
 		w.Header().Set("Content-Type", "application/json")
 
 		tools := struct {
-			Tools []utcp.Tool `json:"tools"`
+			Tools []Tool `json:"tools"`
 		}{
-			Tools: []utcp.Tool{
+			Tools: []Tool{
 				{
 					Name:        "streamNumbers",
 					Description: "Streams numbers from 1 to 5",
-					Inputs: utcp.ToolInputOutputSchema{
+					Inputs: ToolInputOutputSchema{
 						Type:       "object",
 						Properties: map[string]interface{}{},
 					},
-					Outputs: utcp.ToolInputOutputSchema{
+					Outputs: ToolInputOutputSchema{
 						Type: "object",
 						Properties: map[string]interface{}{
 							"number": map[string]interface{}{

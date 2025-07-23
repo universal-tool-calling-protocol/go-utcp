@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	UTCP "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/sse"
 )
 
 func main() {
@@ -84,10 +85,10 @@ func runClient(baseURL string) {
 	logger := func(format string, args ...interface{}) {
 		fmt.Printf("[SSE] "+format+"\n", args...)
 	}
-	transport := UTCP.NewSSETransport(logger)
+	transport := transports.NewSSETransport(logger)
 
 	// Discovery endpoint
-	provider := &UTCP.SSEProvider{URL: baseURL + "/tools"}
+	provider := &providers.SSEProvider{URL: baseURL + "/tools"}
 	tools, err := transport.RegisterToolProvider(ctx, provider)
 	if err != nil {
 		panic(fmt.Errorf("failed to register SSE tools: %w", err))

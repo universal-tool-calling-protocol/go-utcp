@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/websocket"
 )
 
 var upgrader = websocket.Upgrader{}
 
-var tools = []utcp.Tool{
+var tools = []src.Tool{
 	{Name: "echo", Description: "Echoes a message"},
 }
 
@@ -29,7 +31,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil || string(msg) != "manual" {
 			return
 		}
-		manual := utcp.UtcpManual{Version: "1.0", Tools: tools}
+		manual := src.UtcpManual{Version: "1.0", Tools: tools}
 		c.WriteJSON(manual)
 	case "/echo":
 		var in map[string]any
@@ -52,9 +54,9 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := utcp.NewWebSocketTransport(logger)
+	transport := transports.NewWebSocketTransport(logger)
 	wsURL := "ws://localhost:8080/tools"
-	prov := &utcp.WebSocketProvider{BaseProvider: utcp.BaseProvider{Name: "ws", ProviderType: utcp.ProviderWebSocket}, URL: wsURL}
+	prov := &providers.WebSocketProvider{BaseProvider: providers.BaseProvider{Name: "ws", ProviderType: providers.ProviderWebSocket}, URL: wsURL}
 
 	ctx := context.Background()
 	discovered, err := transport.RegisterToolProvider(ctx, prov)

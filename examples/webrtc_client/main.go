@@ -9,6 +9,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
 
 	webrtc "github.com/pion/webrtc/v3"
 )
@@ -158,10 +159,10 @@ func main() {
 		peers[req.PeerID] = pc
 		peersMu.Unlock()
 
-		tools := []utcp.Tool{{Name: "echo", Description: "Echo tool"}}
+		tools := []src.Tool{{Name: "echo", Description: "Echo tool"}}
 		resp := struct {
 			SDP        string                    `json:"sdp"`
-			Tools      []utcp.Tool               `json:"tools"`
+			Tools      []src.Tool                `json:"tools"`
 			Candidates []webrtc.ICECandidateInit `json:"candidates"`
 		}{pc.LocalDescription().SDP, tools, local}
 
@@ -199,7 +200,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("search: %v", err)
 	}
-	log.Printf("Discovered tools: %+v", tools)
+
+	log.Printf("Discovered tools:")
+	for _, t := range tools {
+		log.Printf(" - %s", t.Name)
+	}
 
 	if len(tools) == 0 {
 		log.Fatal("No tools discovered")

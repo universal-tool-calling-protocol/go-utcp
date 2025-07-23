@@ -14,7 +14,8 @@ import (
 	"strings"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/graphql"
 )
 
 // --- Mock server implementation ---
@@ -91,7 +92,7 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	// 1) Initialize a new GraphQL transport with a logger
-	transport := utcp.NewGraphQLClientTransport(func(msg string, err error) {
+	transport := transports.NewGraphQLClientTransport(func(msg string, err error) {
 		if err != nil {
 			log.Printf("[GraphQL][ERROR] %s: %v", msg, err)
 		} else {
@@ -105,7 +106,7 @@ func main() {
 	}()
 
 	// 2) Define the GraphQL endpoint and optional headers/auth
-	provider := &utcp.GraphQLProvider{
+	provider := &providers.GraphQLProvider{
 		URL:     "http://localhost:8080/graphql", // point to local mock server
 		Headers: map[string]string{"X-Custom-Header": "example"},
 		Auth:    nil, // no authentication for this example

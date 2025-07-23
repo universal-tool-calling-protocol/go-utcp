@@ -6,31 +6,40 @@ import (
 	"os"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/cli"
 )
 
 func main() {
 	ctx := context.Background()
 
-	cfg := &utcp.UtcpClientConfig{
-		ProvidersFilePath: "providers.json",
+	// Create a logger function
+	logger := func(format string, args ...interface{}) {
+		fmt.Printf("[LOG] "+format+"\n", args...)
 	}
 
-	fmt.Println("Creating UTCP client...")
-	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create UTCP client: %v\n", err)
-		os.Exit(1)
+	// Create the CLI transport directly
+	fmt.Println("Creating CLI transport...")
+	transport := NewCliTransport(logger)
+
+	// Create a CLI provider configuration
+	// This should match your discover_hello.sh script
+	provider := &CliProvider{
+		CommandName: "./discover_hello.sh discover", // Command to discover tools
+		EnvVars:     map[string]string{},            // Any environment variables needed
+		WorkingDir:  nil,                            // Working directory (nil for current)
 	}
 
-	// Give the client time to fully initialize
+	// Give some time for setup
 	fmt.Println("Waiting for initialization...")
 	time.Sleep(500 * time.Millisecond)
 
 	fmt.Println("\n=== Tool Discovery ===")
-	tools, err := client.SearchTools("", 10)
+
+	// Register the tool provider and discover tools
+	tools, err := transport.RegisterToolProvider(ctx, provider)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "search error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "failed to register provider: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -50,27 +59,17 @@ func main() {
 	}
 
 	fmt.Printf("Calling tool '%s' with input: %v\n", tool.Name, input)
-	result, err := client.CallTool(ctx, tool.Name, input)
+
+	// Call the tool directly using the transport
+	result, err := transport.CallTool(ctx, tool.Name, input, provider, nil)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
-
-		// Try to understand the error better
 		fmt.Printf("Error type: %T\n", err)
 		fmt.Printf("Error string: %s\n", err.Error())
-
-		// Let's try a direct search for the provider
-		fmt.Println("\n=== Searching for provider directly ===")
-		providerTools, err2 := client.SearchTools("hello", 10)
-		if err2 != nil {
-			fmt.Printf("Provider search failed: %v\n", err2)
-		} else {
-			fmt.Printf("Provider search returned %d tools\n", len(providerTools))
-			for i, t := range providerTools {
-				fmt.Printf("  %d: %s\n", i, t.Name)
-			}
-		}
-
 	} else {
 		fmt.Printf("SUCCESS: %v\n", result)
 	}
+
+	// Clean up
+	transport.Close()
 }

@@ -8,7 +8,8 @@ import (
 	"net"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/tcp"
 )
 
 type toolRequest struct {
@@ -90,11 +91,11 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	logger := func(format string, args ...interface{}) { log.Printf("[CLIENT] "+format, args...) }
-	transport := utcp.NewTCPClientTransport(logger)
-	prov := &utcp.TCPProvider{
-		BaseProvider: utcp.BaseProvider{
+	transport := transports.NewTCPClientTransport(logger)
+	prov := &providers.TCPProvider{
+		BaseProvider: providers.BaseProvider{
 			Name:         "tcp",
-			ProviderType: utcp.ProviderTCP,
+			ProviderType: providers.ProviderTCP,
 		},
 		Host:    "127.0.0.1",
 		Port:    9090,

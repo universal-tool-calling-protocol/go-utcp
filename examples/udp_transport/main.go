@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/udp"
 )
 
 type udpServer struct {
@@ -38,7 +40,7 @@ func (s *udpServer) loop() {
 		}
 		data := buf[:n]
 		if string(data) == "DISCOVER" {
-			manual := utcp.UtcpManual{Version: "1.0", Tools: []utcp.Tool{{Name: "udp_echo", Description: "Echo"}}}
+			manual := src.UtcpManual{Version: "1.0", Tools: []src.Tool{{Name: "udp_echo", Description: "Echo"}}}
 			out, _ := json.Marshal(manual)
 			s.conn.WriteToUDP(out, remote)
 			continue
@@ -66,8 +68,8 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := utcp.NewUDPTransport(logger)
-	prov := &utcp.UDPProvider{BaseProvider: utcp.BaseProvider{Name: "udp", ProviderType: utcp.ProviderUDP}, Host: "127.0.0.1", Port: port, Timeout: 1000}
+	transport := transports.NewUDPTransport(logger)
+	prov := &providers.UDPProvider{BaseProvider: providers.BaseProvider{Name: "udp", ProviderType: providers.ProviderUDP}, Host: "127.0.0.1", Port: port, Timeout: 1000}
 
 	ctx := context.Background()
 	tools, err := transport.RegisterToolProvider(ctx, prov)

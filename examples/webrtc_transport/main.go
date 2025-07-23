@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/webrtc"
 
 	webrtc "github.com/pion/webrtc/v3"
 )
@@ -83,10 +85,10 @@ func startServer(addr, dcName string) {
 		peers[req.PeerID] = pc
 		peersMu.Unlock()
 		// respond
-		tools := []utcp.Tool{{Name: "echo", Description: "Echo tool"}}
+		tools := []src.Tool{{Name: "echo", Description: "Echo tool"}}
 		resp := struct {
 			SDP        string                    `json:"sdp"`
-			Tools      []utcp.Tool               `json:"tools"`
+			Tools      []src.Tool                `json:"tools"`
 			Candidates []webrtc.ICECandidateInit `json:"candidates"`
 		}{pc.LocalDescription().SDP, tools, local}
 		w.Header().Set("Content-Type", "application/json")
@@ -106,15 +108,17 @@ func main() {
 
 	// client setup
 	ctx := context.Background()
-	transport := utcp.NewWebRTCClientTransport(log.Printf)
-	prov := &utcp.WebRTCProvider{SignalingServer: "http://localhost:8080", PeerID: "client", DataChannelName: dcName}
+	transport := transports.NewWebRTCClientTransport(log.Printf)
+	prov := &providers.WebRTCProvider{SignalingServer: "http://localhost:8080", PeerID: "client", DataChannelName: dcName}
 	// register & discover
 	tools, err := transport.RegisterToolProvider(ctx, prov)
 	if err != nil {
 		log.Fatalf("register error: %v", err)
 	}
-	log.Printf("Discovered tools: %+v", tools)
-
+	log.Printf("Discovered tools:")
+	for _, t := range tools {
+		log.Printf(" - %s", t.Name)
+	}
 	// call echo
 	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "Hello, WebRTC!"}, prov, nil)
 	if err != nil {

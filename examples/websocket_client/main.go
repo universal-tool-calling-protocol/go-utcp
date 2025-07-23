@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
 )
 
 var upgrader = websocket.Upgrader{
@@ -32,9 +33,9 @@ func toolsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send the manual/schema
-	manual := utcp.UtcpManual{
+	manual := src.UtcpManual{
 		Version: "1.0",
-		Tools: []utcp.Tool{
+		Tools: []src.Tool{
 			{
 				Name:        "echo",
 				Description: "Echo back the provided message",

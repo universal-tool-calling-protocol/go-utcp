@@ -8,8 +8,10 @@ import (
 	"strconv"
 	"time"
 
-	utcp "github.com/universal-tool-calling-protocol/go-utcp"
-	"github.com/universal-tool-calling-protocol/go-utcp/grpcpb"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/grpc"
+
+	"github.com/universal-tool-calling-protocol/go-utcp/internal/grpcpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -50,8 +52,8 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := utcp.NewGRPCClientTransport(logger)
-	prov := &utcp.GRPCProvider{BaseProvider: utcp.BaseProvider{Name: "grpc", ProviderType: utcp.ProviderGRPC}, Host: "127.0.0.1", Port: atoi(port)}
+	transport := transports.NewGRPCClientTransport(logger)
+	prov := &providers.GRPCProvider{BaseProvider: providers.BaseProvider{Name: "grpc", ProviderType: providers.ProviderGRPC}, Host: "127.0.0.1", Port: atoi(port)}
 
 	ctx := context.Background()
 	tools, err := transport.RegisterToolProvider(ctx, prov)
