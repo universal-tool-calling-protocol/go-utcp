@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
 )
 
 // stubLoader implements UtcpVariablesConfig for tests.

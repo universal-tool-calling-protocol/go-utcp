@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/cli"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/cli"
 )
 
 func main() {

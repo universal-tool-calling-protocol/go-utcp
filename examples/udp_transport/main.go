@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
-	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/udp"
+	src "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/udp"
 )
 
 type udpServer struct {

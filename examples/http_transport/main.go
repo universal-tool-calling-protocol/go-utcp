@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/http"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/http"
 )
 
 // Tool metadata
@@ -77,7 +77,7 @@ func listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatussrcServerError)
 	}
 }
 

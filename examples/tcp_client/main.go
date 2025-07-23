@@ -8,8 +8,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/tcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/tcp"
 )
 
 type toolRequest struct {

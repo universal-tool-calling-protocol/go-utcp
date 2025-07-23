@@ -39,13 +39,13 @@ func startServer(addr string) {
 			data, err := os.ReadFile("tools.json")
 			if err != nil {
 				log.Printf("Failed to read tools.json: %v", err)
-				http.Error(w, fmt.Sprintf("failed to read tools.json: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("failed to read tools.json: %v", err), http.StatussrcServerError)
 				return
 			}
 			var discoveryResponse map[string]interface{}
 			if err := json.Unmarshal(data, &discoveryResponse); err != nil {
 				log.Printf("Failed to unmarshal tools.json: %v", err)
-				http.Error(w, fmt.Sprintf("invalid tools.json format: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("invalid tools.json format: %v", err), http.StatussrcServerError)
 				return
 			}
 

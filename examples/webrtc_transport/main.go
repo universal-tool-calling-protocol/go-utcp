@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
-	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/webrtc"
+	src "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
 
 	webrtc "github.com/pion/webrtc/v3"
 )

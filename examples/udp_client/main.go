@@ -11,7 +11,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
-	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
+	src "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 )
 
 type udpServer struct {

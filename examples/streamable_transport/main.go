@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/streamable"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
 )
 
 func main() {
@@ -76,7 +76,7 @@ func startStreamingServer(addr string) {
 		w.Header().Set("Content-Type", "application/json")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			http.Error(w, "streaming unsupported", http.StatussrcServerError)
 			return
 		}
 

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
-	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
+	src "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 
 	webrtc "github.com/pion/webrtc/v3"
 )

@@ -20,7 +20,7 @@ func startServer(addr string) {
 		// Open the JSON file
 		f, err := os.Open("tools.json")
 		if err != nil {
-			http.Error(w, "could not load tools.json: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "could not load tools.json: "+err.Error(), http.StatussrcServerError)
 			return
 		}
 		defer f.Close()
@@ -40,7 +40,7 @@ func startServer(addr string) {
 			w.Header().Set("Cache-Control", "no-cache")
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+				http.Error(w, "streaming unsupported", http.StatussrcServerError)
 				return
 			}
 			parts := []string{"Hello,", fmt.Sprintf(" %s!", name)}

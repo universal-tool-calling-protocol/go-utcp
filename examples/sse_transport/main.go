@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/sse"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 )
 
 func main() {
@@ -52,7 +52,7 @@ func startMockServer(addr string) {
 
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+				http.Error(w, "Streaming unsupported!", http.StatussrcServerError)
 				return
 			}
 

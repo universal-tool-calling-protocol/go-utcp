@@ -10,21 +10,21 @@ import (
 	"regexp"
 	"strings"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/sse"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/cli"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/graphql"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/grpc"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/http"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/mcp"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/streamable"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/tcp"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/udp"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/webrtc"
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/websocket"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/cli"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/graphql"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/grpc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/http"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/udp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/websocket"
 )
 
 // UtcpClientInterface defines the public API.
