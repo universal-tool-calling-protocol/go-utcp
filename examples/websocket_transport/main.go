@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	src "github.com/universal-tool-calling-protocol/go-utcp/internal"
+	src "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
 	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/websocket"
 )
