@@ -1,6 +1,6 @@
 //go:build ignore
 
-package src
+package internal
 
 import (
 	"fmt"
