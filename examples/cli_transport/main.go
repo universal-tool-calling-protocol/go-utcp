@@ -7,7 +7,7 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	"github.com/universal-tool-calling-protocol/go-utcp/internal/transports/cli"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/cli"
 )
 
 func main() {
@@ -20,7 +20,7 @@ func main() {
 
 	// Create the CLI transport directly
 	fmt.Println("Creating CLI transport...")
-	transport := cli.NewCliTransport(logger)
+	transport := NewCliTransport(logger)
 
 	// Create a CLI provider configuration
 	// This should match your discover_hello.sh script
