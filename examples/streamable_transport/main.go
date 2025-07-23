@@ -28,11 +28,19 @@ func main() {
 		URL:     "http://localhost:8080/tools",
 		Headers: map[string]string{}, // add auth here if needed
 	}
-
-	// 4) Call the "streamNumbers" tool
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
+	tools, err := transport.RegisterToolProvider(ctx, provider)
+	if err != nil {
+		log.Fatalf("Failed to register provider: %v", err)
+	}
+	if err != nil {
+		log.Fatalf("Failed to register provider: %v", err)
+	}
+	log.Printf("Discovered %d tools:", len(tools))
+	for _, t := range tools {
+		log.Printf(" • %s: %s", t.Name, t.Description)
+	}
 	var lastChunk string
 	res, err := transport.CallTool(ctx, "streamNumbers", nil, provider, &lastChunk)
 	if err != nil {
@@ -46,7 +54,25 @@ func main() {
 
 // startStreamingServer streams five JSON objects, one every 200ms
 func startStreamingServer(addr string) {
-	http.HandleFunc("/tools/streamNumbers", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	// Discovery endpoint:
+	mux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		manual := map[string]interface{}{
+			"version": "1.0",
+			"tools": []map[string]interface{}{
+				{
+					"name":        "streamNumbers",
+					"description": "Streams numbers 1 to ",
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(manual)
+	})
+
+	// Streaming tool endpoint:
+	mux.HandleFunc("/tools/streamNumbers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -56,13 +82,13 @@ func startStreamingServer(addr string) {
 
 		for i := 1; i <= 5; i++ {
 			obj := map[string]int{"number": i}
-			if data, err := json.Marshal(obj); err == nil {
-				fmt.Fprint(w, string(data), "\n")
-				flusher.Flush()
-			}
+			data, _ := json.Marshal(obj)
+			fmt.Fprint(w, string(data), "\n")
+			flusher.Flush()
 			time.Sleep(200 * time.Millisecond)
 		}
 	})
+
 	log.Printf("🔧 Streaming tool server on %s…", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	log.Fatal(http.ListenAndServe(addr, mux))
 }

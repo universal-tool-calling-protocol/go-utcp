@@ -8,7 +8,6 @@ import (
 	"net"
 	"time"
 
-	src "github.com/universal-tool-calling-protocol/go-utcp/internal"
 	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/tcp"
 )
@@ -51,10 +50,19 @@ func (s *tcpServer) handle(c net.Conn) {
 		return
 	}
 	if req.Action == "list" {
-		manual := src.UtcpManual{Version: "1.0", Tools: []src.Tool{{Name: "ping", Description: "Ping"}}}
+		manual := map[string]interface{}{
+			"version": "1.0",
+			"tools": []map[string]interface{}{
+				{
+					"name":        "ping",
+					"description": "Ping tool that responds with pong",
+				},
+			},
+		}
 		json.NewEncoder(c).Encode(manual)
 		return
 	}
+
 	if req.Tool == "ping" {
 		json.NewEncoder(c).Encode(map[string]any{"pong": true})
 	}
