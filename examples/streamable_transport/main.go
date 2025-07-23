@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/streamable"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/streamable"
 )
 
 func main() {
@@ -21,7 +21,7 @@ func main() {
 	logger := func(format string, args ...interface{}) {
 		log.Printf(format, args...)
 	}
-	transport := utcp.NewStreamableHTTPTransport(logger)
+	transport := transports.NewStreamableHTTPTransport(logger)
 
 	// 3) Point at your provider
 	provider := &providers.StreamableHttpProvider{

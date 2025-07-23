@@ -10,7 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/http"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/http"
 )
 
 // Tool metadata
@@ -128,7 +128,7 @@ func runClient(baseURL string) {
 		log.Printf(format, args...)
 	}
 
-	transport := utcp.NewHttpClientTransport(logger)
+	transport := transports.NewHttpClientTransport(logger)
 
 	// Provider for tool discovery
 	discoveryProvider := &providers.HttpProvider{

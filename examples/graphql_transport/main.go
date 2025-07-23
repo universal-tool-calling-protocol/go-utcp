@@ -15,7 +15,7 @@ import (
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/graphql"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/graphql"
 )
 
 // --- Mock server implementation ---
@@ -92,7 +92,7 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	// 1) Initialize a new GraphQL transport with a logger
-	transport := utcp.NewGraphQLClientTransport(func(msg string, err error) {
+	transport := transports.NewGraphQLClientTransport(func(msg string, err error) {
 		if err != nil {
 			log.Printf("[GraphQL][ERROR] %s: %v", msg, err)
 		} else {

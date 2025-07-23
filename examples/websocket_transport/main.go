@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	src "github.com/universal-tool-calling-protocol/go-utcp/internal"
 	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/websocket"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/websocket"
 )
 
 var upgrader = websocket.Upgrader{}
@@ -54,7 +54,7 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := utcp.NewWebSocketTransport(logger)
+	transport := transports.NewWebSocketTransport(logger)
 	wsURL := "ws://localhost:8080/tools"
 	prov := &providers.WebSocketProvider{BaseProvider: providers.BaseProvider{Name: "ws", ProviderType: providers.ProviderWebSocket}, URL: wsURL}
 

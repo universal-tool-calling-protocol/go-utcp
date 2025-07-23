@@ -200,7 +200,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("search: %v", err)
 	}
-	log.Printf("Discovered tools: %+v", tools)
+
+	log.Printf("Discovered tools:")
+	for _, t := range tools {
+		log.Printf(" - %s", t.Name)
+	}
 
 	if len(tools) == 0 {
 		log.Fatal("No tools discovered")

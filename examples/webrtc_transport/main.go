@@ -10,7 +10,7 @@ import (
 
 	src "github.com/universal-tool-calling-protocol/go-utcp/internal"
 	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/webrtc"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/webrtc"
 
 	webrtc "github.com/pion/webrtc/v3"
 )
@@ -108,15 +108,17 @@ func main() {
 
 	// client setup
 	ctx := context.Background()
-	transport := utcp.NewWebRTCClientTransport(log.Printf)
+	transport := transports.NewWebRTCClientTransport(log.Printf)
 	prov := &providers.WebRTCProvider{SignalingServer: "http://localhost:8080", PeerID: "client", DataChannelName: dcName}
 	// register & discover
 	tools, err := transport.RegisterToolProvider(ctx, prov)
 	if err != nil {
 		log.Fatalf("register error: %v", err)
 	}
-	log.Printf("Discovered tools: %+v", tools)
-
+	log.Printf("Discovered tools:")
+	for _, t := range tools {
+		log.Printf(" - %s", t.Name)
+	}
 	// call echo
 	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "Hello, WebRTC!"}, prov, nil)
 	if err != nil {

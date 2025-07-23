@@ -10,7 +10,7 @@ import (
 
 	src "github.com/universal-tool-calling-protocol/go-utcp/internal"
 	"github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
-	utcp "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/udp"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/internal/transports/udp"
 )
 
 type udpServer struct {
@@ -68,7 +68,7 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := utcp.NewUDPTransport(logger)
+	transport := transports.NewUDPTransport(logger)
 	prov := &providers.UDPProvider{BaseProvider: providers.BaseProvider{Name: "udp", ProviderType: providers.ProviderUDP}, Host: "127.0.0.1", Port: port, Timeout: 1000}
 
 	ctx := context.Background()
