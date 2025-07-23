@@ -10,9 +10,10 @@ import (
 	"net"
 	"time"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // TCPClientTransport implements ClientTransport over raw TCP sockets.

@@ -77,7 +77,7 @@ func listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, err.Error(), http.StatussrcServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 }
 

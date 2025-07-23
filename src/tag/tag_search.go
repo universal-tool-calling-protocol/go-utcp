@@ -1,10 +1,14 @@
-package concepts
+package tag
 
 import (
 	"context"
 	"regexp"
 	"sort"
 	"strings"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
 )
 
 // TagSearchStrategy implements a tool search strategy based on tags and description keywords.

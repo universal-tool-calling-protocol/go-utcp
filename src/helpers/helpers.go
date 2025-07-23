@@ -1,8 +1,10 @@
-package concepts
+package helpers
 
 import (
 	"encoding/json"
 	"io"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // decodeToolsResponse parses a common tools discovery response.

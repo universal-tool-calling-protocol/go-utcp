@@ -10,9 +10,12 @@ import (
 	"regexp"
 	"strings"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tag"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/cli"

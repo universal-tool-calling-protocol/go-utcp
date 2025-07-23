@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"net"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // UDPTransport implements the ClientTransport interface over UDP.

@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"time"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
-
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // StreamableHTTPClientTransport implements HTTP with streaming support.

@@ -1,7 +1,12 @@
-package concepts
+package tag
 
 import (
 	"context"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
+
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
@@ -9,13 +14,13 @@ import (
 
 func TestTagSearchStrategy_SearchTools(t *testing.T) {
 	repo := &InMemoryToolRepository{
-		tools: map[string][]Tool{
+		Tools: map[string][]Tool{
 			"p": {
 				{Name: "p.t1", Description: "first", Tags: []string{"alpha"}},
 				{Name: "p.t2", Description: "second tool", Tags: []string{"beta"}},
 			},
 		},
-		providers: map[string]Provider{},
+		Providers: map[string]Provider{},
 	}
 	strat := NewTagSearchStrategy(repo, 0.5)
 

@@ -52,7 +52,7 @@ func startMockServer(addr string) {
 
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				http.Error(w, "Streaming unsupported!", http.StatussrcServerError)
+				http.Error(w, "Streaming unsupported!", http.StatusBadRequest)
 				return
 			}
 

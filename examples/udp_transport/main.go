@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	src "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
+
 	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/udp"
 )
@@ -40,7 +42,7 @@ func (s *udpServer) loop() {
 		}
 		data := buf[:n]
 		if string(data) == "DISCOVER" {
-			manual := src.UtcpManual{Version: "1.0", Tools: []src.Tool{{Name: "udp_echo", Description: "Echo"}}}
+			manual := UtcpManual{Version: "1.0", Tools: []Tool{{Name: "udp_echo", Description: "Echo"}}}
 			out, _ := json.Marshal(manual)
 			s.conn.WriteToUDP(out, remote)
 			continue

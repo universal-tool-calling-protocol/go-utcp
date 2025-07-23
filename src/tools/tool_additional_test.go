@@ -1,4 +1,4 @@
-package concepts
+package tools
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 
 // TestAddToolAndGetTools verifies AddTool and GetTools functions.
 func TestAddToolAndGetTools(t *testing.T) {
-	tools = nil
+	Tools = nil
 	AddTool(Tool{Name: "t1"})
 	AddTool(Tool{Name: "t2"})
 	got := GetTools()
@@ -26,16 +26,16 @@ func TestAddToolPanics(t *testing.T) {
 
 // TestRegisterToolDefaults uses RegisterTool with nil schemas and expects defaults.
 func TestRegisterToolDefaults(t *testing.T) {
-	tools = nil
+	Tools = nil
 	handler := func(ctx map[string]interface{}, in map[string]interface{}) (map[string]interface{}, error) {
 		return in, nil
 	}
 	prov := &CliProvider{BaseProvider: BaseProvider{Name: "cli", ProviderType: ProviderCLI}}
 	RegisterTool(prov, "echo", "desc", []string{"tag"}, nil, nil, handler)
-	if len(tools) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(tools))
+	if len(Tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(Tools))
 	}
-	tool := tools[0]
+	tool := Tools[0]
 	if tool.Inputs.Type != "object" || tool.Outputs.Type != "object" {
 		t.Fatalf("expected default schemas, got %+v %+v", tool.Inputs, tool.Outputs)
 	}

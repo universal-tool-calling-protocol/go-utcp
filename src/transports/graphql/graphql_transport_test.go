@@ -1,4 +1,4 @@
-package utcp
+package graphql
 
 import (
 	"context"

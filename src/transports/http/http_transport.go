@@ -12,9 +12,11 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 	"gopkg.in/yaml.v2"
 )
 

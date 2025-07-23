@@ -1,9 +1,10 @@
-package concepts
+package repository
 
 import (
 	"context"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 // ClientTransport defines how a client registers, deregisters, and invokes UTCP tools.

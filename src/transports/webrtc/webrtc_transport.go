@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	webrtc "github.com/pion/webrtc/v3"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/concepts"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 var newPeerConnection = webrtc.NewPeerConnection
