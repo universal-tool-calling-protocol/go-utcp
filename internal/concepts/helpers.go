@@ -1,4 +1,4 @@
-package internal
+package concepts
 
 import (
 	"encoding/json"

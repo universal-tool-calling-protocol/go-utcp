@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
 	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
 )
 

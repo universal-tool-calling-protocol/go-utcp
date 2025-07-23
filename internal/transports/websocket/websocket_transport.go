@@ -10,8 +10,8 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/internal"
 	. "github.com/universal-tool-calling-protocol/go-utcp/internal/auth"
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/concepts"
 
 	"time"
 

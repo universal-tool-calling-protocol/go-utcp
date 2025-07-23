@@ -1,9 +1,12 @@
-//go:build ignore
-
-package internal
+package concepts
 
 import (
 	"fmt"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/providers"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/internal/auth"
+
 	"net/url"
 	"strings"
 )
