@@ -1,4 +1,4 @@
-package utcp
+package streamable
 
 import (
 	"context"
