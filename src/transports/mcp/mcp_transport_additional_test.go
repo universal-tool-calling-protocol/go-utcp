@@ -26,7 +26,7 @@ func TestMCPTransport_Errors(t *testing.T) {
 		t.Fatalf("expected error for wrong provider")
 	}
 	// proper provider succeeds
-	prov := NewMCPProvider("python3", []string{"python3", "server.py"})
+	prov := NewMCPProvider("pytgon3", []string{"python3", "../../../scripts/server.py"})
 	if _, err := tr.RegisterToolProvider(ctx, prov); err != nil {
 		t.Fatalf("register err: %v", err)
 	}
