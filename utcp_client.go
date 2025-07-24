@@ -34,6 +34,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
+	mcpprovider "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
@@ -142,6 +143,11 @@ func defaultTransports() map[string]ClientTransport {
 				fmt.Printf("MCP Transport: "+format+"\n", args...)
 			},
 		), // You'll need to implement these
+		"mcp_server": NewMCPServerTransport(
+			func(format string, args ...interface{}) {
+				fmt.Printf("MCP Server Transport: "+format+"\n", args...)
+			},
+		),
 		"websocket": NewWebSocketTransport(func(format string, args ...interface{}) {
 			fmt.Printf("WebSocket Transport: "+format+"\n", args...)
 		}),
@@ -227,6 +233,8 @@ func (c *UtcpClient) getProviderName(prov Provider) string {
 		return p.Name
 	case *MCPProvider:
 		return p.Name
+	case *mcpprovider.MCPServerProvider:
+		return p.Name
 	default:
 		return "unknown"
 	}
@@ -256,6 +264,8 @@ func (c *UtcpClient) setProviderName(prov Provider, name string) {
 	case *WebRTCProvider:
 		p.Name = name
 	case *MCPProvider:
+		p.Name = name
+	case *mcpprovider.MCPServerProvider:
 		p.Name = name
 	}
 }
@@ -426,6 +436,8 @@ func (c *UtcpClient) createProviderOfType(ptype ProviderType) Provider {
 		return &WebRTCProvider{}
 	case ProviderMCP:
 		return &MCPProvider{}
+	case ProviderMCPServer:
+		return &mcpprovider.MCPServerProvider{}
 	default:
 		return &HttpProvider{} // fallback
 	}

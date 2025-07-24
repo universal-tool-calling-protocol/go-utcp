@@ -70,6 +70,12 @@ func UnmarshalProvider(data []byte) (Provider, error) {
 			return nil, err
 		}
 		return p, nil
+	case ProviderMCPServer:
+		p := &MCPServerProvider{}
+		if err := json.Unmarshal(data, p); err != nil {
+			return nil, err
+		}
+		return p, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider_type %q", base.ProviderType)
 	}
