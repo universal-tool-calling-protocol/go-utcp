@@ -7,7 +7,8 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
 )
 
 func TestWebSocketTransportApplyAuth_Basic(t *testing.T) {

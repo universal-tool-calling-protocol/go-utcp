@@ -3,7 +3,7 @@ package tools
 import (
 	"reflect"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 )
 
 // ProviderUnion is your existing Go interface/union for providers.

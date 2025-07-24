@@ -3,7 +3,8 @@ package tools
 import (
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
 )
 
 // TestAddToolAndGetTools verifies AddTool and GetTools functions.

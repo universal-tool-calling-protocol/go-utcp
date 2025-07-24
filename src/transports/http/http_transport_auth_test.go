@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 )
 
 func TestHttpClientTransport_applyAuth(t *testing.T) {

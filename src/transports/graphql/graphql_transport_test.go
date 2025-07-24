@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
 )
 
 func TestGraphQLClientTransport_RegisterAndCall(t *testing.T) {

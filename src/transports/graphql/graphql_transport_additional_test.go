@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
 )
 
 // helper pointer to string

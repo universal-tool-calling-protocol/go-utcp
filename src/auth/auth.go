@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 )
 
 // AuthType represents the kind of authentication.
@@ -134,4 +136,35 @@ func (o *OAuth2Auth) Validate() error {
 		return errors.New("client_secret must be provided")
 	}
 	return nil
+}
+
+func UnmarshalAuth(data []byte) (Auth, error) {
+	var base struct {
+		AuthType AuthType `json:"auth_type"`
+	}
+	if err := json.Unmarshal(data, &base); err != nil {
+		return nil, err
+	}
+	switch base.AuthType {
+	case APIKeyType:
+		var a ApiKeyAuth
+		if err := json.Unmarshal(data, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	case BasicType:
+		var a BasicAuth
+		if err := json.Unmarshal(data, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	case OAuth2Type:
+		var a OAuth2Auth
+		if err := json.Unmarshal(data, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	default:
+		return nil, fmt.Errorf("unsupported auth_type %q", base.AuthType)
+	}
 }

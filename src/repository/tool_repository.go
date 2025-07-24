@@ -5,7 +5,7 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 )
 
 // ToolRepository defines the contract for persisting providers and their tools.

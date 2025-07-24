@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
-
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
 )

@@ -10,11 +10,11 @@ import (
 	"regexp"
 	"strings"
 
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tag"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 
@@ -28,6 +28,20 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/udp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/websocket"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 )
 
 // UtcpClientInterface defines the public API.

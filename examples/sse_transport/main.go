@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 )
 

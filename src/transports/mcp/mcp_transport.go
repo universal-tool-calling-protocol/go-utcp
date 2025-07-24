@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 

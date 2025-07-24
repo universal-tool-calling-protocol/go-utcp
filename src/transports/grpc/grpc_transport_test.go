@@ -8,7 +8,10 @@ import (
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
+
 	"google.golang.org/grpc"
 )
 

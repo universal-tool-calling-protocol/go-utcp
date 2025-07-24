@@ -9,7 +9,7 @@ import (
 
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 )
 
 func TestTagSearchStrategy_SearchTools(t *testing.T) {

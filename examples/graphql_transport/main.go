@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/graphql"
 )
 

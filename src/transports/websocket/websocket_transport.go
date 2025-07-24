@@ -8,16 +8,17 @@ import (
 	"net/http"
 	"strings"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
 
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	"github.com/gorilla/websocket"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 )
 
 type WebSocketClientTransport struct {

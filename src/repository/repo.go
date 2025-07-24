@@ -4,10 +4,22 @@ import (
 	"context"
 	"fmt"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	"sync"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
 )
 
 type InMemoryToolRepository struct {

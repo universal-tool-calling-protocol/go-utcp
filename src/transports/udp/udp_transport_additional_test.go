@@ -5,7 +5,7 @@ import (
 
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
 )
 
 func TestUDPTransport_Deregister(t *testing.T) {

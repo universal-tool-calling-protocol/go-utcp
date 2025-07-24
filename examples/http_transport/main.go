@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/http"
 )
 

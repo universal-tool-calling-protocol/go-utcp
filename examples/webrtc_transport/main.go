@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
 

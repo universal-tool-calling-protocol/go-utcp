@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"net"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
 
 	"testing"
 )

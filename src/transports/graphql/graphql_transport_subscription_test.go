@@ -7,7 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
 
 	"testing"
 )

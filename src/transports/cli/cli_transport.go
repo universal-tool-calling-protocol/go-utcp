@@ -14,7 +14,9 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
