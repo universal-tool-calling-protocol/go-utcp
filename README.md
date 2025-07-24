@@ -128,6 +128,3 @@ func main() {
 	}
 }
 ```
-
-The library is primarily intended for experimentation and
-interoperability testing.  The API may change without notice.
