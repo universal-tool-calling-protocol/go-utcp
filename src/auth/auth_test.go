@@ -132,3 +132,20 @@ func TestOAuth2Auth_Type(t *testing.T) {
 		t.Errorf("Type() = %s, want %s", got, OAuth2Type)
 	}
 }
+func TestUnmarshalAuth(t *testing.T) {
+	a, err := UnmarshalAuth([]byte(`{"auth_type":"api_key","api_key":"k","location":"header"}`))
+	if err != nil || a.(*ApiKeyAuth).APIKey != "k" {
+		t.Fatalf("api key err %v %v", a, err)
+	}
+	b, err := UnmarshalAuth([]byte(`{"auth_type":"basic","username":"u","password":"p"}`))
+	if err != nil || b.(*BasicAuth).Username != "u" {
+		t.Fatalf("basic err %v %v", b, err)
+	}
+	o, err := UnmarshalAuth([]byte(`{"auth_type":"oauth2","token_url":"t","client_id":"c","client_secret":"s"}`))
+	if err != nil || o.(*OAuth2Auth).TokenURL != "t" {
+		t.Fatalf("oauth err %v %v", o, err)
+	}
+	if _, err := UnmarshalAuth([]byte(`{"auth_type":"unknown"}`)); err == nil {
+		t.Fatalf("expected error for unknown type")
+	}
+}
