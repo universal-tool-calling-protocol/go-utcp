@@ -3,7 +3,8 @@ package openapi
 import (
 	"fmt"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"

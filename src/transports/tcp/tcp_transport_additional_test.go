@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
 )
 
 func TestTCPTransport_DeregisterAndClose(t *testing.T) {

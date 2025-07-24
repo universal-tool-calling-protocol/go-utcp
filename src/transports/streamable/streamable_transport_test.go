@@ -7,7 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 )
 
 func TestStreamableHTTPClientTransport_RegisterAndCall(t *testing.T) {

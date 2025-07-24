@@ -15,7 +15,8 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 	"gopkg.in/yaml.v2"
 )

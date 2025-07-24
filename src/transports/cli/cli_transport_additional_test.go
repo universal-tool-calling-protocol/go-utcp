@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/graphql"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/http"
 )

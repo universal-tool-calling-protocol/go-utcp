@@ -8,7 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
 
 	webrtc "github.com/pion/webrtc/v3"
 )

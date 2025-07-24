@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
 
 	"github.com/gorilla/websocket"
 )

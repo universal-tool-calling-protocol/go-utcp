@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/grpc"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
@@ -53,7 +55,7 @@ func main() {
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
 	transport := transports.NewGRPCClientTransport(logger)
-	prov := &providers.GRPCProvider{BaseProvider: providers.BaseProvider{Name: "grpc", ProviderType: providers.ProviderGRPC}, Host: "127.0.0.1", Port: atoi(port)}
+	prov := &providers.GRPCProvider{BaseProvider: BaseProvider{Name: "grpc", ProviderType: ProviderGRPC}, Host: "127.0.0.1", Port: atoi(port)}
 
 	ctx := context.Background()
 	tools, err := transport.RegisterToolProvider(ctx, prov)

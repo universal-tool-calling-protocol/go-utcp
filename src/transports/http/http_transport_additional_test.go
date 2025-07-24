@@ -6,7 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 )
 
 func TestHttpTransport_Register_InsecureURL(t *testing.T) {

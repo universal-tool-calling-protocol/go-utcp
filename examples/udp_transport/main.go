@@ -9,9 +9,11 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/udp"
 )
 
@@ -71,7 +73,7 @@ func main() {
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
 	transport := transports.NewUDPTransport(logger)
-	prov := &providers.UDPProvider{BaseProvider: providers.BaseProvider{Name: "udp", ProviderType: providers.ProviderUDP}, Host: "127.0.0.1", Port: port, Timeout: 1000}
+	prov := &providers.UDPProvider{BaseProvider: BaseProvider{Name: "udp", ProviderType: ProviderUDP}, Host: "127.0.0.1", Port: port, Timeout: 1000}
 
 	ctx := context.Background()
 	tools, err := transport.RegisterToolProvider(ctx, prov)

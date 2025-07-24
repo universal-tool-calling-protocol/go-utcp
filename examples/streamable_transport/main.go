@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
 )
 

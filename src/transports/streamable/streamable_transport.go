@@ -12,7 +12,8 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/helpers"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 

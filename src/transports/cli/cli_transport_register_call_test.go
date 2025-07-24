@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
 )
 
 func TestCliTransport_RegisterAndCall(t *testing.T) {

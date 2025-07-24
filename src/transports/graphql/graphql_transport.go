@@ -17,7 +17,9 @@ import (
 	"github.com/gorilla/websocket"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	"github.com/machinebox/graphql"

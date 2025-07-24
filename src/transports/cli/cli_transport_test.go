@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
 )
 
 // TestPrepareEnv verifies that provider‑specific environment variables are merged

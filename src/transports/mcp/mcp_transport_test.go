@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 )
 
 func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
 	tr := NewMCPTransport(nil)
-	prov := NewMCPProvider("pytgon3", []string{"python3", "../../../scripts/server.py"})
+	prov := NewMCPProvider("pytgon3", []string{"python3", "server.py"})
 	ctx := context.Background()
 	tools, err := tr.RegisterToolProvider(ctx, prov)
 	if err != nil {

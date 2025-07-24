@@ -11,7 +11,9 @@ import (
 
 	"time"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
