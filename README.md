@@ -9,7 +9,7 @@ In contrast to other protocols like MCP, UTCP places a strong emphasis on:
 
 *   **Scalability**: UTCP is designed to handle a large number of tools and providers without compromising performance.
 *   **Interoperability**: With support for a wide range of provider types (including HTTP, WebSockets, gRPC, and even CLI tools), UTCP can integrate with almost any existing service or infrastructure.
-*   **Ease of Use**: The protocol is built on simple, well-defined Pydantic models, making it easy for developers to implement and use.
+*   **Ease of Use**: The protocol is built on simple.
 
 
 ![MCP vs. UTCP](https://github.com/user-attachments/assets/3cadfc19-8eea-4467-b606-66e580b89444)
