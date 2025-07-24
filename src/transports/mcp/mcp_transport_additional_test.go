@@ -40,7 +40,7 @@ func TestMCPTransport_Errors(t *testing.T) {
 func TestMCPTransport_SuccessPaths(t *testing.T) {
 	tr := NewMCPTransport(nil)
 	ctx := context.Background()
-	prov := NewMCPProvider("pytgon3", []string{"python3", "server.py"})
+	prov := NewMCPProvider("pytgon3", []string{"python3", "../../../scripts/server.py"})
 	if _, err := tr.RegisterToolProvider(ctx, prov); err != nil {
 		t.Fatalf("register err: %v", err)
 	}
