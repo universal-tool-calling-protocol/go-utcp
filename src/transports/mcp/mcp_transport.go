@@ -270,7 +270,6 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 					return results, nil
 				}
 				chunkCount++
-				t.logger("Stream chunk %d received", chunkCount)
 				results = append(results, payload)
 			} else if err, ok := result.(error); ok {
 				lastError = err
@@ -465,9 +464,6 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 					}
 
 					if !hasID && notification.Method != "" {
-						// This is a notification, send it as a streaming chunk
-						t.logger("Received MCP notification: %s", notification.Method)
-
 						// Create a structured notification result
 						notificationResult := map[string]interface{}{
 							"type":   "notification",
