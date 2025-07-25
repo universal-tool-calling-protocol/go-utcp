@@ -25,7 +25,7 @@ func main() {
 
 	// 3) Point at your provider
 	provider := &providers.StreamableHttpProvider{
-		URL:     "http://localhost:8080/tools",
+		URL:     "http://localhost:8080/utcp",
 		Headers: map[string]string{}, // add auth here if needed
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -57,7 +57,7 @@ func startStreamingServer(addr string) {
 	mux := http.NewServeMux()
 
 	// Discovery endpoint:
-	mux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/utcp", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		manual := map[string]interface{}{
 			"version": "1.0",
@@ -72,7 +72,7 @@ func startStreamingServer(addr string) {
 	})
 
 	// Streaming tool endpoint:
-	mux.HandleFunc("/tools/streamNumbers", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/utcp/streamNumbers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		flusher, ok := w.(http.Flusher)
 		if !ok {

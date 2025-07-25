@@ -28,7 +28,7 @@ func main() {
 func startMockServer(addr string) {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/utcp", func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]interface{}{
 			"version": "1.0",
 			"tools": []map[string]interface{}{
@@ -39,7 +39,7 @@ func startMockServer(addr string) {
 		json.NewEncoder(w).Encode(resp)
 	})
 
-	mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/utcp/hello", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		name, _ := in["name"].(string)
@@ -88,7 +88,7 @@ func runClient(baseURL string) {
 	transport := transports.NewSSETransport(logger)
 
 	// Discovery endpoint
-	provider := &providers.SSEProvider{URL: baseURL + "/tools"}
+	provider := &providers.SSEProvider{URL: baseURL + "/utcp"}
 	tools, err := transport.RegisterToolProvider(ctx, provider)
 	if err != nil {
 		panic(fmt.Errorf("failed to register SSE tools: %w", err))
@@ -99,7 +99,7 @@ func runClient(baseURL string) {
 	}
 
 	// Update URL for tool calls
-	provider.URL = baseURL
+	provider.URL = baseURL + "/utcp"
 	// Call with streaming
 	res, err := transport.CallTool(ctx, "hello", map[string]interface{}{"name": "UTCP"}, provider, nil)
 	if err != nil {

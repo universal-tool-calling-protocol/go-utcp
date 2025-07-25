@@ -16,7 +16,7 @@ import (
 
 func startServer(addr string) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/utcp", func(w http.ResponseWriter, r *http.Request) {
 		// Open the JSON file
 		f, err := os.Open("tools.json")
 		if err != nil {
@@ -32,7 +32,7 @@ func startServer(addr string) {
 			log.Printf("error writing tools.json: %v", err)
 		}
 	})
-	mux.HandleFunc("/tools/sse.hello", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/utcp/sse.hello", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		name, _ := in["name"].(string)

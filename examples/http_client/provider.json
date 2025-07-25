@@ -4,7 +4,7 @@
       "provider_type": "http",
       "name": "http",
       "http_method": "POST",
-      "url": "http://localhost:8080/tools",
+      "url": "http://localhost:8080/utcp",
       "headers": {
         "Content-Type": "application/json"
       }

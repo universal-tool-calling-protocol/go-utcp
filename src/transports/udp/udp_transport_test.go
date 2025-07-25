@@ -58,7 +58,7 @@ func (s *udpServer) close() {
 
 func TestUDPTransport_RegisterAndCall(t *testing.T) {
 	server, err := startUDPServer(func(b []byte) []byte {
-		if string(b) == "DISCOVER" {
+		if string(b) == "UTCP" {
 			return []byte(`{"version":"1.0","tools":[{"name":"udp_echo","description":"Echo"}]}`)
 		}
 		var req map[string]any

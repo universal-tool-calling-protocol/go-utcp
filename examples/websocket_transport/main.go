@@ -29,14 +29,14 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 
 	switch r.URL.Path {
-	case "/tools":
+	case "/utcp":
 		_, msg, err := c.ReadMessage()
 		if err != nil || string(msg) != "manual" {
 			return
 		}
 		manual := UtcpManual{Version: "1.0", Tools: tools}
 		c.WriteJSON(manual)
-	case "/echo":
+	case "/utcp/echo":
 		var in map[string]any
 		if err := c.ReadJSON(&in); err != nil {
 			return
@@ -46,8 +46,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func startServer(addr string) {
-	http.HandleFunc("/tools", wsHandler)
-	http.HandleFunc("/echo", wsHandler)
+	http.HandleFunc("/utcp", wsHandler)
+	http.HandleFunc("/utcp/echo", wsHandler)
 	log.Printf("WebSocket server listening on %s", addr)
 	http.ListenAndServe(addr, nil)
 }
@@ -58,7 +58,7 @@ func main() {
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
 	transport := transports.NewWebSocketTransport(logger)
-	wsURL := "ws://localhost:8080/tools"
+	wsURL := "ws://localhost:8080/utcp"
 	prov := &providers.WebSocketProvider{BaseProvider: BaseProvider{Name: "ws", ProviderType: ProviderWebSocket}, URL: wsURL}
 
 	ctx := context.Background()

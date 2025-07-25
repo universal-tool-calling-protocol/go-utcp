@@ -78,8 +78,8 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func startServer(addr string) {
-	http.HandleFunc("/tools", toolsHandler)
-	http.HandleFunc("/websocket.echo", echoHandler)
+	http.HandleFunc("/utcp", toolsHandler)
+	http.HandleFunc("/utcp/echo", echoHandler)
 	log.Printf("WebSocket server listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

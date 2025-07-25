@@ -54,7 +54,7 @@ func (s *udpServer) loop(manual UtcpManual) {
 		data := buf[:n]
 
 		// Discovery request
-		if string(data) == "DISCOVER" {
+		if string(data) == "UTCP" {
 			out, _ := json.Marshal(manual)
 			s.conn.WriteToUDP(out, remote)
 			continue

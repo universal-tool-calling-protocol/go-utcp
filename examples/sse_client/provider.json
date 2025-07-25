@@ -2,7 +2,7 @@
   "providers": [{
     "provider_type": "sse",
     "name": "sse",
-    "url": "http://localhost:8080/tools"
+    "url": "http://localhost:8080/utcp"
     }
   ]
 }

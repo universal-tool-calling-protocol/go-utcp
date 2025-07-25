@@ -45,14 +45,14 @@ func main() {
 	time.Sleep(200 * time.Millisecond)
 
 	// 3) Run the client that discovers & calls "echo"
-	runClient("http://localhost:8080/tools")
+	runClient("http://localhost:8080/utcp")
 }
 
 // startToolServer boots the HTTP API that lists & invokes tools.
 func startToolServer(addr string) {
 	r := mux.NewRouter()
-	r.HandleFunc("/tools", listToolsHandler).Methods("GET")
-	r.HandleFunc("/tools/{name}/call", callToolHandler).Methods("POST")
+	r.HandleFunc("/utcp", listToolsHandler).Methods("GET")
+	r.HandleFunc("/utcp/{name}", callToolHandler).Methods("POST")
 
 	srv := &http.Server{
 		Handler:      r,
@@ -152,7 +152,7 @@ func runClient(baseURL string) {
 
 	// Provider for tool calling (different URL pattern and POST method)
 	callProvider := &providers.HttpProvider{
-		URL:        "http://localhost:8080/tools/echo/call",
+		URL:        "http://localhost:8080/utcp/echo",
 		HTTPMethod: "POST",
 		Headers:    map[string]string{"Content-Type": "application/json"},
 	}
@@ -167,7 +167,7 @@ func runClient(baseURL string) {
 
 	// Call "timestamp" tool (send empty JSON object)
 	timestampProvider := &providers.HttpProvider{
-		URL:        "http://localhost:8080/tools/timestamp/call",
+		URL:        "http://localhost:8080/utcp/timestamp",
 		HTTPMethod: "POST",
 		Headers:    map[string]string{"Content-Type": "application/json"},
 	}

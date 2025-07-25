@@ -51,7 +51,7 @@ func (s *tcpServer) handle(c net.Conn) {
 	if err := dec.Decode(&req); err != nil {
 		return
 	}
-	if req.Action == "list" {
+	if req.Action == "utcp" {
 		manual := map[string]interface{}{
 			"version": "1.0",
 			"tools": []map[string]interface{}{

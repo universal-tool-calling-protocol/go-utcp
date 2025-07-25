@@ -43,7 +43,7 @@ func (s *tcpTestServer) handle(conn net.Conn) {
 	if err := dec.Decode(&req); err != nil {
 		return
 	}
-	if req["action"] == "list" {
+	if req["action"] == "utcp" {
 		resp := map[string]interface{}{
 			"version": "1.0",
 			"tools":   []map[string]interface{}{{"name": "ping", "description": "Ping"}},

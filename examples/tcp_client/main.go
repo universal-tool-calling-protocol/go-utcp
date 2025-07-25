@@ -53,7 +53,7 @@ func (s *tcpServer) handle(c net.Conn) {
 
 	log.Printf("Received request: %+v", req)
 
-	if req.Action == "list" {
+	if req.Action == "utcp" {
 		manual := map[string]interface{}{
 			"version": "1.0",
 			"tools": []map[string]interface{}{

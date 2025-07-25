@@ -53,7 +53,7 @@ func (t *TCPClientTransport) RegisterToolProvider(ctx context.Context, prov Prov
 	defer conn.Close()
 
 	// Request manual
-	req := map[string]string{"action": "list"}
+	req := map[string]string{"action": "utcp"}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, err
 	}

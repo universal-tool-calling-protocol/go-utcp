@@ -3,7 +3,7 @@
     {
       "provider_type": "http_stream",
       "name": "http_stream",
-      "url": "http://localhost:8080/tools",
+      "url": "http://localhost:8080/utcp",
       "http_method": "POST"
     }
   ]

@@ -17,7 +17,7 @@ import (
 var discovered bool
 
 func startServer(addr string) {
-	http.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/utcp", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return

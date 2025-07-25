@@ -53,7 +53,7 @@ func (t *UDPTransport) writeAndRead(ctx context.Context, addr string, timeout ti
 	return buf[:n], nil
 }
 
-// RegisterToolProvider discovers tools by sending a DISCOVER message to the server.
+// RegisterToolProvider discovers tools by sending a UTCP message to the server.
 func (t *UDPTransport) RegisterToolProvider(ctx context.Context, prov Provider) ([]Tool, error) {
 	p, ok := prov.(*UDPProvider)
 	if !ok {
@@ -61,7 +61,7 @@ func (t *UDPTransport) RegisterToolProvider(ctx context.Context, prov Provider) 
 	}
 	addr := fmt.Sprintf("%s:%d", p.Host, p.Port)
 	timeout := time.Duration(p.Timeout) * time.Millisecond
-	resp, err := t.writeAndRead(ctx, addr, timeout, []byte("DISCOVER"))
+	resp, err := t.writeAndRead(ctx, addr, timeout, []byte("UTCP"))
 	if err != nil {
 		return nil, err
 	}
