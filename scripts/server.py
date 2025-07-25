@@ -57,6 +57,34 @@ def handle_tools_list(req: Dict[str, Any]) -> Dict[str, Any]:
     log.info("tools/list()")
     return {"jsonrpc": "2.0", "id": req["id"], "result": {"tools": TOOLS}}
 
+def send_line(obj):
+    print(json.dumps(obj), flush=True)
+
+def handle_call_stream(req):
+    args = req.get("params", {}).get("arguments", {})
+    count = int(args.get("count", 5))
+    delay = float(args.get("delay", 1))
+
+    # Send streaming chunks as notifications (no "id")
+    for i in range(count):
+        send_line({
+            "jsonrpc": "2.0",
+            "method": "chunk",
+            "params": {
+                "result": f"Chunk {i+1} of {count}"
+            }
+        })
+        time.sleep(delay)
+
+    # Final result (only one with "id")
+    send_line({
+        "jsonrpc": "2.0",
+        "id": req["id"],
+        "result": {
+            "result": "Stream complete"
+        }
+    })
+
 # — call a tool synchronously or streaming
 def handle_tool_call(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     params = req.get("params", {}) or {}
@@ -69,15 +97,7 @@ def handle_tool_call(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return {"jsonrpc": "2.0", "id": req["id"], "result": {"result": f"Hello, {who}!"}}
 
     elif name == "call_stream":
-        count = int(args.get("count", 5))
-        delay = float(args.get("delay", 1))
-        for i in range(count):
-            send_response({"jsonrpc": "2.0", "id": req["id"], "result": {"result": f"Chunk {i+1} of {count}"}})
-            time.sleep(delay)
-        # final message
-        send_response({"jsonrpc": "2.0", "id": req["id"], "result": {"result": "Stream complete"}})
-        # exit to close stdout and terminate stream
-        sys.exit(0)
+        handle_call_stream(req)
 
     else:
         return {"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32601, "message": "Tool not found"}}

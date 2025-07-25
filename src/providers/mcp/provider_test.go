@@ -17,7 +17,7 @@ func TestMCPProvider_Basic(t *testing.T) {
 }
 func TestMCPProvider_BuildersAndValidate(t *testing.T) {
 	p := NewMCPProvider("name", []string{"cmd"})
-	p.WithArgs("--x").WithEnv("A", "1").WithWorkingDir("/tmp").WithStdinData("in").WithTimeout(5)
+	p.WithArgs("--x").WithEnv("A", "1").WithWorkingDir("/tmp").WithStdinData("in").WithTimeout(5).WithURL("http://x")
 	if p.Timeout != 5 || p.Env["A"] != "1" || p.WorkingDir != "/tmp" || len(p.Args) != 1 || p.StdinData != "in" {
 		t.Fatalf("builder mismatch: %+v", p)
 	}
@@ -31,5 +31,10 @@ func TestMCPProvider_BuildersAndValidate(t *testing.T) {
 	bad := &MCPProvider{}
 	if err := bad.Validate(); err == nil {
 		t.Fatalf("expected validation error")
+	}
+
+	urlOnly := &MCPProvider{Name: "url", URL: "http://s"}
+	if err := urlOnly.Validate(); err != nil {
+		t.Fatalf("validate url err: %v", err)
 	}
 }
