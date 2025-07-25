@@ -64,8 +64,8 @@ func main() {
 	}
 
 	// Call the tool directly using MCPTransport
-	argsMap := map[string]any{"name": "Kamil"}
-	result, err := transport.CallTool(ctx, toolName, argsMap, mcpProvider, nil)
+	argsMap := map[string]any{"count": "5"}
+	result, err := transport.CallTool(ctx, tools[1].Name, argsMap, mcpProvider, nil)
 	if err != nil {
 		log.Fatalf("CallTool failed: %v", err)
 	}

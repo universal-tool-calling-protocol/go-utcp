@@ -31,8 +31,7 @@ func main() {
 
 	// 4) Synchronous call
 	argsMap := map[string]any{"count": 5}
-	toolID := tools[0]
-	result, err := client.CallTool(ctx, toolID.Name, argsMap)
+	result, err := client.CallTool(ctx, tools[1].Name, argsMap)
 
 	if err != nil {
 		log.Fatalf("CallTool failed: %v", err)

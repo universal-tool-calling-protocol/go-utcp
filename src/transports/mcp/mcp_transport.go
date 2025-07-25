@@ -249,13 +249,11 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 		select {
 		case result, ok := <-resultChan:
 			if !ok {
-				// Channel closed, stream finished
 				t.logger("Stream finished. Received %d chunks total", chunkCount)
 
 				if lastError != nil {
 					return nil, lastError
 				}
-				// Return single result if only one, otherwise return array
 				if len(results) == 0 {
 					return nil, fmt.Errorf("no results received from tool call")
 				}
@@ -265,21 +263,26 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 				return results, nil
 			}
 
-			if err, ok := result.(error); ok {
+			// Handle structured chunk
+			if payload, ok := result.(map[string]any); ok {
+				if payload["type"] == "notification" && payload["method"] == "done" {
+					t.logger("Received stream completion signal.")
+					return results, nil
+				}
+				chunkCount++
+				t.logger("Stream chunk %d received", chunkCount)
+				results = append(results, payload)
+			} else if err, ok := result.(error); ok {
 				lastError = err
 				t.logger("Stream error: %v", err)
-				continue
 			}
-
-			chunkCount++
-			t.logger("Stream chunk %d received", chunkCount)
-			results = append(results, result)
 
 		case <-ctx.Done():
 			t.logger("Stream cancelled by context")
 			return nil, ctx.Err()
 		}
 	}
+
 }
 
 // CallToolStream calls a specific tool on the MCP server and returns a streaming channel.
@@ -315,26 +318,31 @@ func (t *MCPTransport) callHTTPToolStream(
 	toolName string,
 	args map[string]any,
 ) (<-chan any, error) {
-	ch := make(chan any, 1)
-	done := make(chan struct{}) // signal to stop sending
+	ch := make(chan any, 10)
+	done := make(chan struct{})
+	notificationReceived := make(chan struct{}, 1) // marks stream start
 
 	client.OnNotification(func(n mcp.JSONRPCNotification) {
 		select {
 		case <-done:
-			return // gracefully stop if stream ended
+			return
 		default:
 		}
 
-		raw, err := json.Marshal(n)
-		if err != nil {
-			return
+		payload := map[string]any{
+			"type":   "notification",
+			"method": n.Method,
+			"params": n.Params,
 		}
-		var chunk any
-		_ = json.Unmarshal(raw, &chunk)
 
 		select {
-		case ch <- chunk:
+		case notificationReceived <- struct{}{}:
 		default:
+		}
+
+		select {
+		case ch <- payload:
+		case <-ctx.Done():
 		}
 	})
 
@@ -344,10 +352,14 @@ func (t *MCPTransport) callHTTPToolStream(
 			close(ch)
 		}()
 
-		req := mcpapi.CallToolRequest{}
-		req.Params.Name = toolName
-		req.Params.Arguments = args
+		req := mcpapi.CallToolRequest{
+			Params: mcpapi.CallToolParams{
+				Name:      toolName,
+				Arguments: args,
+			},
+		}
 
+		// Send the tool call
 		res, err := client.CallTool(ctx, req)
 		if err != nil {
 			select {
@@ -357,13 +369,20 @@ func (t *MCPTransport) callHTTPToolStream(
 			return
 		}
 
-		raw, _ := json.Marshal(res)
-		var out any
-		_ = json.Unmarshal(raw, &out)
-
+		// Wait a moment to see if we received any notifications
 		select {
-		case ch <- out:
-		case <-ctx.Done():
+		case <-notificationReceived:
+			// Stream has begun, ignore res
+			return
+		case <-time.After(150 * time.Millisecond):
+			// No notifications — assume it's a sync response
+			raw, _ := json.Marshal(res)
+			var out any
+			_ = json.Unmarshal(raw, &out)
+			select {
+			case ch <- out:
+			case <-ctx.Done():
+			}
 		}
 	}()
 
