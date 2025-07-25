@@ -56,11 +56,17 @@ type mcpResponse struct {
 	Error   *mcpError   `json:"error,omitempty"`
 }
 
-// mcpError represents an MCP JSON-RPC error.
 type mcpError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+// mcpNotification represents an MCP JSON-RPC notification.
+type mcpNotification struct {
+	JSONRPC string      `json:"jsonrpc"`
+	Method  string      `json:"method"`
+	Params  interface{} `json:"params,omitempty"`
 }
 
 // NewMCPTransport constructs a new MCPTransport.
@@ -226,8 +232,57 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 	return nil
 }
 
-// CallTool calls a specific tool on the MCP server.
+// CallTool calls a specific tool on the MCP server and collects all streaming results.
 func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p Provider, l *string) (any, error) {
+	resultChan, err := t.CallToolStream(ctx, toolName, args, p)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []any
+	var lastError error
+	chunkCount := 0
+
+	// Collect all results from the stream
+	for {
+		select {
+		case result, ok := <-resultChan:
+			if !ok {
+				// Channel closed, stream finished
+				t.logger("Stream finished. Received %d chunks total", chunkCount)
+
+				if lastError != nil {
+					return nil, lastError
+				}
+				// Return single result if only one, otherwise return array
+				if len(results) == 0 {
+					return nil, fmt.Errorf("no results received from tool call")
+				}
+				if len(results) == 1 {
+					return results[0], nil
+				}
+				return results, nil
+			}
+
+			if err, ok := result.(error); ok {
+				lastError = err
+				t.logger("Stream error: %v", err)
+				continue
+			}
+
+			chunkCount++
+			t.logger("Stream chunk %d received", chunkCount)
+			results = append(results, result)
+
+		case <-ctx.Done():
+			t.logger("Stream cancelled by context")
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// CallToolStream calls a specific tool on the MCP server and returns a streaming channel.
+func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (<-chan any, error) {
 	mp, ok := p.(*MCPProvider)
 	if !ok {
 		return nil, errors.New("MCPTransport can only be used with MCPProvider")
@@ -243,24 +298,61 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 
 	t.logger("Calling MCP tool '%s' on provider '%s'", toolName, mp.Name)
 
+	// Handle HTTP client case
 	if process.httpClient != nil {
+		return t.callHTTPToolStream(ctx, process.httpClient, toolName, args)
+	}
+
+	// Handle stdio process case
+	return t.callStdioToolStream(ctx, process, toolName, args, mp.Timeout)
+}
+
+// callHTTPToolStream handles tool calls via HTTP client.
+func (t *MCPTransport) callHTTPToolStream(ctx context.Context, client *mcpclient.Client, toolName string, args map[string]any) (<-chan any, error) {
+	ch := make(chan any)
+
+	go func() {
+		defer close(ch)
+
 		req := mcpapi.CallToolRequest{}
 		req.Params.Name = toolName
 		req.Params.Arguments = args
-		res, err := process.httpClient.CallTool(ctx, req)
+
+		// Use the standard CallTool method - the mcp-go client should handle streaming internally
+		res, err := client.CallTool(ctx, req)
 		if err != nil {
-			return nil, err
+			ch <- err
+			return
 		}
+
+		// Convert response to generic interface
 		var out any
 		data, _ := json.Marshal(res)
 		json.Unmarshal(data, &out)
-		return out, nil
+
+		// For HTTP clients, we typically get the complete response at once
+		// If the response contains streaming content, it will be in the structure
+		select {
+		case ch <- out:
+		case <-ctx.Done():
+			return
+		}
+	}()
+
+	return ch, nil
+}
+
+// callStdioToolStream handles tool calls via stdio process.
+func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProcess, toolName string, args map[string]any, timeoutSeconds int) (<-chan any, error) {
+	// Set default timeout if not specified
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 30
 	}
 
-	// Send tool call request via stdio
+	// Prepare request
 	request := mcpRequest{
 		JSONRPC: "2.0",
-		ID:      1,
+		ID:      t.generateRequestID(),
 		Method:  "tools/call",
 		Params: map[string]interface{}{
 			"name":      toolName,
@@ -268,7 +360,118 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 		},
 	}
 
-	return t.sendMCPRequest(ctx, process, request, mp.Timeout)
+	// Serialize request
+	reqData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Send request
+	process.mutex.Lock()
+	if _, err := process.stdin.Write(append(reqData, '\n')); err != nil {
+		process.mutex.Unlock()
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	process.mutex.Unlock()
+
+	// Create result channel and start reader goroutine
+	resultChan := make(chan any)
+
+	go func() {
+		defer close(resultChan)
+
+		// Create timeout context
+		timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+		defer cancel()
+
+		scanner := bufio.NewScanner(process.stdout)
+		responseReceived := false
+
+		for {
+			select {
+			case <-timeoutCtx.Done():
+				if timeoutCtx.Err() == context.DeadlineExceeded && !responseReceived {
+					resultChan <- fmt.Errorf("request timeout after %d seconds", timeoutSeconds)
+				}
+				return
+			default:
+				if !scanner.Scan() {
+					if err := scanner.Err(); err != nil && !responseReceived {
+						resultChan <- fmt.Errorf("failed to read response: %w", err)
+					}
+					return
+				}
+
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" {
+					continue
+				}
+
+				// Try to parse as notification first
+				var notification mcpNotification
+				if err := json.Unmarshal([]byte(line), &notification); err == nil {
+					// Check if it's a notification (no ID field)
+					var hasID bool
+					var tempMap map[string]interface{}
+					if json.Unmarshal([]byte(line), &tempMap) == nil {
+						_, hasID = tempMap["id"]
+					}
+
+					if !hasID && notification.Method != "" {
+						// This is a notification, send it as a streaming chunk
+						t.logger("Received MCP notification: %s", notification.Method)
+
+						// Create a structured notification result
+						notificationResult := map[string]interface{}{
+							"type":   "notification",
+							"method": notification.Method,
+							"params": notification.Params,
+						}
+
+						select {
+						case resultChan <- notificationResult:
+						case <-ctx.Done():
+							return
+						}
+
+						// Reset timeout for more notifications/response
+						timeoutCtx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+						defer cancel()
+						continue
+					}
+				}
+
+				// Try to parse as response
+				var response mcpResponse
+				if err := json.Unmarshal([]byte(line), &response); err != nil {
+					t.logger("Failed to parse MCP message: %v", err)
+					continue
+				}
+
+				// Check if this response matches our request
+				if response.ID == request.ID {
+					responseReceived = true
+
+					if response.Error != nil {
+						resultChan <- fmt.Errorf("MCP error %d: %s", response.Error.Code, response.Error.Message)
+						return
+					}
+
+					// Send the final response
+					select {
+					case resultChan <- response.Result:
+					case <-ctx.Done():
+						return
+					}
+
+					// For tool calls, we're done after receiving the response
+					return
+				}
+			}
+		}
+	}()
+
+	return resultChan, nil
 }
 
 // initializeMCPConnection establishes the MCP connection and discovers tools.
@@ -290,7 +493,7 @@ func (t *MCPTransport) initializeMCPConnection(ctx context.Context, process *mcp
 		},
 	}
 
-	if _, err := t.sendMCPRequest(ctx, process, initRequest, mp.Timeout); err != nil {
+	if _, err := t.sendMCPRequestBlocking(ctx, process, initRequest, mp.Timeout); err != nil {
 		return fmt.Errorf("initialize failed: %w", err)
 	}
 
@@ -301,7 +504,7 @@ func (t *MCPTransport) initializeMCPConnection(ctx context.Context, process *mcp
 		Method:  "tools/list",
 	}
 
-	result, err := t.sendMCPRequest(ctx, process, toolsRequest, mp.Timeout)
+	result, err := t.sendMCPRequestBlocking(ctx, process, toolsRequest, mp.Timeout)
 	if err != nil {
 		return fmt.Errorf("tools/list failed: %w", err)
 	}
@@ -314,15 +517,31 @@ func (t *MCPTransport) initializeMCPConnection(ctx context.Context, process *mcp
 	return nil
 }
 
-// sendMCPRequest sends a JSON-RPC request and waits for response.
-func (t *MCPTransport) sendMCPRequest(ctx context.Context, process *mcpProcess, request mcpRequest, timeoutSeconds int) (interface{}, error) {
+// sendMCPRequestBlocking sends a JSON-RPC request and waits for a single response (used for initialization).
+func (t *MCPTransport) sendMCPRequestBlocking(ctx context.Context, process *mcpProcess, request mcpRequest, timeoutSeconds int) (interface{}, error) {
+	resultChan, err := t.callStdioToolStreamInternal(ctx, process, request, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the first (and only expected) result
+	select {
+	case result := <-resultChan:
+		if err, ok := result.(error); ok {
+			return nil, err
+		}
+		return result, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// callStdioToolStreamInternal is a helper that accepts a raw mcpRequest (used for initialization calls).
+func (t *MCPTransport) callStdioToolStreamInternal(ctx context.Context, process *mcpProcess, request mcpRequest, timeoutSeconds int) (<-chan any, error) {
 	// Set default timeout if not specified
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 30
 	}
-
-	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
-	defer cancel()
 
 	// Serialize request
 	reqData, err := json.Marshal(request)
@@ -338,45 +557,58 @@ func (t *MCPTransport) sendMCPRequest(ctx context.Context, process *mcpProcess, 
 	}
 	process.mutex.Unlock()
 
-	// Read response
-	respChan := make(chan *mcpResponse, 1)
-	errChan := make(chan error, 1)
+	// Create result channel and start reader goroutine
+	resultChan := make(chan any)
 
 	go func() {
+		defer close(resultChan)
+
+		// Create timeout context
+		timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+		defer cancel()
+
 		scanner := bufio.NewScanner(process.stdout)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
 
-			var response mcpResponse
-			if err := json.Unmarshal([]byte(line), &response); err != nil {
-				t.logger("Failed to parse MCP response: %v", err)
-				continue
-			}
-
-			if response.ID == request.ID {
-				respChan <- &response
+		for {
+			select {
+			case <-timeoutCtx.Done():
+				if timeoutCtx.Err() == context.DeadlineExceeded {
+					resultChan <- fmt.Errorf("request timeout after %d seconds", timeoutSeconds)
+				}
 				return
+			default:
+				if !scanner.Scan() {
+					if err := scanner.Err(); err != nil {
+						resultChan <- fmt.Errorf("failed to read response: %w", err)
+					}
+					return
+				}
+
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" {
+					continue
+				}
+
+				var response mcpResponse
+				if err := json.Unmarshal([]byte(line), &response); err != nil {
+					t.logger("Failed to parse MCP response: %v", err)
+					continue
+				}
+
+				// Check if this response matches our request
+				if response.ID == request.ID {
+					if response.Error != nil {
+						resultChan <- fmt.Errorf("MCP error %d: %s", response.Error.Code, response.Error.Message)
+					} else {
+						resultChan <- response.Result
+					}
+					return
+				}
 			}
-		}
-		if err := scanner.Err(); err != nil {
-			errChan <- err
 		}
 	}()
 
-	select {
-	case response := <-respChan:
-		if response.Error != nil {
-			return nil, fmt.Errorf("MCP error %d: %s", response.Error.Code, response.Error.Message)
-		}
-		return response.Result, nil
-	case err := <-errChan:
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	case <-requestCtx.Done():
-		return nil, fmt.Errorf("request timeout after %d seconds", timeoutSeconds)
-	}
+	return resultChan, nil
 }
 
 // parseToolsResponse parses the tools/list response and populates the process tools.
@@ -446,116 +678,7 @@ func (t *MCPTransport) cleanupProcess(process *mcpProcess) {
 	}
 }
 
-func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (<-chan any, error) {
-	mp, ok := p.(*MCPProvider)
-	if !ok {
-		return nil, errors.New("MCPTransport can only be used with MCPProvider")
-	}
-
-	t.mutex.RLock()
-	process, exists := t.processes[mp.Name]
-	t.mutex.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("MCP provider '%s' is not registered", mp.Name)
-	}
-
-	t.logger("Starting streaming call for tool '%s' on provider '%s'", toolName, mp.Name)
-
-	if process.httpClient != nil {
-		ch := make(chan any, 1)
-		go func() {
-			defer close(ch)
-			res, err := process.httpClient.CallTool(ctx, mcpapi.CallToolRequest{Params: mcpapi.CallToolParams{Name: toolName, Arguments: args}})
-			if err != nil {
-				ch <- err
-				return
-			}
-			var out any
-			data, _ := json.Marshal(res)
-			json.Unmarshal(data, &out)
-			ch <- out
-		}()
-		return ch, nil
-	}
-
-	// Prepare request for stdio server
-	request := mcpRequest{
-		JSONRPC: "2.0",
-		ID:      generateStreamID(),
-		Method:  "tools/call",
-		Params: map[string]interface{}{
-			"name":      toolName,
-			"arguments": args,
-		},
-	}
-
-	// Send and stream
-	return t.sendMCPStreamRequest(ctx, process, request, mp.Timeout)
-}
-
-// sendMCPStreamRequest writes a JSON-RPC request and returns a channel streaming matching responses.
-func (t *MCPTransport) sendMCPStreamRequest(ctx context.Context, process *mcpProcess, request mcpRequest, timeoutSeconds int) (<-chan any, error) {
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = 30
-	}
-
-	// Serialize request
-	reqData, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Write request
-	process.mutex.Lock()
-	if _, err := process.stdin.Write(append(reqData, '\n')); err != nil {
-		process.mutex.Unlock()
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	process.mutex.Unlock()
-
-	// Create result channel
-	out := make(chan any)
-
-	// Start reader goroutine
-	go func() {
-		defer close(out)
-		scanner := bufio.NewScanner(process.stdout)
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-
-			var msg mcpResponse
-			if err := json.Unmarshal([]byte(line), &msg); err != nil {
-				t.logger("Skipping unparsable MCP message: %v", err)
-				continue
-			}
-
-			// Match by ID to our request
-			if msg.ID == request.ID {
-				if msg.Error != nil {
-					// Send error and terminate streaming
-					out <- fmt.Errorf("streaming MCP error %d: %s", msg.Error.Code, msg.Error.Message)
-					return
-				}
-				out <- msg.Result
-			}
-		}
-	}()
-
-	return out, nil
-}
-
-// generateStreamID generates a unique request ID for streaming calls.
-// This example uses a timestamp-based approach.
-func generateStreamID() int {
+// generateRequestID generates a unique request ID.
+func (t *MCPTransport) generateRequestID() int {
 	return int(time.Now().UnixNano())
 }
