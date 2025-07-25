@@ -39,7 +39,7 @@ func startMCPHTTPServer(addr string) {
 			n = 3
 		}
 		httpSrv := mcpserver.ServerFromContext(ctx)
-		for i := 1; i < n; i++ {
+		for i := 1; i <= n; i++ {
 			_ = httpSrv.SendNotificationToClient(ctx, "count", map[string]any{"value": i})
 			time.Sleep(200 * time.Millisecond)
 		}
