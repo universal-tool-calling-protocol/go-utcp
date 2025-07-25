@@ -1,0 +1,9 @@
+{
+  "providers": [
+    {
+      "name": "demo_tools",
+      "provider_type": "mcp",
+      "url": "http://localhost:8082/mcp"
+    }
+  ]
+}
