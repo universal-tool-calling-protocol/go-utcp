@@ -39,7 +39,7 @@ func startMCPHTTPServer(addr string) {
 			n = 3
 		}
 		httpSrv := mcpserver.ServerFromContext(ctx)
-		for i := 1; i <= n; i++ {
+		for i := 1; i < n; i++ {
 			_ = httpSrv.SendNotificationToClient(ctx, "count", map[string]any{"value": i})
 			time.Sleep(200 * time.Millisecond)
 		}
@@ -83,9 +83,9 @@ func main() {
 		log.Fatalf("call error: %v", err)
 	}
 	fmt.Printf("Hello result: %#v\n", result)
-	result, err = client.CallTool(ctx, "demo_tools.count_stream", map[string]any{})
+	result, err = client.CallTool(ctx, "demo_tools.count_stream", map[string]any{"count": 5})
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
-	fmt.Printf("Hello result: %#v\n", result)
+	fmt.Printf("Count result: %#v\n", result)
 }

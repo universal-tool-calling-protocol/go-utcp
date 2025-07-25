@@ -22,7 +22,7 @@ func main() {
 	tools, err := client.SearchTools("", 10)
 	fmt.Println("Tools were found:")
 	for _, tool := range tools {
-		fmt.Println(tool.Name)
+		fmt.Println("- ", tool.Name)
 	}
 
 	if err != nil {
@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// 4) Synchronous call
-	argsMap := map[string]any{"name": "Kamil"}
+	argsMap := map[string]any{"count": 5}
 	toolID := tools[0]
 	result, err := client.CallTool(ctx, toolID.Name, argsMap)
 
