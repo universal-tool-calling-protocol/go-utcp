@@ -198,7 +198,6 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p Provid
 }
 
 // CallTool calls a specific tool on the HTTP provider.
-// CallTool calls a specific tool on the HTTP provider.
 func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p Provider, l *string) (any, error) {
 	hp, ok := p.(*HttpProvider)
 	if !ok {
