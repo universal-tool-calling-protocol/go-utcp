@@ -37,6 +37,9 @@ type MCPProvider struct {
 	WorkingDir string            `json:"workingDir,omitempty" yaml:"workingDir,omitempty"`
 	StdinData  string            `json:"stdinData,omitempty" yaml:"stdinData,omitempty"`
 	Timeout    int               `json:"timeout,omitempty" yaml:"timeout,omitempty"` // seconds
+	// URL allows connecting to a remote MCP server over HTTP when set.
+	URL     string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 }
 
 // NewMCPProvider constructs a new MCPProvider with the given name and command.
@@ -103,13 +106,28 @@ func (p *MCPProvider) WithTimeout(seconds int) *MCPProvider {
 	return p
 }
 
+// WithURL sets the remote MCP server URL for HTTP transport.
+func (p *MCPProvider) WithURL(url string) *MCPProvider {
+	p.URL = url
+	return p
+}
+
+// WithHeader adds a custom HTTP header for HTTP transport.
+func (p *MCPProvider) WithHeader(key, value string) *MCPProvider {
+	if p.Headers == nil {
+		p.Headers = make(map[string]string)
+	}
+	p.Headers[key] = value
+	return p
+}
+
 // Validate ensures the provider configuration is valid.
 func (p *MCPProvider) Validate() error {
 	if p.Name == "" {
 		return errors.New("MCP provider name cannot be empty")
 	}
-	if len(p.Command) == 0 {
-		return errors.New("MCP provider command cannot be empty")
+	if len(p.Command) == 0 && p.URL == "" {
+		return errors.New("MCP provider must have either command or URL")
 	}
 	return nil
 }

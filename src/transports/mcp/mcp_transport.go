@@ -13,6 +13,9 @@ import (
 	"sync"
 	"time"
 
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	mcpapi "github.com/mark3labs/mcp-go/mcp"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 
@@ -28,12 +31,13 @@ type MCPTransport struct {
 
 // mcpProcess represents a running MCP server process.
 type mcpProcess struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	stderr io.ReadCloser
-	tools  []Tool
-	mutex  sync.RWMutex
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     io.ReadCloser
+	stderr     io.ReadCloser
+	httpClient *mcpclient.Client
+	tools      []Tool
+	mutex      sync.RWMutex
 }
 
 // mcpRequest represents an MCP JSON-RPC request.
@@ -81,8 +85,6 @@ func (t *MCPTransport) RegisterToolProvider(ctx context.Context, p Provider) ([]
 		return nil, fmt.Errorf("invalid MCP provider configuration: %w", err)
 	}
 
-	t.logger("Starting MCP server '%s' with command: %v", mp.Name, mp.Command)
-
 	// Check if process already exists
 	t.mutex.RLock()
 	if proc, exists := t.processes[mp.Name]; exists {
@@ -90,6 +92,49 @@ func (t *MCPTransport) RegisterToolProvider(ctx context.Context, p Provider) ([]
 		return proc.tools, nil
 	}
 	t.mutex.RUnlock()
+
+	if mp.URL != "" {
+		// Use HTTP client via mcp-go
+		cli, err := mcpclient.NewStreamableHttpClient(mp.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create MCP HTTP client: %w", err)
+		}
+		if err := cli.Start(ctx); err != nil {
+			return nil, fmt.Errorf("failed to start MCP HTTP client: %w", err)
+		}
+		initReq := mcpapi.InitializeRequest{}
+		initReq.Params.ProtocolVersion = mcpapi.LATEST_PROTOCOL_VERSION
+		initReq.Params.ClientInfo = mcpapi.Implementation{Name: "utcp", Version: "1.0.0"}
+		if _, err := cli.Initialize(ctx, initReq); err != nil {
+			cli.Close()
+			return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
+		}
+		toolsRes, err := cli.ListTools(ctx, mcpapi.ListToolsRequest{})
+		if err != nil {
+			cli.Close()
+			return nil, fmt.Errorf("failed to list tools: %w", err)
+		}
+		tools := make([]Tool, len(toolsRes.Tools))
+		for i, tl := range toolsRes.Tools {
+			tools[i] = Tool{
+				Name:        tl.Name,
+				Description: tl.Description,
+				Inputs: ToolInputOutputSchema{
+					Type:       tl.InputSchema.Type,
+					Properties: tl.InputSchema.Properties,
+					Required:   tl.InputSchema.Required,
+				},
+			}
+		}
+		process := &mcpProcess{httpClient: cli, tools: tools}
+		t.mutex.Lock()
+		t.processes[mp.Name] = process
+		t.mutex.Unlock()
+		t.logger("Successfully registered MCP HTTP provider '%s'", mp.Name)
+		return tools, nil
+	}
+
+	t.logger("Starting MCP server '%s' with command: %v", mp.Name, mp.Command)
 
 	// Start the MCP server process
 	cmd := exec.CommandContext(ctx, mp.Command[0], mp.Command[1:]...)
@@ -198,7 +243,21 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 
 	t.logger("Calling MCP tool '%s' on provider '%s'", toolName, mp.Name)
 
-	// Send tool call request
+	if process.httpClient != nil {
+		req := mcpapi.CallToolRequest{}
+		req.Params.Name = toolName
+		req.Params.Arguments = args
+		res, err := process.httpClient.CallTool(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		var out any
+		data, _ := json.Marshal(res)
+		json.Unmarshal(data, &out)
+		return out, nil
+	}
+
+	// Send tool call request via stdio
 	request := mcpRequest{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -382,6 +441,9 @@ func (t *MCPTransport) cleanupProcess(process *mcpProcess) {
 		process.cmd.Process.Kill()
 		process.cmd.Wait()
 	}
+	if process.httpClient != nil {
+		process.httpClient.Close()
+	}
 }
 
 func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (<-chan any, error) {
@@ -400,7 +462,24 @@ func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args
 
 	t.logger("Starting streaming call for tool '%s' on provider '%s'", toolName, mp.Name)
 
-	// Prepare request
+	if process.httpClient != nil {
+		ch := make(chan any, 1)
+		go func() {
+			defer close(ch)
+			res, err := process.httpClient.CallTool(ctx, mcpapi.CallToolRequest{Params: mcpapi.CallToolParams{Name: toolName, Arguments: args}})
+			if err != nil {
+				ch <- err
+				return
+			}
+			var out any
+			data, _ := json.Marshal(res)
+			json.Unmarshal(data, &out)
+			ch <- out
+		}()
+		return ch, nil
+	}
+
+	// Prepare request for stdio server
 	request := mcpRequest{
 		JSONRPC: "2.0",
 		ID:      generateStreamID(),
