@@ -83,4 +83,9 @@ func main() {
 		log.Fatalf("call error: %v", err)
 	}
 	fmt.Printf("Hello result: %#v\n", result)
+	result, err = client.CallTool(ctx, "demo_tools.count_stream", map[string]any{})
+	if err != nil {
+		log.Fatalf("call error: %v", err)
+	}
+	fmt.Printf("Hello result: %#v\n", result)
 }

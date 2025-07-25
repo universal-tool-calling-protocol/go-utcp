@@ -14,6 +14,7 @@ import (
 	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
 	mcpapi "github.com/mark3labs/mcp-go/mcp"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
@@ -308,34 +309,61 @@ func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args
 }
 
 // callHTTPToolStream handles tool calls via HTTP client.
-func (t *MCPTransport) callHTTPToolStream(ctx context.Context, client *mcpclient.Client, toolName string, args map[string]any) (<-chan any, error) {
-	ch := make(chan any)
+func (t *MCPTransport) callHTTPToolStream(
+	ctx context.Context,
+	client *mcpclient.Client,
+	toolName string,
+	args map[string]any,
+) (<-chan any, error) {
+	ch := make(chan any, 1)
+	done := make(chan struct{}) // signal to stop sending
+
+	client.OnNotification(func(n mcp.JSONRPCNotification) {
+		select {
+		case <-done:
+			return // gracefully stop if stream ended
+		default:
+		}
+
+		raw, err := json.Marshal(n)
+		if err != nil {
+			return
+		}
+		var chunk any
+		_ = json.Unmarshal(raw, &chunk)
+
+		select {
+		case ch <- chunk:
+		default:
+		}
+	})
 
 	go func() {
-		defer close(ch)
+		defer func() {
+			close(done)
+			close(ch)
+		}()
 
 		req := mcpapi.CallToolRequest{}
 		req.Params.Name = toolName
 		req.Params.Arguments = args
 
-		// Use the standard CallTool method - the mcp-go client should handle streaming internally
 		res, err := client.CallTool(ctx, req)
 		if err != nil {
-			ch <- err
+			select {
+			case ch <- err:
+			case <-ctx.Done():
+			}
 			return
 		}
 
-		// Convert response to generic interface
+		raw, _ := json.Marshal(res)
 		var out any
-		data, _ := json.Marshal(res)
-		json.Unmarshal(data, &out)
+		_ = json.Unmarshal(raw, &out)
 
-		// For HTTP clients, we typically get the complete response at once
-		// If the response contains streaming content, it will be in the structure
 		select {
 		case ch <- out:
 		case <-ctx.Done():
-			return
 		}
 	}()
 
