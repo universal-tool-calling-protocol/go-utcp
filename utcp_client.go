@@ -49,7 +49,8 @@ type UtcpClientInterface interface {
 	RegisterToolProvider(ctx context.Context, prov Provider) ([]Tool, error)
 	DeregisterToolProvider(ctx context.Context, providerName string) error
 	CallTool(ctx context.Context, toolName string, args map[string]any) (any, error)
-	SearchTools(ctx context.Context, query string, limit int) ([]Tool, error)
+	SearchTools(query string, limit int) ([]Tool, error)
+	GetTransports() map[string]ClientTransport
 }
 
 // UtcpClient holds all state and implements UtcpClientInterface.
@@ -66,7 +67,7 @@ func NewUTCPClient(
 	cfg *UtcpClientConfig,
 	repo ToolRepository,
 	strat ToolSearchStrategy,
-) (*UtcpClient, error) {
+) (UtcpClientInterface, error) {
 	if cfg == nil {
 		cfg = NewClientConfig()
 	}
@@ -577,4 +578,8 @@ func (c *UtcpClient) processProvider(ctx context.Context, raw map[string]any, in
 	}
 	fmt.Printf("Successfully registered provider %s (%d tools)\n", providerName, len(tools))
 	return nil
+}
+
+func (u *UtcpClient) GetTransports() map[string]ClientTransport {
+	return u.transports
 }

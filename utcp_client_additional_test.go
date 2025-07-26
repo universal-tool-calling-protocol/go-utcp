@@ -279,7 +279,7 @@ func TestNewUTCPClientBasic(t *testing.T) {
 	if err != nil || c == nil {
 		t.Fatalf("creation failed: %v", err)
 	}
-	if len(c.transports) == 0 {
+	if len(c.GetTransports()) == 0 {
 		t.Fatalf("expected transports")
 	}
 }
