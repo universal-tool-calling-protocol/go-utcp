@@ -28,19 +28,21 @@ func main() {
 	if err != nil {
 		fmt.Errorf("Tools nof found")
 	}
+	args := map[string]any{
+		"name": "Kamil",
+	}
+	data, err := client.CallTool(ctx, tools[0].Name, args)
+	if err != nil {
+		log.Fatalf("cannot proceed")
 
+	}
+	fmt.Println(data.(map[string]any)["result"])
 	// 4) Synchronous call
 	argsMap := map[string]any{"count": 5}
 	result, err := client.CallTool(ctx, tools[1].Name, argsMap)
-
 	if err != nil {
-		log.Fatalf("CallTool failed: %v", err)
+		log.Fatalf("cannot proceed")
 	}
-
-	if resMap, ok := result.(map[string]interface{}); ok {
-		fmt.Println("Sync result:", resMap["result"])
-	} else {
-		fmt.Printf("Unexpected result type: %#v\n", result)
-	}
+	fmt.Println("Result: ", result)
 	os.Exit(0)
 }

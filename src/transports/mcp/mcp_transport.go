@@ -249,8 +249,6 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 		select {
 		case result, ok := <-resultChan:
 			if !ok {
-				t.logger("Stream finished. Received %d chunks total", chunkCount)
-
 				if lastError != nil {
 					return nil, lastError
 				}

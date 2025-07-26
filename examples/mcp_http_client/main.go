@@ -32,7 +32,13 @@ func main() {
 	}
 
 	// 5) Call hello tool
-	result, err := client.CallTool(ctx, "demo_tools.hello", map[string]any{"name": "Go"})
+	result, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "Go"})
+	if err != nil {
+		log.Fatalf("call error: %v", err)
+	}
+	fmt.Printf("Hello result: %#v\n", result)
+
+	result, err = client.CallTool(ctx, tools[1].Name, map[string]any{"count": 5})
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
