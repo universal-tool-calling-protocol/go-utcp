@@ -25,20 +25,142 @@ import (
 
 // MCPTransport implements ClientTransportInterface for MCP (Model Context Protocol) providers.
 type MCPTransport struct {
-	processes map[string]*mcpProcess
-	mutex     sync.RWMutex
-	logger    func(format string, args ...interface{})
+	backends map[string]mcpBackend
+	mutex    sync.RWMutex
+	logger   func(format string, args ...interface{})
 }
 
 // mcpProcess represents a running MCP server process.
 type mcpProcess struct {
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     io.ReadCloser
-	stderr     io.ReadCloser
-	httpClient *mcpclient.Client
-	tools      []Tool
-	mutex      sync.RWMutex
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.ReadCloser
+	stderr io.ReadCloser
+	tools  []Tool
+	mutex  sync.RWMutex
+}
+
+// mcpBackend defines the operations required by a provider connection.
+type mcpBackend interface {
+	Tools() []Tool
+	CallToolStream(ctx context.Context, toolName string, args map[string]any) (<-chan any, error)
+	Close()
+}
+
+type httpBackend struct {
+	client *mcpclient.Client
+	tools  []Tool
+	parent *MCPTransport
+}
+
+type stdioBackend struct {
+	proc   *mcpProcess
+	parent *MCPTransport
+}
+
+func (h *httpBackend) Tools() []Tool { return h.tools }
+
+func (h *httpBackend) CallToolStream(ctx context.Context, toolName string, args map[string]any) (<-chan any, error) {
+	return h.parent.callHTTPToolStream(ctx, h.client, toolName, args)
+}
+
+func (h *httpBackend) Close() { h.client.Close() }
+
+func (s *stdioBackend) Tools() []Tool { return s.proc.tools }
+
+func (s *stdioBackend) CallToolStream(ctx context.Context, toolName string, args map[string]any) (<-chan any, error) {
+	return s.parent.callStdioToolStream(ctx, s.proc, toolName, args, 0)
+}
+
+func (s *stdioBackend) Close() { s.parent.cleanupProcess(s.proc) }
+
+func (t *MCPTransport) newHTTPBackend(ctx context.Context, mp *MCPProvider) (*httpBackend, error) {
+	cli, err := mcpclient.NewStreamableHttpClient(mp.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP HTTP client: %w", err)
+	}
+	if err := cli.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start MCP HTTP client: %w", err)
+	}
+
+	initReq := mcpapi.InitializeRequest{}
+	initReq.Params.ProtocolVersion = mcpapi.LATEST_PROTOCOL_VERSION
+	initReq.Params.ClientInfo = mcpapi.Implementation{Name: "utcp", Version: "1.0.0"}
+	if _, err := cli.Initialize(ctx, initReq); err != nil {
+		cli.Close()
+		return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
+	}
+
+	toolsRes, err := cli.ListTools(ctx, mcpapi.ListToolsRequest{})
+	if err != nil {
+		cli.Close()
+		return nil, fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	tools := make([]Tool, len(toolsRes.Tools))
+	for i, tl := range toolsRes.Tools {
+		tools[i] = Tool{
+			Name:        tl.Name,
+			Description: tl.Description,
+			Inputs: ToolInputOutputSchema{
+				Type:       tl.InputSchema.Type,
+				Properties: tl.InputSchema.Properties,
+				Required:   tl.InputSchema.Required,
+			},
+		}
+	}
+
+	return &httpBackend{client: cli, tools: tools, parent: t}, nil
+}
+
+func (t *MCPTransport) newStdioBackend(ctx context.Context, mp *MCPProvider) (*stdioBackend, error) {
+	t.logger("Starting MCP server '%s' with command: %v", mp.Name, mp.Command)
+
+	cmd := exec.CommandContext(ctx, mp.Command[0], mp.Command[1:]...)
+	cmd.Env = os.Environ()
+	for key, value := range mp.Env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+	if mp.WorkingDir != "" {
+		cmd.Dir = mp.WorkingDir
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		stdin.Close()
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		stdin.Close()
+		stdout.Close()
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		stdout.Close()
+		stderr.Close()
+		return nil, fmt.Errorf("failed to start MCP server: %w", err)
+	}
+
+	proc := &mcpProcess{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}
+
+	if mp.StdinData != "" {
+		if _, err := stdin.Write([]byte(mp.StdinData)); err != nil {
+			t.logger("Warning: failed to write stdin data: %v", err)
+		}
+	}
+
+	if err := t.initializeMCPConnection(ctx, proc, mp); err != nil {
+		t.cleanupProcess(proc)
+		return nil, fmt.Errorf("failed to initialize MCP connection: %w", err)
+	}
+
+	return &stdioBackend{proc: proc, parent: t}, nil
 }
 
 // mcpRequest represents an MCP JSON-RPC request.
@@ -76,8 +198,8 @@ func NewMCPTransport(logger func(format string, args ...interface{})) *MCPTransp
 		logger = func(format string, args ...interface{}) {}
 	}
 	return &MCPTransport{
-		processes: make(map[string]*mcpProcess),
-		logger:    logger,
+		backends: make(map[string]mcpBackend),
+		logger:   logger,
 	}
 }
 
@@ -92,122 +214,36 @@ func (t *MCPTransport) RegisterToolProvider(ctx context.Context, p Provider) ([]
 		return nil, fmt.Errorf("invalid MCP provider configuration: %w", err)
 	}
 
-	// Check if process already exists
+	// Check if backend already exists
 	t.mutex.RLock()
-	if proc, exists := t.processes[mp.Name]; exists {
+	if be, exists := t.backends[mp.Name]; exists {
 		t.mutex.RUnlock()
-		return proc.tools, nil
+		return be.Tools(), nil
 	}
 	t.mutex.RUnlock()
 
 	if mp.URL != "" {
-		// Use HTTP client via mcp-go
-		cli, err := mcpclient.NewStreamableHttpClient(mp.URL)
+		backend, err := t.newHTTPBackend(ctx, mp)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create MCP HTTP client: %w", err)
+			return nil, err
 		}
-		if err := cli.Start(ctx); err != nil {
-			return nil, fmt.Errorf("failed to start MCP HTTP client: %w", err)
-		}
-		initReq := mcpapi.InitializeRequest{}
-		initReq.Params.ProtocolVersion = mcpapi.LATEST_PROTOCOL_VERSION
-		initReq.Params.ClientInfo = mcpapi.Implementation{Name: "utcp", Version: "1.0.0"}
-		if _, err := cli.Initialize(ctx, initReq); err != nil {
-			cli.Close()
-			return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
-		}
-		toolsRes, err := cli.ListTools(ctx, mcpapi.ListToolsRequest{})
-		if err != nil {
-			cli.Close()
-			return nil, fmt.Errorf("failed to list tools: %w", err)
-		}
-		tools := make([]Tool, len(toolsRes.Tools))
-		for i, tl := range toolsRes.Tools {
-			tools[i] = Tool{
-				Name:        tl.Name,
-				Description: tl.Description,
-				Inputs: ToolInputOutputSchema{
-					Type:       tl.InputSchema.Type,
-					Properties: tl.InputSchema.Properties,
-					Required:   tl.InputSchema.Required,
-				},
-			}
-		}
-		process := &mcpProcess{httpClient: cli, tools: tools}
 		t.mutex.Lock()
-		t.processes[mp.Name] = process
+		t.backends[mp.Name] = backend
 		t.mutex.Unlock()
 		t.logger("Successfully registered MCP HTTP provider '%s'", mp.Name)
-		return tools, nil
+		return backend.Tools(), nil
 	}
 
-	t.logger("Starting MCP server '%s' with command: %v", mp.Name, mp.Command)
-
-	// Start the MCP server process
-	cmd := exec.CommandContext(ctx, mp.Command[0], mp.Command[1:]...)
-
-	// Set environment variables
-	cmd.Env = os.Environ()
-	for key, value := range mp.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
-	}
-
-	if mp.WorkingDir != "" {
-		cmd.Dir = mp.WorkingDir
-	}
-
-	stdin, err := cmd.StdinPipe()
+	backend, err := t.newStdioBackend(ctx, mp)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+		return nil, err
 	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		stdin.Close()
-		stdout.Close()
-		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		stdout.Close()
-		stderr.Close()
-		return nil, fmt.Errorf("failed to start MCP server: %w", err)
-	}
-
-	process := &mcpProcess{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
-		stderr: stderr,
-	}
-
-	// Send initial stdin data if provided
-	if mp.StdinData != "" {
-		if _, err := stdin.Write([]byte(mp.StdinData)); err != nil {
-			t.logger("Warning: failed to write stdin data: %v", err)
-		}
-	}
-
-	// Initialize MCP connection
-	if err := t.initializeMCPConnection(ctx, process, mp); err != nil {
-		t.cleanupProcess(process)
-		return nil, fmt.Errorf("failed to initialize MCP connection: %w", err)
-	}
-
-	// Store the process
 	t.mutex.Lock()
-	t.processes[mp.Name] = process
+	t.backends[mp.Name] = backend
 	t.mutex.Unlock()
 
-	t.logger("Successfully registered MCP provider '%s' with %d tools", mp.Name, len(process.tools))
-	return process.tools, nil
+	t.logger("Successfully registered MCP provider '%s' with %d tools", mp.Name, len(backend.Tools()))
+	return backend.Tools(), nil
 }
 
 // DeregisterToolProvider stops and cleans up an MCP server process.
@@ -218,9 +254,9 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 	}
 
 	t.mutex.Lock()
-	process, exists := t.processes[mp.Name]
+	backend, exists := t.backends[mp.Name]
 	if exists {
-		delete(t.processes, mp.Name)
+		delete(t.backends, mp.Name)
 	}
 	t.mutex.Unlock()
 
@@ -229,7 +265,7 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 	}
 
 	t.logger("Deregistering MCP provider '%s'", mp.Name)
-	t.cleanupProcess(process)
+	backend.Close()
 	return nil
 }
 
@@ -290,7 +326,7 @@ func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args
 	}
 
 	t.mutex.RLock()
-	process, exists := t.processes[mp.Name]
+	backend, exists := t.backends[mp.Name]
 	t.mutex.RUnlock()
 
 	if !exists {
@@ -299,13 +335,8 @@ func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args
 
 	t.logger("Calling MCP tool '%s' on provider '%s'", toolName, mp.Name)
 
-	// Handle HTTP client case
-	if process.httpClient != nil {
-		return t.callHTTPToolStream(ctx, process.httpClient, toolName, args)
-	}
-
-	// Handle stdio process case
-	return t.callStdioToolStream(ctx, process, toolName, args, mp.Timeout)
+	// Delegates call to backend implementation
+	return backend.CallToolStream(ctx, toolName, args)
 }
 
 // callHTTPToolStream handles tool calls via HTTP client.
@@ -713,9 +744,6 @@ func (t *MCPTransport) cleanupProcess(process *mcpProcess) {
 	if process.cmd != nil && process.cmd.Process != nil {
 		process.cmd.Process.Kill()
 		process.cmd.Wait()
-	}
-	if process.httpClient != nil {
-		process.httpClient.Close()
 	}
 }
 
