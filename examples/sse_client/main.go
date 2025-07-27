@@ -12,6 +12,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
 
 func startServer(addr string) {
@@ -85,14 +86,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}
-	// Print streaming result
-	switch ev := res.(type) {
-	case []interface{}:
-		fmt.Println("Streamed tool response:")
-		for i, chunk := range ev {
-			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
-		}
-	default:
-		fmt.Printf("Tool response: %#v\n", ev)
+	sub, ok := res.(transports.StreamResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", sub)
 	}
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next error: %v", err)
+		}
+		log.Printf("Subscription update: %#v", val)
+	}
+	sub.Close()
 }
