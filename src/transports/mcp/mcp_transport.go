@@ -451,9 +451,13 @@ func (t *MCPTransport) callHTTPToolStream(
 			return
 		}
 
-		// 7) Fallback: emit the entire response as a single map
+		// 7) Fallback: emit the result object if present, otherwise the entire map
+		final := any(respMap)
+		if resultObj, ok := respMap["result"].(map[string]any); ok {
+			final = resultObj
+		}
 		select {
-		case ch <- respMap:
+		case ch <- final:
 		case <-ctx.Done():
 		}
 	}()
