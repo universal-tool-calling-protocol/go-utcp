@@ -3,12 +3,14 @@ package streamable
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
 
 func TestStreamableHTTPClientTransport_RegisterAndCall(t *testing.T) {
@@ -34,8 +36,10 @@ func TestStreamableHTTPClientTransport_RegisterAndCall(t *testing.T) {
 		URL:          server.URL + "/tools",
 		HTTPMethod:   http.MethodGet,
 	}
+
 	tr := NewStreamableHTTPTransport(nil)
 	ctx := context.Background()
+
 	tools, err := tr.RegisterToolProvider(ctx, prov)
 	if err != nil {
 		t.Fatalf("register error: %v", err)
@@ -49,9 +53,30 @@ func TestStreamableHTTPClientTransport_RegisterAndCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}
-	m, ok := res.(map[string]interface{})
+
+	// Handle the StreamResult returned by CallTool
+	streamResult, ok := res.(transports.StreamResult)
+	if !ok {
+		t.Fatalf("expected StreamResult, got: %T", res)
+	}
+	defer streamResult.Close()
+
+	// Get the first (and only) result from the stream
+	result, err := streamResult.Next()
+	if err != nil {
+		t.Fatalf("stream next error: %v", err)
+	}
+
+	// Verify there are no more results
+	_, err = streamResult.Next()
+	if err != io.EOF {
+		t.Fatalf("expected EOF after first result, got: %v", err)
+	}
+
+	// Check the actual result
+	m, ok := result.(map[string]interface{})
 	if !ok || m["result"] != "hi" {
-		t.Fatalf("unexpected result: %#v", res)
+		t.Fatalf("unexpected result: %#v", result)
 	}
 }
 
