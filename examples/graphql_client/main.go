@@ -9,10 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	graphqltransport "github.com/universal-tool-calling-protocol/go-utcp/src/transports/graphql"
 )
 
 func startServer(addr string) {
+	upgrader := websocket.Upgrader{Subprotocols: []string{"graphql-ws"}}
+
 	http.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "only POST", http.StatusMethodNotAllowed)
@@ -38,6 +42,39 @@ func startServer(addr string) {
 			return
 		}
 		http.Error(w, "unknown query", http.StatusBadRequest)
+	})
+
+	// Simple WebSocket subscription endpoint
+	http.HandleFunc("/sub", func(w http.ResponseWriter, r *http.Request) {
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("upgrade error: %v", err)
+			return
+		}
+		defer c.Close()
+
+		// Expect connection_init
+		var msg map[string]any
+		if err := c.ReadJSON(&msg); err != nil {
+			log.Printf("read init: %v", err)
+			return
+		}
+		c.WriteJSON(map[string]any{"type": "connection_ack"})
+		if err := c.ReadJSON(&msg); err != nil {
+			log.Printf("read start: %v", err)
+			return
+		}
+		// Send a couple of updates
+		for i := 1; i <= 2; i++ {
+			c.WriteJSON(map[string]any{
+				"type": "data",
+				"payload": map[string]any{
+					"data": map[string]any{"updates": i},
+				},
+			})
+			time.Sleep(100 * time.Millisecond)
+		}
+		c.WriteJSON(map[string]any{"type": "complete"})
 	})
 	log.Printf("GraphQL server on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
@@ -68,4 +105,27 @@ func main() {
 		log.Fatalf("call: %v", err)
 	}
 	log.Printf("Result: %#v", res)
+
+	// ---- Subscription example ----
+	subRes, err := client.CallTool(ctx, "graphql_sub.updates", nil)
+	if err != nil {
+		log.Fatalf("subscription call: %v", err)
+	}
+	sub, ok := subRes.(*graphqltransport.SubscriptionResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", subRes)
+	}
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next: %v", err)
+		}
+		log.Printf("Update: %#v", val)
+	}
+	if err := sub.Close(); err != nil {
+		log.Fatalf("close error: %v", err)
+	}
 }
