@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -10,118 +11,212 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/handler"
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 	graphqltransport "github.com/universal-tool-calling-protocol/go-utcp/src/transports/graphql"
 )
 
+var gSchema graphql.Schema
+
 func startServer(addr string) {
-	upgrader := websocket.Upgrader{Subprotocols: []string{"graphql-ws"}}
-
-	http.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "only POST", http.StatusMethodNotAllowed)
-			return
-		}
-		body, _ := io.ReadAll(r.Body)
-		var req struct {
-			Query     string                 `json:"query"`
-			Variables map[string]interface{} `json:"variables"`
-		}
-		_ = json.Unmarshal(body, &req)
-		if strings.Contains(req.Query, "__schema") {
-			resp := map[string]any{
-				"data": map[string]any{
-					"__schema": map[string]any{
-						"queryType": map[string]any{"fields": []map[string]any{
-							{"name": "echo", "description": "Echo"},
-							{"name": "updates", "description": "Updates"}},
-						},
-					},
+	// Define Query type
+	queryType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Query",
+		Fields: graphql.Fields{
+			"echo": &graphql.Field{
+				Type: graphql.String,
+				Args: graphql.FieldConfigArgument{
+					"msg": &graphql.ArgumentConfig{Type: graphql.String},
 				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					msg, _ := p.Args["msg"].(string)
+					return msg, nil
+				},
+			},
+		},
+	})
+
+	// Define Subscription type
+	subscriptionType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Subscription",
+		Fields: graphql.Fields{
+			"updates": &graphql.Field{
+				Type: graphql.Int,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return p.Source, nil
+				},
+				Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
+					ch := make(chan interface{})
+					go func() {
+						defer close(ch)
+						for i := 1; i <= 2; i++ {
+							select {
+							case <-p.Context.Done():
+								return
+							case ch <- i:
+							}
+							time.Sleep(100 * time.Millisecond)
+						}
+					}()
+					return ch, nil
+				},
+			},
+		},
+	})
+
+	// Build the schema
+	var err error
+	gSchema, err = graphql.NewSchema(graphql.SchemaConfig{
+		Query:        queryType,
+		Subscription: subscriptionType,
+	})
+	if err != nil {
+		log.Fatalf("failed to create schema: %v", err)
+	}
+
+	// Setup HTTP handler with body rewrite
+	gqlHTTP := handler.New(&handler.Config{
+		Schema:     &gSchema,
+		Pretty:     true,
+		GraphiQL:   false,
+		Playground: false,
+	})
+	http.Handle("/graphql", withBodyRewrite(gqlHTTP, func(body []byte) []byte {
+		var req struct {
+			Query     string          `json:"query"`
+			Variables json.RawMessage `json:"variables,omitempty"`
+			OpName    string          `json:"operationName,omitempty"`
+		}
+		if err := json.Unmarshal(body, &req); err == nil && req.Query != "" {
+			req.Query = canonGQL(req.Query)
+			if b, err := json.Marshal(req); err == nil {
+				return b
 			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-			return
 		}
-		if strings.Contains(req.Query, "echo") {
-			msg, _ := req.Variables["msg"].(string)
-			resp := map[string]any{"data": map[string]any{"echo": msg}}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-			return
-		}
-		http.Error(w, "unknown query", http.StatusBadRequest)
-	})
+		return body
+	}))
 
-	// Subscription endpoint
+	// Setup WebSocket for subscriptions
+	upgrader := websocket.Upgrader{
+		Subprotocols: []string{"graphql-ws"},
+		CheckOrigin:  func(r *http.Request) bool { return true },
+	}
 	http.HandleFunc("/sub", func(w http.ResponseWriter, r *http.Request) {
-		c, err := upgrader.Upgrade(w, r, nil)
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("upgrade error: %v", err)
+			log.Printf("WS upgrade error: %v", err)
 			return
 		}
-		defer c.Close()
+		defer conn.Close()
 
-		var msg map[string]any
-		if err := c.ReadJSON(&msg); err != nil {
-			log.Printf("read init: %v", err)
-			return
+		type wsMsg struct {
+			ID      string `json:"id,omitempty"`
+			Type    string `json:"type"`
+			Payload struct {
+				Query string `json:"query"`
+			} `json:"payload,omitempty"`
 		}
-		c.WriteJSON(map[string]any{"type": "connection_ack"})
-		if err := c.ReadJSON(&msg); err != nil {
-			log.Printf("read start: %v", err)
-			return
+
+		for {
+			_, msgData, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg wsMsg
+			if err := json.Unmarshal(msgData, &msg); err != nil {
+				continue
+			}
+			switch msg.Type {
+			case "connection_init":
+				_ = conn.WriteJSON(map[string]any{"type": "connection_ack"})
+			case "start":
+				go runSubscription(conn, msg.ID, msg.Payload.Query)
+			case "stop", "complete":
+				return
+			}
 		}
-		for i := 1; i <= 2; i++ {
-			c.WriteJSON(map[string]any{
-				"type":    "data",
-				"payload": map[string]any{"data": map[string]any{"updates": i}},
-			})
-			time.Sleep(100 * time.Millisecond)
-		}
-		c.WriteJSON(map[string]any{"type": "complete"})
 	})
 
-	log.Printf("GraphQL server on %s", addr)
+	log.Printf("GraphQL server listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
+func runSubscription(conn *websocket.Conn, opID, query string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Apply prefix stripping
+	query = canonGQL(query)
+
+	ch := graphql.Subscribe(graphql.Params{
+		Schema:        gSchema,
+		RequestString: query,
+		Context:       ctx,
+	})
+
+	for res := range ch {
+		payload := map[string]any{"data": res.Data}
+		if len(res.Errors) > 0 {
+			payload["errors"] = res.Errors
+		}
+		_ = conn.WriteJSON(map[string]any{"type": "data", "id": opID, "payload": payload})
+	}
+	_ = conn.WriteJSON(map[string]any{"type": "complete", "id": opID})
+}
+
+// canonGQL removes provider prefixes from GraphQL queries
+func canonGQL(q string) string {
+	q = strings.ReplaceAll(q, "graphqlsub.", "")
+	q = strings.ReplaceAll(q, "graphql.", "")
+	return q
+}
+
+// withBodyRewrite wraps an HTTP handler to rewrite the request body
+func withBodyRewrite(next http.Handler, rewrite func([]byte) []byte) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			body, _ := io.ReadAll(r.Body)
+			_ = r.Body.Close()
+			body = rewrite(body)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.ContentLength = int64(len(body))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	// Start local GraphQL server
 	go startServer(":8080")
-	// Give server time to boot
 	time.Sleep(200 * time.Millisecond)
 
 	ctx := context.Background()
-	// Load providers from config
 	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: "provider.json"}
-	// Instantiate GraphQL transport
-	// Create UTCP client with GraphQL transport enabled
 	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
 	if err != nil {
-		log.Fatalf("client error: %v", err)
+		log.Fatalf("UTCP client init error: %v", err)
 	}
 
 	tools, err := client.SearchTools("", 10)
 	if err != nil {
-		log.Fatalf("search: %v", err)
+		log.Fatalf("tool search error: %v", err)
 	}
 	log.Printf("Discovered tools:")
 	for _, t := range tools {
 		log.Printf(" - %s", t.Name)
 	}
 
-	// Query echo
+	// Example query
 	res, err := client.CallTool(ctx, "graphql.echo", map[string]any{"msg": "hi"})
 	if err != nil {
-		log.Fatalf("call: %v", err)
+		log.Fatalf("query call error: %v", err)
 	}
-	log.Printf("Result: %#v", res)
+	log.Printf("Query result: %#v", res)
 
-	// Subscription example
+	// Example subscription
 	subRes, err := client.CallTool(ctx, "graphqlsub.updates", nil)
 	if err != nil {
-		log.Fatalf("subscription call: %v", err)
+		log.Fatalf("subscription call error: %v", err)
 	}
 	sub, ok := subRes.(*graphqltransport.SubscriptionResult)
 	if !ok {
@@ -133,11 +228,9 @@ func main() {
 			if err == io.EOF {
 				break
 			}
-			log.Fatalf("subscription next: %v", err)
+			log.Fatalf("subscription next error: %v", err)
 		}
-		log.Printf("Graphql subscription result: %#v", val)
+		log.Printf("Subscription update: %#v", val)
 	}
-	if err := sub.Close(); err != nil {
-		log.Fatalf("close error: %v", err)
-	}
+	sub.Close()
 }
