@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	streamresult "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
@@ -155,9 +157,5 @@ func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string
 		results = append(results, part)
 	}
 
-	// Return single result directly for backward compatibility
-	if len(results) == 1 {
-		return results[0], nil
-	}
-	return results, nil
+	return streamresult.NewSliceStreamResult(results, nil), nil
 }
