@@ -19,6 +19,7 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
@@ -233,78 +234,124 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 	return nil
 }
 
-// CallTool calls a specific tool on the MCP server and collects all streaming results.
-func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p Provider, l *string) (any, error) {
-	resultChan, err := t.CallToolStream(ctx, toolName, args, p)
+// CallTool invokes a tool: returns a []any for non‑streaming calls or a StreamResult when the tool streams.
+func (t *MCPTransport) CallTool(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+	l *string,
+) (any, error) {
+	// Create streaming result
+	stream, err := t.CallToolStream(ctx, toolName, args, p)
 	if err != nil {
 		return nil, err
 	}
 
-	var results []any
-	var lastError error
-	chunkCount := 0
-
-	// Collect all results from the stream
-	for {
-		select {
-		case result, ok := <-resultChan:
-			if !ok {
-				if lastError != nil {
-					return nil, lastError
-				}
-				if len(results) == 0 {
-					return nil, fmt.Errorf("no results received from tool call")
-				}
-				if len(results) == 1 {
-					return results[0], nil
-				}
-				return results, nil
-			}
-
-			// Handle structured chunk
-			if payload, ok := result.(map[string]any); ok {
-				if payload["type"] == "notification" && payload["method"] == "done" {
-					t.logger("Received stream completion signal.")
-					return results, nil
-				}
-				chunkCount++
-				results = append(results, payload)
-			} else if err, ok := result.(error); ok {
-				lastError = err
-				t.logger("Stream error: %v", err)
-			}
-
-		case <-ctx.Done():
-			t.logger("Stream cancelled by context")
-			return nil, ctx.Err()
+	// Peek first value
+	first, err := stream.Next()
+	if err != nil {
+		stream.Close()
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("no output from tool %s", toolName)
 		}
+		return nil, err
+	}
+
+	// If first is a streaming notification, return stream back
+	if m, ok := first.(map[string]any); ok && m["type"] == "notification" {
+		// rebuild channel including first
+		ch := make(chan any, 1)
+		ch <- first
+		go func() {
+			defer close(ch)
+			for {
+				item, err := stream.Next()
+				if err != nil {
+					return
+				}
+				ch <- item
+			}
+		}()
+		return transports.NewChannelStreamResult(ch, stream.Close), nil
+	}
+
+	// Otherwise buffer into results slice
+	var results []any
+	// include first if not done
+	if mf, ok := first.(map[string]any); !ok || mf["method"] != "done" {
+		results = append(results, first)
+	}
+	for {
+		item, err := stream.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			stream.Close()
+			return nil, err
+		}
+		if m2, ok2 := item.(map[string]any); ok2 && m2["type"] == "notification" && m2["method"] == "done" {
+			break
+		}
+		results = append(results, item)
+	}
+	stream.Close()
+
+	switch len(results) {
+	case 0:
+		return nil, fmt.Errorf("no results received from tool call %s", toolName)
+	case 1:
+		return results[0], nil
+	default:
+		return results, nil
 	}
 }
 
-// CallToolStream calls a specific tool on the MCP server and returns a streaming channel.
-func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (<-chan any, error) {
+// CallToolStream returns a transports.StreamResult for live streaming.
+func (t *MCPTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (transports.StreamResult, error) {
+	streamCtx, cancelFn := context.WithCancel(ctx)
 	mp, ok := p.(*MCPProvider)
 	if !ok {
+		cancelFn()
 		return nil, errors.New("MCPTransport can only be used with MCPProvider")
 	}
-
 	t.mutex.RLock()
-	process, exists := t.processes[mp.Name]
+	proc, exists := t.processes[mp.Name]
 	t.mutex.RUnlock()
-
 	if !exists {
-		return nil, fmt.Errorf("MCP provider '%s' is not registered", mp.Name)
+		cancelFn()
+		return nil, fmt.Errorf("provider '%s' not registered", mp.Name)
 	}
 
 	t.logger("Calling MCP tool '%s' on provider '%s'", toolName, mp.Name)
 
-	// Handle HTTP client case
-	if process.httpClient != nil {
-		return t.callHTTPToolStream(ctx, process.httpClient, toolName, args)
+	var ch <-chan any
+	var err error
+	if proc.httpClient != nil {
+		ch, err = t.callHTTPToolStream(streamCtx, proc.httpClient, toolName, args)
+	} else {
+		ch, err = t.callStdioToolStream(streamCtx, proc, toolName, args, mp.Timeout)
+	}
+	if err != nil {
+		cancelFn()
+		return nil, err
 	}
 
-	// Handle stdio process case
-	return t.callStdioToolStream(ctx, process, toolName, args, mp.Timeout)
+	return transports.NewChannelStreamResult(ch, defaultClose(cancelFn)), nil
+}
+
+// defaultClose wraps a context.CancelFunc into a func() error for StreamResult closing.
+func defaultClose(cancel context.CancelFunc) func() error {
+	return func() error {
+		cancel()
+		return nil
+	}
 }
 
 // callHTTPToolStream handles tool calls via HTTP client with streaming support.

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -11,7 +12,8 @@ import (
 	"github.com/spf13/cast"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
+	mcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
 )
 
 // startMCPHTTPServer launches a simple MCP HTTP server with a hello tool and a streaming count tool.
@@ -63,7 +65,7 @@ func main() {
 
 	// 2) Build transport
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := transports.NewMCPTransport(logger)
+	transport := mcp.NewMCPTransport(logger)
 
 	// 3) Configure provider using URL only
 	provider := &providers.MCPProvider{
@@ -91,11 +93,23 @@ func main() {
 	fmt.Printf("Hello result: %#v\n", result)
 
 	// 6) Stream results from count_stream
-	ch, err := transport.CallToolStream(ctx, "count_stream", map[string]any{"count": 5}, provider)
+	result, err = transport.CallToolStream(ctx, "count_stream", map[string]any{"count": 5}, provider)
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}
-	for msg := range ch {
-		fmt.Printf("Stream chunk: %#v\n", msg)
+	sub, ok := result.(*transports.ChannelStreamResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", res)
 	}
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next error: %v", err)
+		}
+		fmt.Printf("Subscription update: %#v\n", val)
+	}
+	sub.Close()
 }
