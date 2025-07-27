@@ -19,7 +19,7 @@ var (
 	peersMu sync.Mutex
 )
 
-func waitForConnection(ctx context.Context, client *utcp.UtcpClient, maxWait time.Duration) error {
+func waitForConnection(ctx context.Context, client utcp.UtcpClientInterface, maxWait time.Duration) error {
 	start := time.Now()
 	for time.Since(start) < maxWait {
 		// Try to ping or check connection status
