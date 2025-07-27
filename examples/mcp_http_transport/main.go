@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -91,11 +92,19 @@ func main() {
 	fmt.Printf("Hello result: %#v\n", result)
 
 	// 6) Stream results from count_stream
-	ch, err := transport.CallToolStream(ctx, "count_stream", map[string]any{"count": 5}, provider)
+	stream, err := transport.CallToolStream(ctx, "count_stream", map[string]any{"count": 5}, provider)
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}
-	for msg := range ch {
+	for {
+		msg, err := stream.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("stream error: %v", err)
+		}
 		fmt.Printf("Stream chunk: %#v\n", msg)
 	}
+	stream.Close()
 }
