@@ -106,6 +106,7 @@ func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string
 		return nil, errors.New("WebSocketClientTransport can only be used with WebSocketProvider")
 	}
 
+	// Prepare headers and authentication
 	hdr := http.Header{}
 	for k, v := range wsProv.Headers {
 		hdr.Set(k, v)
@@ -117,6 +118,7 @@ func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string
 		hdr.Set("Sec-WebSocket-Protocol", *wsProv.Protocol)
 	}
 
+	// Construct URL for the tool
 	url := strings.TrimSuffix(wsProv.URL, "/tools")
 	if !strings.HasSuffix(url, "/"+toolName) {
 		if strings.HasSuffix(url, "/") {
@@ -125,23 +127,37 @@ func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string
 		url = url + "/" + toolName
 	}
 
+	// Dial the WebSocket
 	conn, _, err := t.dialer.DialContext(ctx, url, hdr)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
+	// Send the arguments
 	data, _ := json.Marshal(args)
 	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		return nil, err
 	}
-	_, msg, err := conn.ReadMessage()
-	if err != nil {
-		return nil, err
+
+	// Read all response chunks
+	var results []any
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			// Assume end of stream on any closure or unexpected EOF
+			break
+		}
+		var part any
+		if err := json.Unmarshal(msg, &part); err != nil {
+			return nil, err
+		}
+		results = append(results, part)
 	}
-	var result any
-	if err := json.Unmarshal(msg, &result); err != nil {
-		return nil, err
+
+	// Return single result directly for backward compatibility
+	if len(results) == 1 {
+		return results[0], nil
 	}
-	return result, nil
+	return results, nil
 }
