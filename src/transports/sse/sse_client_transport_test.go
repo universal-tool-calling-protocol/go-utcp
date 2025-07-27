@@ -53,3 +53,11 @@ func TestSSEClientTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", res)
 	}
 }
+
+func TestSSEDeregister(t *testing.T) {
+	sse := NewSSETransport(nil)
+	sh := &SSEProvider{BaseProvider: BaseProvider{Name: "s", ProviderType: ProviderSSE}}
+	if err := sse.DeregisterToolProvider(context.Background(), sh); err != nil {
+		t.Fatalf("sse deregister error: %v", err)
+	}
+}

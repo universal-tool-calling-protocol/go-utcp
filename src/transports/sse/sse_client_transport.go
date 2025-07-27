@@ -15,8 +15,8 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
-
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
 
 // SSEClientTransport implements Server-Sent Events over HTTP for UTCP tools.
@@ -125,7 +125,7 @@ func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args
 	// detect SSE vs JSON
 	ct := resp.Header.Get("Content-Type")
 	if strings.Contains(ct, "event-stream") {
-		return t.handleSSE(resp.Body)
+		return t.handleSSEStream(ctx, resp.Body)
 	}
 
 	// fallback to JSON
@@ -137,7 +137,81 @@ func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args
 	return result, nil
 }
 
-// handleSSE reads and parses an event-stream, returning slices of parsed JSON events.
+// handleSSEStream creates a streaming result using NewChannelStreamResult
+func (t *SSEClientTransport) handleSSEStream(ctx context.Context, body io.ReadCloser) (transports.StreamResult, error) {
+	eventChan := make(chan any, 10) // buffered channel to prevent blocking
+
+	// Start a goroutine to read SSE events and send them to the channel
+	go func() {
+		defer close(eventChan)
+		defer body.Close()
+
+		reader := bufio.NewReader(body)
+		var dataBuf strings.Builder
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Context cancelled, send error and return
+				eventChan <- ctx.Err()
+				return
+			default:
+			}
+
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				eventChan <- err
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+
+			// capture event-id for reconnect support
+			if strings.HasPrefix(line, "id: ") {
+				lastID := line[len("id: "):]
+				t.logger("SSE last-event-id now: %s", lastID)
+				continue
+			}
+
+			// end of event, decode accumulated data
+			if line == "" {
+				if dataBuf.Len() > 0 {
+					var evt interface{}
+					if err := json.Unmarshal([]byte(dataBuf.String()), &evt); err != nil {
+						t.logger("failed to unmarshal SSE data: %v", err)
+						eventChan <- err
+						return
+					} else {
+						t.logger("Received SSE event: %v", evt)
+						eventChan <- evt
+					}
+					dataBuf.Reset()
+				}
+				continue
+			}
+
+			// accumulate data lines, preserving literal newlines between them
+			if strings.HasPrefix(line, "data: ") {
+				if dataBuf.Len() > 0 {
+					dataBuf.WriteByte('\n')
+				}
+				dataBuf.WriteString(line[len("data: "):])
+			}
+		}
+	}()
+
+	// Create a close function that will close the body if needed
+	closeFn := func() error {
+		// The body will be closed by the goroutine, but we can cancel context here if needed
+		return nil
+	}
+
+	return transports.NewChannelStreamResult(eventChan, closeFn), nil
+}
+
+// Legacy method for backward compatibility - now returns slice from stream
 func (t *SSEClientTransport) handleSSE(body io.ReadCloser) ([]interface{}, error) {
 	defer body.Close()
 	reader := bufio.NewReader(body)

@@ -54,3 +54,11 @@ func TestStreamableHTTPClientTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", res)
 	}
 }
+
+func TestStreamableDeregister(t *testing.T) {
+	stream := NewStreamableHTTPTransport(nil)
+	sth := &StreamableHttpProvider{BaseProvider: BaseProvider{Name: "h", ProviderType: ProviderHTTPStream}}
+	if err := stream.DeregisterToolProvider(context.Background(), sth); err != nil {
+		t.Fatalf("stream deregister error: %v", err)
+	}
+}
