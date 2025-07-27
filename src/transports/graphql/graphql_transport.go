@@ -60,8 +60,8 @@ func NewGraphQLClientTransport(logger func(msg string, err error)) *GraphQLClien
 
 // enforceHTTPSOrLocalhost ensures secure or local URLs.
 func (t *GraphQLClientTransport) enforceHTTPSOrLocalhost(urlStr string) error {
-	if !(strings.HasPrefix(urlStr, "https://") || strings.HasPrefix(urlStr, "http://localhost") || strings.HasPrefix(urlStr, "http://127.0.0.1")) {
-		return fmt.Errorf("security error: URL must use HTTPS or start with 'http://localhost' or 'http://127.0.0.1'. Got: %s", urlStr)
+	if !(strings.HasPrefix(urlStr, "https://") || strings.HasPrefix(urlStr, "http://localhost") || strings.HasPrefix(urlStr, "http://127.0.0.1") || strings.HasPrefix(urlStr, "wss://") || strings.HasPrefix(urlStr, "ws://localhost") || strings.HasPrefix(urlStr, "ws://127.0.0.1")) {
+		return fmt.Errorf("security error: URL must use HTTPS/WSS or start with 'http://localhost', 'http://127.0.0.1', 'ws://localhost', or 'ws://127.0.0.1'. Got: %s", urlStr)
 	}
 	return nil
 }
@@ -463,8 +463,15 @@ func (t *GraphQLClientTransport) handleSubscription(ctx context.Context, client 
 
 // handleWebSocketSubscription handles WebSocket-based subscriptions
 func (t *GraphQLClientTransport) handleWebSocketSubscription(ctx context.Context, req *graphql.Request, toolName string, prov *GraphQLProvider, query string, variables map[string]any) (any, error) {
-	// Create WebSocket connection
-	conn, _, err := websocket.DefaultDialer.Dial(prov.URL, nil)
+	// Create WebSocket connection with the "graphql-ws" subprotocol and propagate request headers
+	dialer := websocket.Dialer{Subprotocols: []string{"graphql-ws"}}
+	hdr := http.Header{}
+	for k, vals := range req.Header {
+		for _, v := range vals {
+			hdr.Add(k, v)
+		}
+	}
+	conn, _, err := dialer.Dial(prov.URL, hdr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
