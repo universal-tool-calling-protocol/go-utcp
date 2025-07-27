@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
 )
 
 func main() {
@@ -21,7 +23,7 @@ func main() {
 	logger := func(format string, args ...interface{}) {
 		log.Printf(format, args...)
 	}
-	transport := transports.NewStreamableHTTPTransport(logger)
+	transport := streamable.NewStreamableHTTPTransport(logger)
 
 	// 3) Point at your provider
 	provider := &providers.StreamableHttpProvider{
@@ -46,10 +48,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("CallTool error: %v", err)
 	}
-
-	// 5) Inspect what you got
-	fmt.Printf("Full result: %#v\n", res)
-	fmt.Printf("Last raw chunk: %s\n", lastChunk)
+	sub, ok := res.(transports.StreamResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", sub)
+	}
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next error: %v", err)
+		}
+		log.Printf("Subscription update: %#v", val)
+	}
+	sub.Close()
 }
 
 // startStreamingServer streams five JSON objects, one every 200ms
