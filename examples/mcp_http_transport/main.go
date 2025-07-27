@@ -13,7 +13,7 @@ import (
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
-	mcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
+	mcp_transport "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
 )
 
 // startMCPHTTPServer launches a simple MCP HTTP server with a hello tool and a streaming count tool.
@@ -65,7 +65,7 @@ func main() {
 
 	// 2) Build transport
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
-	transport := mcp.NewMCPTransport(logger)
+	transport := mcp_transport.NewMCPTransport(logger)
 
 	// 3) Configure provider using URL only
 	provider := &providers.MCPProvider{
@@ -99,7 +99,7 @@ func main() {
 	}
 	sub, ok := result.(*transports.ChannelStreamResult)
 	if !ok {
-		log.Fatalf("unexpected subscription type: %T", res)
+		log.Fatalf("unexpected subscription type: %T", result)
 	}
 	for {
 		val, err := sub.Next()
