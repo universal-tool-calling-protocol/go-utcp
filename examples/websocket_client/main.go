@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -146,10 +147,40 @@ func main() {
 		log.Printf(" - %s", t.Name)
 	}
 
-	// Example call to the multipleChunks tool
-	res, err := client.CallTool(ctx, "websocket.multipleChunks", map[string]any{})
+	// Call the streaming tool
+	resIface, err := client.CallTool(ctx, "websocket.multipleChunks", map[string]any{})
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
-	log.Printf("Tool response: %#v", res)
+
+	// 1) Assert top‑level to slice
+	chunks, ok := resIface.([]interface{})
+	if !ok {
+		log.Fatalf("unexpected response type: %T", resIface)
+	}
+
+	// 2) Loop & collect
+	var combined strings.Builder
+	for i, raw := range chunks {
+		// 2a) Assert each element is a map
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			log.Printf("chunk %d: unexpected type %T, skipping", i, raw)
+			continue
+		}
+
+		// 2b) Pull the "result" field as string
+		if piece, ok := m["result"].(string); ok {
+			// You can do whatever you like with each piece!
+			// E.g. append to a builder, print immediately, etc.
+			combined.WriteString(piece)
+			combined.WriteRune(' ')
+		} else {
+			log.Printf("chunk %d: missing or non‑string result field", i)
+		}
+	}
+
+	// 3) Use the joined result
+	log.Printf("Combined response: %q", combined.String())
+
 }
