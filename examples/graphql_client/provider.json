@@ -6,6 +6,13 @@
       "url": "http://localhost:8080/graphql",
       "operation_type": "query",
       "operation_name": "echo"
+    },
+    {
+      "provider_type": "graphql",
+      "name": "graphqlsub",
+      "url": "ws://localhost:8080/sub",
+      "operation_type": "subscription",
+      "operation_name": "updates"
     }
   ]
 }

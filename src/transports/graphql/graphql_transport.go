@@ -60,8 +60,8 @@ func NewGraphQLClientTransport(logger func(msg string, err error)) *GraphQLClien
 
 // enforceHTTPSOrLocalhost ensures secure or local URLs.
 func (t *GraphQLClientTransport) enforceHTTPSOrLocalhost(urlStr string) error {
-	if !(strings.HasPrefix(urlStr, "https://") || strings.HasPrefix(urlStr, "http://localhost") || strings.HasPrefix(urlStr, "http://127.0.0.1")) {
-		return fmt.Errorf("security error: URL must use HTTPS or start with 'http://localhost' or 'http://127.0.0.1'. Got: %s", urlStr)
+	if !(strings.HasPrefix(urlStr, "https://") || strings.HasPrefix(urlStr, "http://localhost") || strings.HasPrefix(urlStr, "http://127.0.0.1") || strings.HasPrefix(urlStr, "wss://") || strings.HasPrefix(urlStr, "ws://localhost") || strings.HasPrefix(urlStr, "ws://127.0.0.1")) {
+		return fmt.Errorf("security error: URL must use HTTPS/WSS or start with 'http://localhost', 'http://127.0.0.1', 'ws://localhost', or 'ws://127.0.0.1'. Got: %s", urlStr)
 	}
 	return nil
 }
@@ -200,66 +200,69 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 	if err := t.enforceHTTPSOrLocalhost(prov.URL); err != nil {
 		return nil, err
 	}
+
 	headers, err := t.prepareHeaders(ctx, prov)
 	if err != nil {
 		return nil, err
 	}
 
-	client := graphql.NewClient(prov.URL)
+	// Determine introspection URL: use HTTP(S) for subscriptions
+	introspectURL := prov.URL
+	if strings.EqualFold(prov.OperationType, "subscription") {
+		u, err := url.Parse(prov.URL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid provider URL: %w", err)
+		}
+		// Switch WS->HTTP scheme
+		switch u.Scheme {
+		case "ws":
+			u.Scheme = "http"
+		case "wss":
+			u.Scheme = "https"
+		}
+		// Use standard GraphQL HTTP path for introspection
+		u.Path = "/graphql"
+		introspectURL = u.String()
+	}
+
+	client := graphql.NewClient(introspectURL)
 	client.Log = func(s string) { t.log(s, nil) }
 
-	// corrected introspection query
+	// Introspection query
 	introspectionQuery := `
-      query IntrospectionQuery {
-        __schema {
-          queryType {
-            fields {
-              name
-              description
-            }
-          }
-          mutationType {
-            fields {
-              name
-              description
-            }
-          }
-          subscriptionType {
-            fields {
-              name
-              description
-            }
-          }
-        }
-      }
-    `
+	query IntrospectionQuery {
+	  __schema {
+	    queryType { fields { name description } }
+	    mutationType { fields { name description } }
+	    subscriptionType { fields { name description } }
+	  }
+	}`
+
 	req := graphql.NewRequest(introspectionQuery)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 
-	// top-level struct must have an exported field for "__schema"
+	// Response container for introspection
 	var resp struct {
 		Schema struct {
 			QueryType struct {
 				Fields []struct {
 					Name        string  `json:"name"`
 					Description *string `json:"description"`
-				} `json:"fields"`
+				}
 			} `json:"queryType"`
-			// make this a pointer so we can check for no mutations
 			MutationType *struct {
 				Fields []struct {
 					Name        string  `json:"name"`
 					Description *string `json:"description"`
-				} `json:"fields"`
+				}
 			} `json:"mutationType"`
-			// subscriptions are optional as well
 			SubscriptionType *struct {
 				Fields []struct {
 					Name        string  `json:"name"`
 					Description *string `json:"description"`
-				} `json:"fields"`
+				}
 			} `json:"subscriptionType"`
 		} `json:"__schema"`
 	}
@@ -267,8 +270,10 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 		return nil, fmt.Errorf("introspection failed: %w", err)
 	}
 
+	// Build tool list
 	var toolsList []Tool
-	// register query fields
+
+	// Register query fields
 	for _, f := range resp.Schema.QueryType.Fields {
 		desc := ""
 		if f.Description != nil {
@@ -281,7 +286,8 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 			Provider:    prov,
 		})
 	}
-	// register mutation fields if present
+
+	// Register mutation fields
 	if resp.Schema.MutationType != nil {
 		for _, f := range resp.Schema.MutationType.Fields {
 			desc := ""
@@ -296,7 +302,8 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 			})
 		}
 	}
-	// register subscription fields if present
+
+	// Register subscription fields
 	if resp.Schema.SubscriptionType != nil {
 		for _, f := range resp.Schema.SubscriptionType.Fields {
 			desc := ""
@@ -311,8 +318,8 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 			})
 		}
 	}
-
 	return toolsList, nil
+
 }
 
 // DeregisterToolProvider is a no-op for stateless transport.
@@ -463,8 +470,15 @@ func (t *GraphQLClientTransport) handleSubscription(ctx context.Context, client 
 
 // handleWebSocketSubscription handles WebSocket-based subscriptions
 func (t *GraphQLClientTransport) handleWebSocketSubscription(ctx context.Context, req *graphql.Request, toolName string, prov *GraphQLProvider, query string, variables map[string]any) (any, error) {
-	// Create WebSocket connection
-	conn, _, err := websocket.DefaultDialer.Dial(prov.URL, nil)
+	// Create WebSocket connection with the "graphql-ws" subprotocol and propagate request headers
+	dialer := websocket.Dialer{Subprotocols: []string{"graphql-ws"}}
+	hdr := http.Header{}
+	for k, vals := range req.Header {
+		for _, v := range vals {
+			hdr.Add(k, v)
+		}
+	}
+	conn, _, err := dialer.Dial(prov.URL, hdr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
