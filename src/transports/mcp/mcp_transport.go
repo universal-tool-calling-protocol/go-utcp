@@ -339,25 +339,13 @@ func (t *MCPTransport) callHTTPToolStream(
 ) (*StreamResult, error) {
 	streamCtx, cancel := context.WithCancel(ctx)
 	ch := make(chan any, 10)
-	done := make(chan struct{})
-	notificationReceived := make(chan struct{}, 1)
 
-	// 1) Register handler for real JSON‑RPC notifications
+	// Forward notifications directly to the stream
 	client.OnNotification(func(n mcp.JSONRPCNotification) {
-		select {
-		case <-done:
-			return
-		default:
-		}
 		payload := map[string]any{
 			"type":   "notification",
 			"method": n.Method,
 			"params": n.Params,
-		}
-		// signal that we saw at least one
-		select {
-		case notificationReceived <- struct{}{}:
-		default:
 		}
 		select {
 		case ch <- payload:
@@ -366,12 +354,9 @@ func (t *MCPTransport) callHTTPToolStream(
 	})
 
 	go func() {
-		defer func() {
-			close(done)
-			close(ch)
-		}()
+		defer close(ch)
 
-		// 2) Call the tool (sync or streaming)
+		// Call the tool (handles both sync and streaming cases)
 		req := mcpapi.CallToolRequest{
 			Params: mcpapi.CallToolParams{
 				Name:      toolName,
@@ -387,55 +372,12 @@ func (t *MCPTransport) callHTTPToolStream(
 			return
 		}
 
-		// 3) Brief window for real streaming
-		select {
-		case <-notificationReceived:
-			t.logger("Streaming notifications detected for tool '%s'", toolName)
-			return
-		case <-time.After(150 * time.Millisecond):
-			// no notifications → fallback to sync handling
-		}
-
-		// 4) Marshal/unmarshal to inspect fields
+		// Marshal/unmarshal to generic map for consistency
 		raw, _ := json.Marshal(res)
 		var respMap map[string]any
 		_ = json.Unmarshal(raw, &respMap)
-
-		// 5) Extract any "content" array (top-level or under "result")
-		var items []any
-		if arr, ok := respMap["content"].([]any); ok {
-			items = arr
-		} else if resultObj, ok := respMap["result"].(map[string]any); ok {
-			if arr2, ok2 := resultObj["content"].([]any); ok2 {
-				items = arr2
-			}
-		}
-
-		// 6) If we found a content array, emit each element
-		if len(items) > 0 {
-			for _, item := range items {
-				payload := map[string]any{
-					"type":   "notification",
-					"method": "streamChunk",
-					"params": item,
-				}
-				select {
-				case ch <- payload:
-				case <-streamCtx.Done():
-					return
-				}
-			}
-			return
-		}
-
-		// 7) Fallback: emit the entire response as a single notification
-		payload := map[string]any{
-			"type":   "notification",
-			"method": toolName,
-			"params": respMap,
-		}
 		select {
-		case ch <- payload:
+		case ch <- respMap:
 		case <-streamCtx.Done():
 		}
 	}()
