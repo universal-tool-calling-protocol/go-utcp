@@ -451,14 +451,9 @@ func (t *MCPTransport) callHTTPToolStream(
 			return
 		}
 
-		// 7) Fallback: emit the entire response as a single notification
-		payload := map[string]any{
-			"type":   "notification",
-			"method": toolName,
-			"params": respMap,
-		}
+		// 7) Fallback: emit the entire response as a single map
 		select {
-		case ch <- payload:
+		case ch <- respMap:
 		case <-ctx.Done():
 		}
 	}()
