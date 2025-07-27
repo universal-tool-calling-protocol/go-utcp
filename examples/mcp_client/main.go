@@ -43,6 +43,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot proceed")
 	}
-	fmt.Println("Result: ", result)
+
+	switch ev := result.(type) {
+	case []interface{}:
+		fmt.Println("Streamed tool response:")
+		for i, chunk := range ev {
+			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+		}
+	default:
+		fmt.Printf("Tool response: %#v\n", ev)
+	}
 	os.Exit(0)
 }
