@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
+	sse "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 )
 
 func main() {
@@ -85,7 +87,7 @@ func runClient(baseURL string) {
 	logger := func(format string, args ...interface{}) {
 		fmt.Printf("[SSE] "+format+"\n", args...)
 	}
-	transport := transports.NewSSETransport(logger)
+	transport := sse.NewSSETransport(logger)
 
 	// Discovery endpoint
 	provider := &providers.SSEProvider{URL: baseURL + "/tools"}
@@ -103,20 +105,23 @@ func runClient(baseURL string) {
 	// Call with streaming
 	res, err := transport.CallTool(ctx, "hello", map[string]interface{}{"name": "UTCP"}, provider, nil)
 	if err != nil {
-		panic(fmt.Errorf("failed to call tool: %w", err))
+		log.Fatalf("call: %v", err)
 	}
-
-	// Print streaming result
-	switch ev := res.(type) {
-	case []interface{}:
-		fmt.Println("Streamed tool response:")
-		for i, chunk := range ev {
-			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+	sub, ok := res.(transports.StreamResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", sub)
+	}
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next error: %v", err)
 		}
-	default:
-		fmt.Printf("Tool response: %#v\n", ev)
+		log.Printf("Subscription update: %#v", val)
 	}
-
+	sub.Close()
 	// Ensure logs flush before exit
 	time.Sleep(500 * time.Millisecond)
 }
