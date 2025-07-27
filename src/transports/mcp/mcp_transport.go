@@ -70,6 +70,36 @@ type mcpNotification struct {
 	Params  interface{} `json:"params,omitempty"`
 }
 
+// SubscriptionResult wraps a streaming result channel, providing
+// iteration similar to the GraphQL transport.
+type MCPSubscriptionResult struct {
+	ch     <-chan any
+	cancel context.CancelFunc
+}
+
+// Next returns the next message from the subscription or io.EOF when done.
+func (sr *MCPSubscriptionResult) Next() (any, error) {
+	val, ok := <-sr.ch
+	if !ok {
+		return nil, io.EOF
+	}
+	if err, ok := val.(error); ok {
+		return nil, err
+	}
+	return val, nil
+}
+
+// Close cancels the underlying subscription.
+func (sr *MCPSubscriptionResult) Close() error {
+	if sr.cancel != nil {
+		sr.cancel()
+	}
+	// Drain remaining messages
+	for range sr.ch {
+	}
+	return nil
+}
+
 // NewMCPTransport constructs a new MCPTransport.
 func NewMCPTransport(logger func(format string, args ...interface{})) *MCPTransport {
 	if logger == nil {
@@ -235,7 +265,7 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 
 // CallTool calls a specific tool on the MCP server and collects all streaming results.
 func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p Provider, l *string) (any, error) {
-	resultChan, err := t.CallToolStream(ctx, toolName, args, p)
+	sub, err := t.CallToolStream(ctx, toolName, args, p)
 	if err != nil {
 		return nil, err
 	}
@@ -246,9 +276,9 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 
 	// Collect all results from the stream
 	for {
-		select {
-		case result, ok := <-resultChan:
-			if !ok {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
 				if lastError != nil {
 					return nil, lastError
 				}
@@ -260,29 +290,26 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 				}
 				return results, nil
 			}
+			lastError = err
+			t.logger("Stream error: %v", err)
+			continue
+		}
 
-			// Handle structured chunk
-			if payload, ok := result.(map[string]any); ok {
-				if payload["type"] == "notification" && payload["method"] == "done" {
-					t.logger("Received stream completion signal.")
-					return results, nil
-				}
-				chunkCount++
-				results = append(results, payload)
-			} else if err, ok := result.(error); ok {
-				lastError = err
-				t.logger("Stream error: %v", err)
+		// Handle structured chunk
+		if payload, ok := val.(map[string]any); ok {
+			if payload["type"] == "notification" && payload["method"] == "done" {
+				t.logger("Received stream completion signal.")
+				return results, nil
 			}
-
-		case <-ctx.Done():
-			t.logger("Stream cancelled by context")
-			return nil, ctx.Err()
+			chunkCount++
+			results = append(results, payload)
 		}
 	}
 }
 
-// CallToolStream calls a specific tool on the MCP server and returns a streaming channel.
-func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (<-chan any, error) {
+// CallToolStream calls a specific tool on the MCP server and returns a
+// subscription for streaming results.
+func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (*MCPSubscriptionResult, error) {
 	mp, ok := p.(*MCPProvider)
 	if !ok {
 		return nil, errors.New("MCPTransport can only be used with MCPProvider")
@@ -298,13 +325,26 @@ func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args
 
 	t.logger("Calling MCP tool '%s' on provider '%s'", toolName, mp.Name)
 
+	ctx, cancel := context.WithCancel(ctx)
+
+	var (
+		ch  <-chan any
+		err error
+	)
+
 	// Handle HTTP client case
 	if process.httpClient != nil {
-		return t.callHTTPToolStream(ctx, process.httpClient, toolName, args)
+		ch, err = t.callHTTPToolStream(ctx, process.httpClient, toolName, args)
+	} else {
+		// Handle stdio process case
+		ch, err = t.callStdioToolStream(ctx, process, toolName, args, mp.Timeout)
+	}
+	if err != nil {
+		cancel()
+		return nil, err
 	}
 
-	// Handle stdio process case
-	return t.callStdioToolStream(ctx, process, toolName, args, mp.Timeout)
+	return &MCPSubscriptionResult{ch: ch, cancel: cancel}, nil
 }
 
 // callHTTPToolStream handles tool calls via HTTP client with streaming support.

@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	mcptransport "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
 )
 
 func main() {
@@ -44,14 +46,30 @@ func main() {
 		log.Fatalf("cannot proceed")
 	}
 
-	switch ev := result.(type) {
-	case []interface{}:
-		fmt.Println("Streamed tool response:")
-		for i, chunk := range ev {
-			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+	if sub, ok := result.(*mcptransport.MCPSubscriptionResult); ok {
+		for {
+			val, err := sub.Next()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Fatalf("subscription next: %v", err)
+			}
+			fmt.Printf("Stream chunk: %#v\n", val)
 		}
-	default:
-		fmt.Printf("Tool response: %#v\n", ev)
+		if err := sub.Close(); err != nil {
+			log.Fatalf("close error: %v", err)
+		}
+	} else {
+		switch ev := result.(type) {
+		case []interface{}:
+			fmt.Println("Streamed tool response:")
+			for i, chunk := range ev {
+				fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+			}
+		default:
+			fmt.Printf("Tool response: %#v\n", ev)
+		}
 	}
 	os.Exit(0)
 }

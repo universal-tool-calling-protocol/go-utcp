@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -65,12 +66,22 @@ func main() {
 
 	// Call the tool directly using MCPTransport
 	argsMap := map[string]any{"count": "5"}
-	ch, err := transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
+	sub, err := transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
 	if err != nil {
 		log.Fatalf("CallTool failed: %v", err)
 	}
-	for msg := range ch {
-		fmt.Printf("Stream chunk: %#v\n", msg)
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next: %v", err)
+		}
+		fmt.Printf("Stream chunk: %#v\n", val)
+	}
+	if err := sub.Close(); err != nil {
+		log.Fatalf("close error: %v", err)
 	}
 
 	// Clean up - deregister the provider
