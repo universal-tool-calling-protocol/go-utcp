@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
-	"os"
 	"strings"
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
+	mcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
 )
 
 func main() {
@@ -22,7 +23,7 @@ func main() {
 	logger := func(format string, args ...interface{}) {
 		fmt.Printf("[MCP] "+format+"\n", args...)
 	}
-	transport := transports.NewMCPTransport(logger)
+	transport := mcp.NewMCPTransport(logger)
 
 	// Create MCP provider configuration
 	mcpProvider := &providers.MCPProvider{
@@ -65,18 +66,23 @@ func main() {
 
 	// Call the tool directly using MCPTransport
 	argsMap := map[string]any{"count": "5"}
-	ch, err := transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
+	res, err := transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
 	if err != nil {
-		log.Fatalf("CallTool failed: %v", err)
+		log.Fatalf("subscription call error: %v", err)
 	}
-	for msg := range ch {
-		fmt.Printf("Stream chunk: %#v\n", msg)
+	sub, ok := res.(*transports.ChannelStreamResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", res)
 	}
-
-	// Clean up - deregister the provider
-	if err := transport.DeregisterToolProvider(ctx, mcpProvider); err != nil {
-		log.Printf("Warning: failed to deregister provider: %v", err)
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next error: %v", err)
+		}
+		fmt.Printf("Subscription update: %#v\n", val)
 	}
-
-	os.Exit(0)
+	sub.Close()
 }

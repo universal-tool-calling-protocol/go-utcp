@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
-	"os"
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
 
 func main() {
@@ -26,7 +27,7 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Errorf("Tools nof found")
+		fmt.Errorf("Tools not found")
 	}
 	args := map[string]any{
 		"name": "Kamil",
@@ -34,24 +35,28 @@ func main() {
 	data, err := client.CallTool(ctx, tools[0].Name, args)
 	if err != nil {
 		log.Fatalf("cannot proceed")
-
 	}
 	fmt.Println(data.(map[string]any)["result"])
+
 	// 4) Synchronous call
 	argsMap := map[string]any{"count": 5}
-	result, err := client.CallTool(ctx, tools[1].Name, argsMap)
+	res, err := client.CallTool(ctx, tools[1].Name, argsMap)
 	if err != nil {
-		log.Fatalf("cannot proceed")
+		log.Fatalf("subscription call error: %v", err)
 	}
-
-	switch ev := result.(type) {
-	case []interface{}:
-		fmt.Println("Streamed tool response:")
-		for i, chunk := range ev {
-			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+	sub, ok := res.(*transports.ChannelStreamResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", res)
+	}
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next error: %v", err)
 		}
-	default:
-		fmt.Printf("Tool response: %#v\n", ev)
+		fmt.Printf("Subscription update: %#v\n", val)
 	}
-	os.Exit(0)
+	sub.Close()
 }
