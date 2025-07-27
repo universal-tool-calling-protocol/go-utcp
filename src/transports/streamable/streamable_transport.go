@@ -15,6 +15,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
 
 // StreamableHTTPClientTransport implements HTTP with streaming support.
@@ -94,56 +95,98 @@ func (t *StreamableHTTPClientTransport) CallTool(
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	// Use a buffered reader to handle NDJSON or JSON Sequence
 	reader := bufio.NewReader(resp.Body)
 	dec := json.NewDecoder(reader)
 
-	// Collect parsed chunks
-	var results []interface{}
-	for {
-		// Peek to see if there's any data left
-		b, err := reader.Peek(1)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return nil, err
-		}
-		// Skip empty whitespace
-		if len(b) == 1 && (b[0] == '\n' || b[0] == ' ' || b[0] == '\t' || b[0] == '\r') {
-			reader.ReadByte()
-			continue
-		}
+	// Create a channel for streaming results
+	resultCh := make(chan any, 10) // Buffer to prevent blocking
 
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
+	// Start a goroutine to process the stream
+	go func() {
+		defer close(resultCh)
+		defer resp.Body.Close()
+
+		for {
+			// Check if context is cancelled
+			select {
+			case <-ctx.Done():
+				resultCh <- ctx.Err()
+				return
+			default:
+			}
+
+			// Peek to see if there's any data left
+			b, err := reader.Peek(1)
 			if err == io.EOF {
 				break
+			} else if err != nil {
+				resultCh <- err
+				return
 			}
-			return nil, err
-		}
+			// Skip empty whitespace
+			if len(b) == 1 && (b[0] == '\n' || b[0] == ' ' || b[0] == '\t' || b[0] == '\r') {
+				reader.ReadByte()
+				continue
+			}
 
-		// Log the raw JSON chunk
-		rawStr := string(bytes.TrimSpace(raw))
-		t.logger("received chunk: %s", rawStr)
-		if l != nil {
-			*l = rawStr
-		}
+			var raw json.RawMessage
+			if err := dec.Decode(&raw); err != nil {
+				if err == io.EOF {
+					break
+				}
+				resultCh <- err
+				return
+			}
 
-		// Unmarshal into interface{}
-		var obj interface{}
-		if err := json.Unmarshal(raw, &obj); err != nil {
-			return nil, err
+			// Log the raw JSON chunk
+			rawStr := string(bytes.TrimSpace(raw))
+			t.logger("received chunk: %s", rawStr)
+			if l != nil {
+				*l = rawStr
+			}
+
+			// Unmarshal into interface{}
+			var obj interface{}
+			if err := json.Unmarshal(raw, &obj); err != nil {
+				resultCh <- err
+				return
+			}
+			resultCh <- obj
 		}
-		results = append(results, obj)
+	}()
+
+	// Return a ChannelStreamResult
+	streamResult := transports.NewChannelStreamResult(resultCh, func() error {
+		// The goroutine will handle closing the response body
+		return nil
+	})
+
+	return streamResult, nil
+}
+
+// CallToolStream is a new method that explicitly returns a StreamResult for streaming use cases.
+// This provides a cleaner API for consumers who want to handle streaming results.
+func (t *StreamableHTTPClientTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]interface{},
+	prov Provider,
+	l *string,
+) (transports.StreamResult, error) {
+	result, err := t.CallTool(ctx, toolName, args, prov, l)
+	if err != nil {
+		return nil, err
 	}
 
-	// Return single element directly
-	if len(results) == 1 {
-		return results[0], nil
+	// If CallTool returned a StreamResult, return it directly
+	if streamResult, ok := result.(transports.StreamResult); ok {
+		return streamResult, nil
 	}
-	return results, nil
+
+	// Otherwise, wrap single result in a SliceStreamResult for compatibility
+	return transports.NewSliceStreamResult([]any{result}, nil), nil
 }
 
 // DeregisterToolProvider clears any streaming-specific state (no-op).
