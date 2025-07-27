@@ -38,16 +38,48 @@ func main() {
 	if err != nil {
 		log.Fatalf("hello call error: %v", err)
 	}
-	fmt.Printf("Hello result: %#v\n", res)
 
+	subRes, ok := res.(transports.StreamResult)
+	if !ok {
+		return
+	}
+	for {
+		item, err := subRes.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("stream next error: %v", err)
+		}
+
+		// If payload is a notification with JSON array, split it
+		if m, ok := item.(map[string]any); ok && m["method"] == "streamChunk" {
+			params := m["params"].(map[string]any)
+			if textRaw, ok := params["text"].(string); ok {
+				var parts []string
+				if err := json.Unmarshal([]byte(textRaw), &parts); err == nil {
+					for _, p := range parts {
+						fmt.Println(p)
+					}
+					continue
+				}
+			}
+			// Fallback: print raw
+			fmt.Printf("%#v\n", item)
+			continue
+		}
+
+		// Otherwise print the item
+		fmt.Printf("Stream update: %#v\n", item)
+	}
 	// Call streaming tool: returns StreamResult
-	subRes, err := client.CallTool(ctx, tools[1].Name, map[string]any{"count": 5})
+	res, err = client.CallTool(ctx, tools[1].Name, map[string]any{"count": 5})
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}
 
 	// Expect StreamResult
-	sub, ok := subRes.(transports.StreamResult)
+	sub, ok := res.(transports.StreamResult)
 	if !ok {
 		log.Fatalf("unexpected type: %T", subRes)
 	}

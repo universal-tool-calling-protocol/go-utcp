@@ -235,77 +235,59 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 }
 
 // CallTool invokes a tool: returns a []any for non‑streaming calls or a StreamResult when the tool streams.
+// or transports.ChannelStreamResult for streaming calls.
 func (t *MCPTransport) CallTool(
 	ctx context.Context,
 	toolName string,
 	args map[string]any,
 	p Provider,
-	l *string,
-) (any, error) {
-	// Create streaming result
+	_l *string,
+) (interface{}, error) {
+	// Invoke the streaming call
 	stream, err := t.CallToolStream(ctx, toolName, args, p)
 	if err != nil {
 		return nil, err
 	}
 
-	// Peek first value
+	// Read first item
 	first, err := stream.Next()
 	if err != nil {
-		stream.Close()
+		stream.Close() // Handle close error properly
 		if errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("no output from tool %s", toolName)
 		}
 		return nil, err
 	}
 
-	// If first is a streaming notification, return stream back
-	if m, ok := first.(map[string]any); ok && m["type"] == "notification" {
-		// rebuild channel including first
-		ch := make(chan any, 1)
-		ch <- first
-		go func() {
-			defer close(ch)
-			for {
-				item, err := stream.Next()
-				if err != nil {
-					return
+	// Determine if this is a streaming notification
+	if m, ok := first.(map[string]any); ok {
+		if typ, hasType := m["type"]; hasType && typ == "notification" {
+			// Rebuild channel including first
+			ch := make(chan any, 1)
+			ch <- first
+			go func() {
+				defer close(ch)
+				for {
+					item, err := stream.Next()
+					if err != nil {
+						return
+					}
+					ch <- item
 				}
-				ch <- item
-			}
-		}()
-		return transports.NewChannelStreamResult(ch, stream.Close), nil
+			}()
+			return transports.NewChannelStreamResult(ch, stream.Close), nil
+		}
 	}
 
-	// Otherwise buffer into results slice
-	var results []any
-	// include first if not done
-	if mf, ok := first.(map[string]any); !ok || mf["method"] != "done" {
-		results = append(results, first)
+	// Non-stream: close and return map or wrap
+	if err := stream.Close(); err != nil {
+		t.logger("Warning: failed to close stream: %v", err)
 	}
-	for {
-		item, err := stream.Next()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			stream.Close()
-			return nil, err
-		}
-		if m2, ok2 := item.(map[string]any); ok2 && m2["type"] == "notification" && m2["method"] == "done" {
-			break
-		}
-		results = append(results, item)
-	}
-	stream.Close()
 
-	switch len(results) {
-	case 0:
-		return nil, fmt.Errorf("no results received from tool call %s", toolName)
-	case 1:
-		return results[0], nil
-	default:
-		return results, nil
+	if resultMap, ok := first.(map[string]any); ok {
+		return resultMap, nil
 	}
+	return map[string]any{"result": first}, nil
 }
 
 // CallToolStream returns a transports.StreamResult for live streaming.
