@@ -9,7 +9,7 @@
     },
     {
       "provider_type": "graphql",
-      "name": "graphql_sub",
+      "name": "graphqlsub",
       "url": "ws://localhost:8080/sub",
       "operation_type": "subscription",
       "operation_name": "updates"

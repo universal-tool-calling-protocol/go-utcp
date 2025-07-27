@@ -29,7 +29,16 @@ func startServer(addr string) {
 		}
 		_ = json.Unmarshal(body, &req)
 		if strings.Contains(req.Query, "__schema") {
-			resp := map[string]any{"data": map[string]any{"__schema": map[string]any{"queryType": map[string]any{"fields": []map[string]any{{"name": "echo", "description": "Echo"}}}}}}
+			resp := map[string]any{
+				"data": map[string]any{
+					"__schema": map[string]any{
+						"queryType": map[string]any{"fields": []map[string]any{
+							{"name": "echo", "description": "Echo"},
+							{"name": "updates", "description": "Updates"}},
+						},
+					},
+				},
+			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 			return
@@ -44,7 +53,7 @@ func startServer(addr string) {
 		http.Error(w, "unknown query", http.StatusBadRequest)
 	})
 
-	// Simple WebSocket subscription endpoint
+	// Subscription endpoint
 	http.HandleFunc("/sub", func(w http.ResponseWriter, r *http.Request) {
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -53,7 +62,6 @@ func startServer(addr string) {
 		}
 		defer c.Close()
 
-		// Expect connection_init
 		var msg map[string]any
 		if err := c.ReadJSON(&msg); err != nil {
 			log.Printf("read init: %v", err)
@@ -64,28 +72,31 @@ func startServer(addr string) {
 			log.Printf("read start: %v", err)
 			return
 		}
-		// Send a couple of updates
 		for i := 1; i <= 2; i++ {
 			c.WriteJSON(map[string]any{
-				"type": "data",
-				"payload": map[string]any{
-					"data": map[string]any{"updates": i},
-				},
+				"type":    "data",
+				"payload": map[string]any{"data": map[string]any{"updates": i}},
 			})
 			time.Sleep(100 * time.Millisecond)
 		}
 		c.WriteJSON(map[string]any{"type": "complete"})
 	})
+
 	log.Printf("GraphQL server on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func main() {
+	// Start local GraphQL server
 	go startServer(":8080")
+	// Give server time to boot
 	time.Sleep(200 * time.Millisecond)
 
 	ctx := context.Background()
+	// Load providers from config
 	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: "provider.json"}
+	// Instantiate GraphQL transport
+	// Create UTCP client with GraphQL transport enabled
 	client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
 	if err != nil {
 		log.Fatalf("client error: %v", err)
@@ -100,14 +111,15 @@ func main() {
 		log.Printf(" - %s", t.Name)
 	}
 
+	// Query echo
 	res, err := client.CallTool(ctx, "graphql.echo", map[string]any{"msg": "hi"})
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}
 	log.Printf("Result: %#v", res)
 
-	// ---- Subscription example ----
-	subRes, err := client.CallTool(ctx, "graphql_sub.updates", nil)
+	// Subscription example
+	subRes, err := client.CallTool(ctx, "graphqlsub.updates", nil)
 	if err != nil {
 		log.Fatalf("subscription call: %v", err)
 	}
@@ -123,7 +135,7 @@ func main() {
 			}
 			log.Fatalf("subscription next: %v", err)
 		}
-		log.Printf("Update: %#v", val)
+		log.Printf("Graphql subscription result: %#v", val)
 	}
 	if err := sub.Close(); err != nil {
 		log.Fatalf("close error: %v", err)
