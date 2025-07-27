@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
@@ -125,7 +127,11 @@ func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args
 	// detect SSE vs JSON
 	ct := resp.Header.Get("Content-Type")
 	if strings.Contains(ct, "event-stream") {
-		return t.handleSSE(resp.Body)
+		events, err := t.handleSSE(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return streamresult.NewSliceStreamResult(events, nil), nil
 	}
 
 	// fallback to JSON

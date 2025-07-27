@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
+
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
@@ -139,11 +141,7 @@ func (t *StreamableHTTPClientTransport) CallTool(
 		results = append(results, obj)
 	}
 
-	// Return single element directly
-	if len(results) == 1 {
-		return results[0], nil
-	}
-	return results, nil
+	return streamresult.NewSliceStreamResult(results, nil), nil
 }
 
 // DeregisterToolProvider clears any streaming-specific state (no-op).

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
@@ -22,8 +23,14 @@ func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
 
 	if res, err := tr.CallTool(ctx, "hello", nil, prov, nil); err != nil {
 		t.Fatalf("call error: %v", err)
-	} else if res == nil {
-		t.Fatalf("expected non-nil result")
+	} else {
+		sr, ok := res.(*streamresult.SliceStreamResult)
+		if !ok {
+			t.Fatalf("expected SliceStreamResult, got %T", res)
+		}
+		if _, err := sr.Next(); err != nil {
+			t.Fatalf("next error: %v", err)
+		}
 	}
 
 	if err := tr.DeregisterToolProvider(ctx, prov); err != nil {

@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
+
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpapi "github.com/mark3labs/mcp-go/mcp"
@@ -252,20 +254,14 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 				if lastError != nil {
 					return nil, lastError
 				}
-				if len(results) == 0 {
-					return nil, fmt.Errorf("no results received from tool call")
-				}
-				if len(results) == 1 {
-					return results[0], nil
-				}
-				return results, nil
+				return streamresult.NewSliceStreamResult(results, nil), nil
 			}
 
 			// Handle structured chunk
 			if payload, ok := result.(map[string]any); ok {
 				if payload["type"] == "notification" && payload["method"] == "done" {
 					t.logger("Received stream completion signal.")
-					return results, nil
+					return streamresult.NewSliceStreamResult(results, nil), nil
 				}
 				chunkCount++
 				results = append(results, payload)

@@ -11,6 +11,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
 
 	"github.com/gorilla/websocket"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 func TestWebSocketTransport_RegisterAndCall(t *testing.T) {
@@ -62,8 +63,16 @@ func TestWebSocketTransport_RegisterAndCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}
-	m, ok := res.(map[string]any)
+	sr, ok := res.(*streamresult.SliceStreamResult)
+	if !ok {
+		t.Fatalf("expected SliceStreamResult, got %T", res)
+	}
+	val, err := sr.Next()
+	if err != nil {
+		t.Fatalf("next error: %v", err)
+	}
+	m, ok := val.(map[string]any)
 	if !ok || m["pong"] != "hi" {
-		t.Fatalf("unexpected result: %#v", res)
+		t.Fatalf("unexpected result: %#v", val)
 	}
 }
