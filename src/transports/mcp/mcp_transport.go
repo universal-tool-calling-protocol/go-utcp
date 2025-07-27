@@ -279,7 +279,6 @@ func (t *MCPTransport) CallTool(ctx context.Context, toolName string, args map[s
 			return nil, ctx.Err()
 		}
 	}
-
 }
 
 // CallToolStream calls a specific tool on the MCP server and returns a streaming channel.
@@ -308,7 +307,7 @@ func (t *MCPTransport) CallToolStream(ctx context.Context, toolName string, args
 	return t.callStdioToolStream(ctx, process, toolName, args, mp.Timeout)
 }
 
-// callHTTPToolStream handles tool calls via HTTP client.
+// callHTTPToolStream handles tool calls via HTTP client with streaming support.
 func (t *MCPTransport) callHTTPToolStream(
 	ctx context.Context,
 	client *mcpclient.Client,
@@ -317,26 +316,25 @@ func (t *MCPTransport) callHTTPToolStream(
 ) (<-chan any, error) {
 	ch := make(chan any, 10)
 	done := make(chan struct{})
-	notificationReceived := make(chan struct{}, 1) // marks stream start
+	notificationReceived := make(chan struct{}, 1)
 
+	// 1) Register handler for real JSON‑RPC notifications
 	client.OnNotification(func(n mcp.JSONRPCNotification) {
 		select {
 		case <-done:
 			return
 		default:
 		}
-
 		payload := map[string]any{
 			"type":   "notification",
 			"method": n.Method,
 			"params": n.Params,
 		}
-
+		// signal that we saw at least one
 		select {
 		case notificationReceived <- struct{}{}:
 		default:
 		}
-
 		select {
 		case ch <- payload:
 		case <-ctx.Done():
@@ -349,14 +347,13 @@ func (t *MCPTransport) callHTTPToolStream(
 			close(ch)
 		}()
 
+		// 2) Call the tool (sync or streaming)
 		req := mcpapi.CallToolRequest{
 			Params: mcpapi.CallToolParams{
 				Name:      toolName,
 				Arguments: args,
 			},
 		}
-
-		// Send the tool call
 		res, err := client.CallTool(ctx, req)
 		if err != nil {
 			select {
@@ -366,27 +363,63 @@ func (t *MCPTransport) callHTTPToolStream(
 			return
 		}
 
-		// Wait a moment to see if we received any notifications
+		// 3) Brief window for real streaming
 		select {
 		case <-notificationReceived:
-			// Stream has begun, ignore res
+			t.logger("Streaming notifications detected for tool '%s'", toolName)
 			return
 		case <-time.After(150 * time.Millisecond):
-			// No notifications — assume it's a sync response
-			raw, _ := json.Marshal(res)
-			var out any
-			_ = json.Unmarshal(raw, &out)
-			select {
-			case ch <- out:
-			case <-ctx.Done():
+			// no notifications → fallback to sync handling
+		}
+
+		// 4) Marshal/unmarshal to inspect fields
+		raw, _ := json.Marshal(res)
+		var respMap map[string]any
+		_ = json.Unmarshal(raw, &respMap)
+
+		// 5) Extract any "content" array (top-level or under "result")
+		var items []any
+		if arr, ok := respMap["content"].([]any); ok {
+			items = arr
+		} else if resultObj, ok := respMap["result"].(map[string]any); ok {
+			if arr2, ok2 := resultObj["content"].([]any); ok2 {
+				items = arr2
 			}
+		}
+
+		// 6) If we found a content array, emit each element
+		if len(items) > 0 {
+			for _, item := range items {
+				payload := map[string]any{
+					"type":   "notification",
+					"method": "streamChunk",
+					"params": item,
+				}
+				select {
+				case ch <- payload:
+				case <-ctx.Done():
+					return
+				}
+			}
+			return
+		}
+
+		// 7) Fallback: emit the entire response as a single notification
+		payload := map[string]any{
+			"type":   "notification",
+			"method": toolName,
+			"params": respMap,
+		}
+		select {
+		case ch <- payload:
+		case <-ctx.Done():
 		}
 	}()
 
 	return ch, nil
 }
 
-// callStdioToolStream handles tool calls via stdio process.
+// callStdioToolStream handles tool calls via stdio process with streaming support.
 func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProcess, toolName string, args map[string]any, timeoutSeconds int) (<-chan any, error) {
 	// Set default timeout if not specified
 	if timeoutSeconds <= 0 {
@@ -419,7 +452,7 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 	process.mutex.Unlock()
 
 	// Create result channel and start reader goroutine
-	resultChan := make(chan any)
+	resultChan := make(chan any, 10)
 
 	go func() {
 		defer close(resultChan)
@@ -430,6 +463,7 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 
 		scanner := bufio.NewScanner(process.stdout)
 		responseReceived := false
+		notificationCount := 0
 
 		for {
 			select {
@@ -462,12 +496,15 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 					}
 
 					if !hasID && notification.Method != "" {
+						notificationCount++
 						// Create a structured notification result
 						notificationResult := map[string]interface{}{
 							"type":   "notification",
 							"method": notification.Method,
 							"params": notification.Params,
 						}
+
+						t.logger("Received notification %d for tool '%s': %s", notificationCount, toolName, notification.Method)
 
 						select {
 						case resultChan <- notificationResult:
@@ -499,6 +536,7 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 					}
 
 					// Send the final response
+					t.logger("Received final response for tool '%s' after %d notifications", toolName, notificationCount)
 					select {
 					case resultChan <- response.Result:
 					case <-ctx.Done():
