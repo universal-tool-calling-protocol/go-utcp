@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 func main() {
@@ -47,8 +49,22 @@ func main() {
 		log.Fatalf("CallTool error: %v", err)
 	}
 
-	// 5) Inspect what you got
-	fmt.Printf("Full result: %#v\n", res)
+	sr, ok := res.(*streamresult.SliceStreamResult)
+	if !ok {
+		log.Fatalf("unexpected result type %T", res)
+	}
+
+	// Inspect what you got
+	for {
+		val, err := sr.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("next error: %v", err)
+		}
+		fmt.Printf("Chunk: %#v\n", val)
+	}
 	fmt.Printf("Last raw chunk: %s\n", lastChunk)
 }
 

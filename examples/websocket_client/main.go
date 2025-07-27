@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 var upgrader = websocket.Upgrader{
@@ -148,35 +150,35 @@ func main() {
 	}
 
 	// Call the streaming tool
-	resIface, err := client.CallTool(ctx, "websocket.multipleChunks", map[string]any{})
+	res, err := client.CallTool(ctx, "websocket.multipleChunks", map[string]any{})
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
-
-	// 1) Assert top‑level to slice
-	chunks, ok := resIface.([]interface{})
+	sr, ok := res.(*streamresult.SliceStreamResult)
 	if !ok {
-		log.Fatalf("unexpected response type: %T", resIface)
+		log.Fatalf("unexpected result type %T", res)
 	}
 
-	// 2) Loop & collect
+	// Loop & collect
 	var combined strings.Builder
-	for i, raw := range chunks {
-		// 2a) Assert each element is a map
-		m, ok := raw.(map[string]interface{})
+	for {
+		raw, err := sr.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("next error: %v", err)
+		}
+		m, ok := raw.(map[string]any)
 		if !ok {
-			log.Printf("chunk %d: unexpected type %T, skipping", i, raw)
+			log.Printf("unexpected chunk type %T", raw)
 			continue
 		}
-
-		// 2b) Pull the "result" field as string
 		if piece, ok := m["result"].(string); ok {
-			// You can do whatever you like with each piece!
-			// E.g. append to a builder, print immediately, etc.
 			combined.WriteString(piece)
 			combined.WriteRune(' ')
 		} else {
-			log.Printf("chunk %d: missing or non‑string result field", i)
+			log.Printf("chunk missing result field")
 		}
 	}
 

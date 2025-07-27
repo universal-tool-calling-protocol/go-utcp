@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
 	"github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 func main() {
@@ -44,20 +46,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
-
-	// Normalize to a slice of messages
-	var chunks []any
-	switch v := result.(type) {
-	case []any:
-		chunks = v
-	case map[string]any:
-		chunks = []any{v}
-	default:
-		log.Fatalf("unexpected result type: %T", result)
+	sr, ok := result.(*streamresult.SliceStreamResult)
+	if !ok {
+		log.Fatalf("unexpected result type %T", result)
 	}
 
 	// Process each notification
-	for _, raw := range chunks {
+	for {
+		raw, err := sr.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("next error: %v", err)
+		}
 		payload, ok := raw.(map[string]any)
 		if !ok {
 			fmt.Printf("unexpected chunk type: %#v\n", raw)

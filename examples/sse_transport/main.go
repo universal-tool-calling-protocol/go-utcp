@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 func main() {
@@ -105,16 +107,22 @@ func runClient(baseURL string) {
 	if err != nil {
 		panic(fmt.Errorf("failed to call tool: %w", err))
 	}
+	sr, ok := res.(*streamresult.SliceStreamResult)
+	if !ok {
+		panic(fmt.Errorf("unexpected result type %T", res))
+	}
 
 	// Print streaming result
-	switch ev := res.(type) {
-	case []interface{}:
-		fmt.Println("Streamed tool response:")
-		for i, chunk := range ev {
-			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+	fmt.Println("Streamed tool response:")
+	for {
+		chunk, err := sr.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			panic(fmt.Errorf("next error: %w", err))
 		}
-	default:
-		fmt.Printf("Tool response: %#v\n", ev)
+		fmt.Printf(" chunk: %#v\n", chunk)
 	}
 
 	// Ensure logs flush before exit

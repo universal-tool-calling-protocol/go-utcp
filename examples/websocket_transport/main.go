@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/websocket"
 )
 
@@ -75,7 +77,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
-	log.Printf("Tool response: %#v", res)
+	sr, ok := res.(*streamresult.SliceStreamResult)
+	if !ok {
+		log.Fatalf("unexpected result type %T", res)
+	}
+	val, err := sr.Next()
+	if err != nil {
+		log.Fatalf("next error: %v", err)
+	}
+	if _, err := sr.Next(); err != io.EOF {
+		log.Fatalf("expected EOF, got %v", err)
+	}
+	log.Printf("Tool response: %#v", val)
 
 	_ = transport.DeregisterToolProvider(ctx, prov)
 }

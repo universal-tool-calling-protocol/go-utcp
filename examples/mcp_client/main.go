@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 func main() {
@@ -36,7 +38,13 @@ func main() {
 		log.Fatalf("cannot proceed")
 
 	}
-	fmt.Println(data.(map[string]any)["result"])
+	if sr, ok := data.(*streamresult.SliceStreamResult); ok {
+		val, err := sr.Next()
+		if err != nil {
+			log.Fatalf("stream next error: %v", err)
+		}
+		fmt.Println(val.(map[string]any)["result"])
+	}
 	// 4) Synchronous call
 	argsMap := map[string]any{"count": 5}
 	result, err := client.CallTool(ctx, tools[1].Name, argsMap)
@@ -44,14 +52,20 @@ func main() {
 		log.Fatalf("cannot proceed")
 	}
 
-	switch ev := result.(type) {
-	case []interface{}:
-		fmt.Println("Streamed tool response:")
-		for i, chunk := range ev {
-			fmt.Printf(" chunk %d: %#v\n", i+1, chunk)
+	sr, ok := result.(*streamresult.SliceStreamResult)
+	if !ok {
+		log.Fatalf("unexpected result type %T", result)
+	}
+	fmt.Println("Streamed tool response:")
+	for {
+		chunk, err := sr.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("next error: %v", err)
 		}
-	default:
-		fmt.Printf("Tool response: %#v\n", ev)
+		fmt.Printf(" chunk: %#v\n", chunk)
 	}
 	os.Exit(0)
 }

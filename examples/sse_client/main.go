@@ -12,6 +12,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamresult"
 )
 
 func startServer(addr string) {
@@ -85,5 +86,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}
-	log.Printf("Result: %#v", res)
+	sr, ok := res.(*streamresult.SliceStreamResult)
+	if !ok {
+		log.Fatalf("unexpected result type %T", res)
+	}
+	for {
+		val, err := sr.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("next error: %v", err)
+		}
+		log.Printf("Chunk: %#v", val)
+	}
 }
