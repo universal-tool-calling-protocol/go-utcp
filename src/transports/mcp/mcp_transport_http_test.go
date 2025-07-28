@@ -72,7 +72,7 @@ func TestMCPHTTPNonStreamReturnsMap(t *testing.T) {
 // startTestHTTPStreamServer starts a simple MCP HTTP server with a streaming tool.
 func startTestHTTPStreamServer(addr string) *mcpserver.StreamableHTTPServer {
 	srv := mcpserver.NewMCPServer("demo", "1.0.0")
-	count := mcp.NewTool("count_stream", mcp.WithNumber("n"))
+	count := mcp.NewTool("count", mcp.WithNumber("n"))
 	srv.AddTool(count, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		n := cast.ToInt(req.GetArguments()["n"])
 		if n <= 0 {
@@ -96,14 +96,20 @@ func TestMCPHTTPStreamReturnsStreamResult(t *testing.T) {
 	defer httpSrv.Shutdown(context.Background())
 
 	tr := NewMCPTransport(nil)
-	prov := &providers.MCPProvider{Name: "demo", URL: "http://localhost:8099/mcp"}
+	prov := &providers.MCPProvider{
+		Name: "demo",
+		URL:  "http://localhost:8099/mcp",
+		StreamingTools: []string{
+			"count",
+		},
+	}
 
 	ctx := context.Background()
 	if _, err := tr.RegisterToolProvider(ctx, prov); err != nil {
 		t.Fatalf("register err: %v", err)
 	}
 
-	res, err := tr.CallTool(ctx, "count_stream", map[string]any{"n": 3}, prov, nil)
+	res, err := tr.CallTool(ctx, "count", map[string]any{"n": 3}, prov, nil)
 	if err != nil {
 		t.Fatalf("call err: %v", err)
 	}

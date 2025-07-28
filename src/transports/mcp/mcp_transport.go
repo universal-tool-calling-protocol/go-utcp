@@ -256,17 +256,17 @@ func (t *MCPTransport) CallTool(
 		return nil, fmt.Errorf("provider '%s' not registered", mp.Name)
 	}
 
-	// If the tool is a "stream" tool, always use streaming
-	if strings.Contains(strings.ToLower(toolName), "stream") {
+	// 1) Provider-driven streaming override
+	if mp.IsStreamingTool(toolName) {
 		return t.callStreamingTool(ctx, toolName, args, p)
 	}
 
-	// Otherwise, if HTTP-capable, perform synchronous HTTP call
+	// 2) HTTP-capable synchronous
 	if proc.httpClient != nil {
 		return t.callHTTPTool(ctx, proc.httpClient, toolName, args)
 	}
 
-	// Fallback to streaming
+	// 3) StdIO blocking call
 	return t.callStdioTool(ctx, proc, toolName, args, mp.Timeout)
 }
 
