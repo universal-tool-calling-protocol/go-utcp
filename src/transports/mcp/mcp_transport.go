@@ -406,34 +406,7 @@ func (t *MCPTransport) callHTTPToolStream(
 		var respMap map[string]any
 		_ = json.Unmarshal(raw, &respMap)
 
-		// 5) Extract any "content" array (top-level or under "result")
-		var items []any
-		if arr, ok := respMap["content"].([]any); ok {
-			items = arr
-		} else if resultObj, ok := respMap["result"].(map[string]any); ok {
-			if arr2, ok2 := resultObj["content"].([]any); ok2 {
-				items = arr2
-			}
-		}
-
-		// 6) If we found a content array, emit each element
-		if len(items) > 0 {
-			for _, item := range items {
-				payload := map[string]any{
-					"type":   "notification",
-					"method": "streamChunk",
-					"params": item,
-				}
-				select {
-				case ch <- payload:
-				case <-ctx.Done():
-					return
-				}
-			}
-			return
-		}
-
-		// 7) Fallback: emit the result object if present, otherwise the entire map
+		// Fallback: emit the result object if present, otherwise the entire map
 		final := any(respMap)
 		if resultObj, ok := respMap["result"].(map[string]any); ok {
 			final = resultObj
