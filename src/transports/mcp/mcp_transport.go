@@ -236,7 +236,6 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 
 // CallTool invokes a tool: returns a []any for non‑streaming calls or a StreamResult when the tool streams.
 // or transports.ChannelStreamResult for streaming calls.
-
 func (t *MCPTransport) CallTool(
 	ctx context.Context,
 	toolName string,
@@ -249,6 +248,7 @@ func (t *MCPTransport) CallTool(
 		return nil, errors.New("MCPTransport can only be used with MCPProvider")
 	}
 
+	// Lookup the process for this provider
 	t.mutex.RLock()
 	proc, exists := t.processes[mp.Name]
 	t.mutex.RUnlock()
@@ -256,18 +256,36 @@ func (t *MCPTransport) CallTool(
 		return nil, fmt.Errorf("provider '%s' not registered", mp.Name)
 	}
 
-	// 1) Provider-driven streaming override
-	if mp.IsStreamingTool(toolName) {
-		return t.callStreamingTool(ctx, toolName, args, p)
+	// Dispatch based on tool capabilities
+	var res interface{}
+	var err error
+	switch {
+	case mp.IsStreamingTool(toolName):
+		// Streaming-capable tools
+		res, err = t.callStreamingTool(ctx, toolName, args, p)
+
+	case proc.httpClient != nil:
+		// HTTP-capable synchronous tools
+		res, err = t.callHTTPTool(ctx, proc.httpClient, toolName, args)
+
+	default:
+		// StdIO blocking tools
+		res, err = t.callStdioTool(ctx, proc, toolName, args, mp.Timeout)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	// 2) HTTP-capable synchronous
-	if proc.httpClient != nil {
-		return t.callHTTPTool(ctx, proc.httpClient, toolName, args)
+	// Handle the returned type
+	switch v := res.(type) {
+	case transports.ChannelStreamResult, *transports.ChannelStreamResult:
+		return v, nil
+	case map[string]any:
+		return v, nil
+	default:
+		// Wrap unexpected types for consistency
+		return map[string]any{"result": v}, nil
 	}
-
-	// 3) StdIO blocking call
-	return t.callStdioTool(ctx, proc, toolName, args, mp.Timeout)
 }
 
 // callStdioTool runs a stdio‐backed tool to completion, skipping
