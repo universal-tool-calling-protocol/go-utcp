@@ -236,6 +236,7 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 
 // CallTool invokes a tool: returns a []any for non‑streaming calls or a StreamResult when the tool streams.
 // or transports.ChannelStreamResult for streaming calls.
+
 func (t *MCPTransport) CallTool(
 	ctx context.Context,
 	toolName string,
@@ -243,51 +244,140 @@ func (t *MCPTransport) CallTool(
 	p Provider,
 	_l *string,
 ) (interface{}, error) {
-	// Invoke the streaming call
+	mp, ok := p.(*MCPProvider)
+	if !ok {
+		return nil, errors.New("MCPTransport can only be used with MCPProvider")
+	}
+
+	t.mutex.RLock()
+	proc, exists := t.processes[mp.Name]
+	t.mutex.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("provider '%s' not registered", mp.Name)
+	}
+
+	// 1) Provider-driven streaming override
+	if mp.IsStreamingTool(toolName) {
+		return t.callStreamingTool(ctx, toolName, args, p)
+	}
+
+	// 2) HTTP-capable synchronous
+	if proc.httpClient != nil {
+		return t.callHTTPTool(ctx, proc.httpClient, toolName, args)
+	}
+
+	// 3) StdIO blocking call
+	return t.callStdioTool(ctx, proc, toolName, args, mp.Timeout)
+}
+
+// callStdioTool runs a stdio‐backed tool to completion, skipping
+// any JSON‐RPC notifications and returning the first real result.
+func (t *MCPTransport) callStdioTool(
+	ctx context.Context,
+	process *mcpProcess,
+	toolName string,
+	args map[string]any,
+	timeoutSeconds int,
+) (interface{}, error) {
+	// Spawn the stdio stream (reuse your existing helper)
+	ch, err := t.callStdioToolStream(ctx, process, toolName, args, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+
+	// Drain until we find a non‐notification message
+	for item := range ch {
+		if m, ok := item.(map[string]any); ok {
+			if typ, hasType := m["type"]; hasType && typ == "notification" {
+				// skip JSON‐RPC notifications
+				continue
+			}
+			// it's the final result map
+			return m, nil
+		}
+		// primitive or other payload → wrap for consistency
+		return map[string]any{"result": item}, nil
+	}
+
+	return nil, fmt.Errorf("no output from tool %q", toolName)
+}
+
+func (t *MCPTransport) callStreamingTool(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (interface{}, error) {
 	stream, err := t.CallToolStream(ctx, toolName, args, p)
 	if err != nil {
 		return nil, err
 	}
 
-	// Read first item
+	// Read first element (or bail on EOF)
 	first, err := stream.Next()
 	if err != nil {
-		stream.Close() // Handle close error properly
+		stream.Close()
 		if errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("no output from tool %s", toolName)
 		}
 		return nil, err
 	}
 
-	// Determine if this is a streaming notification
-	if m, ok := first.(map[string]any); ok {
-		if typ, hasType := m["type"]; hasType && typ == "notification" {
-			// Rebuild channel including first
-			ch := make(chan any, 1)
-			ch <- first
-			go func() {
-				defer close(ch)
-				for {
-					item, err := stream.Next()
-					if err != nil {
-						return
-					}
-					ch <- item
+	ch := make(chan any, 1)
+	go func() {
+		defer func() {
+			stream.Close()
+			close(ch)
+		}()
+
+		// helper to flatten one message
+		flattenAndSend := func(msg any) {
+			m, ok := msg.(map[string]any)
+			if !ok {
+				ch <- msg
+				return
+			}
+			cont, ok := m["content"].([]any)
+			if !ok {
+				ch <- msg
+				return
+			}
+			for _, part := range cont {
+				pm, ok := part.(map[string]any)
+				if !ok {
+					continue
 				}
-			}()
-			return transports.NewChannelStreamResult(ch, stream.Close), nil
+				txt, ok := pm["text"].(string)
+				if !ok {
+					continue
+				}
+				// try to parse as JSON array of strings
+				var items []string
+				if err := json.Unmarshal([]byte(txt), &items); err == nil {
+					for _, item := range items {
+						ch <- item
+					}
+					continue
+				}
+				// not a JSON list → just emit the raw text
+				ch <- txt
+			}
 		}
-	}
 
-	// Non-stream: close and return map or wrap
-	if err := stream.Close(); err != nil {
-		t.logger("Warning: failed to close stream: %v", err)
-	}
+		// send the first message (flattened)
+		flattenAndSend(first)
 
-	if resultMap, ok := first.(map[string]any); ok {
-		return resultMap, nil
-	}
-	return map[string]any{"result": first}, nil
+		// now stream the rest
+		for {
+			item, err := stream.Next()
+			if err != nil {
+				return
+			}
+			flattenAndSend(item)
+		}
+	}()
+
+	return transports.NewChannelStreamResult(ch, stream.Close), nil
 }
 
 // CallToolStream returns a transports.StreamResult for live streaming.
@@ -406,34 +496,7 @@ func (t *MCPTransport) callHTTPToolStream(
 		var respMap map[string]any
 		_ = json.Unmarshal(raw, &respMap)
 
-		// 5) Extract any "content" array (top-level or under "result")
-		var items []any
-		if arr, ok := respMap["content"].([]any); ok {
-			items = arr
-		} else if resultObj, ok := respMap["result"].(map[string]any); ok {
-			if arr2, ok2 := resultObj["content"].([]any); ok2 {
-				items = arr2
-			}
-		}
-
-		// 6) If we found a content array, emit each element
-		if len(items) > 0 {
-			for _, item := range items {
-				payload := map[string]any{
-					"type":   "notification",
-					"method": "streamChunk",
-					"params": item,
-				}
-				select {
-				case ch <- payload:
-				case <-ctx.Done():
-					return
-				}
-			}
-			return
-		}
-
-		// 7) Fallback: emit the result object if present, otherwise the entire map
+		// Fallback: emit the result object if present, otherwise the entire map
 		final := any(respMap)
 		if resultObj, ok := respMap["result"].(map[string]any); ok {
 			final = resultObj
@@ -788,4 +851,45 @@ func (t *MCPTransport) cleanupProcess(process *mcpProcess) {
 // generateRequestID generates a unique request ID.
 func (t *MCPTransport) generateRequestID() int {
 	return int(time.Now().UnixNano())
+}
+
+func (t *MCPTransport) callHTTPTool(
+	ctx context.Context,
+	client *mcpclient.Client,
+	toolName string,
+	args map[string]any,
+) (map[string]any, error) {
+	// Prepare the request
+	req := mcpapi.CallToolRequest{
+		Params: mcpapi.CallToolParams{
+			Name:      toolName,
+			Arguments: args,
+		},
+	}
+
+	// Perform the call
+	res, err := client.CallTool(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP call to tool '%s' failed: %w", toolName, err)
+	}
+
+	// Marshal the response to JSON bytes
+	raw, err := json.Marshal(res)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal response for tool '%s': %w", toolName, err)
+	}
+
+	// Unmarshal into a generic map
+	var respMap map[string]any
+	if err := json.Unmarshal(raw, &respMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response into map for tool '%s': %w", toolName, err)
+	}
+
+	// If the result field is itself a map, return that directly
+	if resultObj, ok := respMap["result"].(map[string]any); ok {
+		return resultObj, nil
+	}
+
+	// Otherwise, return the full response map
+	return respMap, nil
 }

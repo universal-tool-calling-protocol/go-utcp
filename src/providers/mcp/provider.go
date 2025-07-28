@@ -36,10 +36,28 @@ type MCPProvider struct {
 	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	WorkingDir string            `json:"workingDir,omitempty" yaml:"workingDir,omitempty"`
 	StdinData  string            `json:"stdinData,omitempty" yaml:"stdinData,omitempty"`
-	Timeout    int               `json:"timeout,omitempty" yaml:"timeout,omitempty"` // seconds
-	// URL allows connecting to a remote MCP server over HTTP when set.
-	URL     string            `json:"url,omitempty" yaml:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Timeout    int               `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	URL        string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+
+	// New: list of tool names that should always stream
+	StreamingTools []string `json:"streamingTools,omitempty" yaml:"streamingTools,omitempty"`
+}
+
+// WithStreamingTools registers one or more tool names that should always stream.
+func (p *MCPProvider) WithStreamingTools(names ...string) *MCPProvider {
+	p.StreamingTools = append(p.StreamingTools, names...)
+	return p
+}
+
+// IsStreamingTool reports whether the given toolName is configured to stream.
+func (p *MCPProvider) IsStreamingTool(toolName string) bool {
+	for _, t := range p.StreamingTools {
+		if t == toolName {
+			return true
+		}
+	}
+	return false
 }
 
 // NewMCPProvider constructs a new MCPProvider with the given name and command.

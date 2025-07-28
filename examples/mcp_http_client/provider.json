@@ -3,7 +3,10 @@
     {
       "name": "demo_tools",
       "provider_type": "mcp",
-      "url": "http://localhost:8002/mcp"
+      "url": "http://localhost:8002/mcp",
+      "streamingTools": [
+        "handle_call_stream"
+      ]
     }
   ]
 }

@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot proceed")
 	}
-	fmt.Println(data.(map[string]any)["result"])
+	fmt.Println(data)
 
 	// 4) Synchronous call
 	argsMap := map[string]any{"count": 5}

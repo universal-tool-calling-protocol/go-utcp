@@ -63,10 +63,13 @@ func main() {
 		toolName = tools[0].Name
 		fmt.Printf("WARNING: \"hello\" tool not found; defaulting to %s\n", toolName)
 	}
+	argsMap := map[string]any{"name": "Kamil"}
 
+	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, nil)
+	fmt.Println(res.(map[string]any))
 	// Call the tool directly using MCPTransport
-	argsMap := map[string]any{"count": "5"}
-	res, err := transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
+	argsMap = map[string]any{"count": "5"}
+	res, err = transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
 	if err != nil {
 		log.Fatalf("subscription call error: %v", err)
 	}
