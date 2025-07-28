@@ -256,36 +256,63 @@ func (t *MCPTransport) CallTool(
 		return nil, fmt.Errorf("provider '%s' not registered", mp.Name)
 	}
 
-	// Dispatch based on tool capabilities
-	var res interface{}
-	var err error
-	switch {
-	case mp.IsStreamingTool(toolName):
-		// Streaming-capable tools
-		res, err = t.callStreamingTool(ctx, toolName, args, p)
-
-	case proc.httpClient != nil:
-		// HTTP-capable synchronous tools
-		res, err = t.callHTTPTool(ctx, proc.httpClient, toolName, args)
-
-	default:
-		// StdIO blocking tools
-		res, err = t.callStdioTool(ctx, proc, toolName, args, mp.Timeout)
+	// Determine transport type
+	var (
+		ch  <-chan any
+		err error
+	)
+	if proc.httpClient != nil {
+		ch, err = t.callHTTPToolStream(ctx, proc.httpClient, toolName, args)
+	} else {
+		ch, err = t.callStdioToolStream(ctx, proc, toolName, args, mp.Timeout)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Handle the returned type
-	switch v := res.(type) {
-	case transports.ChannelStreamResult, *transports.ChannelStreamResult:
-		return v, nil
-	case map[string]any:
-		return v, nil
-	default:
-		// Wrap unexpected types for consistency
-		return map[string]any{"result": v}, nil
+	return t.consumeMCPStream(toolName, ch)
+}
+
+// consumeMCPStream inspects the stream to decide whether to return a single
+// result map or a StreamResult for ongoing streams.
+func (t *MCPTransport) consumeMCPStream(toolName string, ch <-chan any) (any, error) {
+	first, ok := <-ch
+	if !ok {
+		return nil, fmt.Errorf("no output from tool %q", toolName)
 	}
+	if err, isErr := first.(error); isErr {
+		return nil, err
+	}
+
+	timer := time.NewTimer(200 * time.Millisecond)
+	defer timer.Stop()
+
+	select {
+	case second, ok := <-ch:
+		if !ok {
+			return normalizeResult(first), nil
+		}
+		out := make(chan any, 10)
+		out <- first
+		out <- second
+		go func() {
+			for item := range ch {
+				out <- item
+			}
+			close(out)
+		}()
+		return transports.NewChannelStreamResult(out, func() error { return nil }), nil
+	case <-timer.C:
+		// assume single result
+		return normalizeResult(first), nil
+	}
+}
+
+func normalizeResult(v any) any {
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return map[string]any{"result": v}
 }
 
 // callStdioTool runs a stdio‐backed tool to completion, skipping

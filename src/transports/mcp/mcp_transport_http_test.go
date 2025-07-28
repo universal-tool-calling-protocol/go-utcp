@@ -99,9 +99,6 @@ func TestMCPHTTPStreamReturnsStreamResult(t *testing.T) {
 	prov := &providers.MCPProvider{
 		Name: "demo",
 		URL:  "http://localhost:8099/mcp",
-		StreamingTools: []string{
-			"count",
-		},
 	}
 
 	ctx := context.Background()
