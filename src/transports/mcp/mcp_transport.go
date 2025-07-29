@@ -262,8 +262,9 @@ func (t *MCPTransport) CallTool(
 
 	// If args["contentType"] == "event-stream", treat as streaming
 	isEventStream := false
-	if ct, ok := args["contentType"].(string); ok {
-		isEventStream = (ct == "event-stream")
+	if ctFromCtx, ok := ctx.Value("contentType").(string); ok {
+		// fallback: context
+		isEventStream = (ctFromCtx == "event-stream")
 	}
 
 	switch {

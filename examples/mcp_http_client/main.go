@@ -39,9 +39,9 @@ func main() {
 	}
 	fmt.Println(res)
 	// Call streaming tool: returns StreamResult
-	res, err = client.CallTool(ctx, tools[1].Name, map[string]any{
-		"count":       5,
-		"contentType": "event-stream",
+	ctxWithCT := context.WithValue(ctx, "contentType", "event-stream")
+	res, err = client.CallTool(ctxWithCT, tools[1].Name, map[string]any{
+		"count": 5,
 	})
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
