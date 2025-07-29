@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"strings"
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
@@ -53,18 +52,7 @@ func main() {
 	if len(tools) != 2 {
 		log.Fatalf("expected exactly two tools, got %d", len(tools))
 	}
-	// Choose the "hello" tool if available, otherwise pick the first one
-	var toolName string
-	for _, t := range tools {
-		if strings.HasSuffix(t.Name, "hello") {
-			toolName = t.Name
-			break
-		}
-	}
-	if toolName == "" {
-		toolName = tools[0].Name
-		fmt.Printf("WARNING: \"hello\" tool not found; defaulting to %s\n", toolName)
-	}
+
 	argsMap := map[string]any{"name": "Kamil"}
 
 	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, nil)
