@@ -601,8 +601,6 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 							"params": notification.Params,
 						}
 
-						t.logger("Received notification %d for tool '%s': %s", notificationCount, toolName, notification.Method)
-
 						select {
 						case resultChan <- notificationResult:
 						case <-ctx.Done():
@@ -633,7 +631,6 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 					}
 
 					// Send the final response
-					t.logger("Received final response for tool '%s' after %d notifications", toolName, notificationCount)
 					select {
 					case resultChan <- response.Result:
 					case <-ctx.Done():
