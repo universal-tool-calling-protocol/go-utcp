@@ -50,7 +50,9 @@ func main() {
 	for _, t := range tools {
 		fmt.Printf(" - %s: %s\n", t.Name, t.Description)
 	}
-
+	if len(tools) != 2 {
+		log.Fatalf("expected exactly two tools, got %d", len(tools))
+	}
 	// Choose the "hello" tool if available, otherwise pick the first one
 	var toolName string
 	for _, t := range tools {
