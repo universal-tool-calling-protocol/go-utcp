@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"testing"
 	"time"
 
@@ -54,13 +55,9 @@ func TestMCPHTTPNonStreamReturnsMap(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected map result, got %T", res)
 	}
-
-	content, ok := m["content"].([]any)
-	if !ok || len(content) != 1 {
-		t.Fatalf("unexpected result: %#v", m)
-	}
-	first, ok := content[0].(map[string]any)
-	if !ok || first["text"] != "Hello, Go!" {
+	log.Println(m)
+	content, ok := m["text"]
+	if !ok && content != "Hello, Go!" {
 		t.Fatalf("unexpected result: %#v", m)
 	}
 

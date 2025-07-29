@@ -273,6 +273,18 @@ func (t *MCPTransport) CallTool(
 		return nil, err
 	}
 
+	// If this was the HTTP tool and it returned a {"content": […]} map,
+	// unwrap it so callers get the slice directly.
+	if toolName == "http" {
+		if m, ok := res.(map[string]any); ok {
+			if content, exists := m["content"]; exists {
+				if arr, ok := content.([]any); ok {
+					return arr, nil
+				}
+			}
+		}
+	}
+
 	return res, nil
 }
 
@@ -595,11 +607,7 @@ func (t *MCPTransport) callStdioToolStream(ctx context.Context, process *mcpProc
 					if !hasID && notification.Method != "" {
 						notificationCount++
 						// Create a structured notification result
-						notificationResult := map[string]interface{}{
-							"type":   "notification",
-							"method": notification.Method,
-							"params": notification.Params,
-						}
+						notificationResult := notification.Params.(map[string]any)["result"]
 
 						select {
 						case resultChan <- notificationResult:
@@ -888,11 +896,44 @@ func (t *MCPTransport) callHTTPTool(
 		return nil, fmt.Errorf("failed to unmarshal response into map for tool '%s': %w", toolName, err)
 	}
 
-	// If the result field is itself a map, return that directly
-	if resultObj, ok := respMap["result"].(map[string]any); ok {
-		return resultObj, nil
+	// Otherwise, return the full response map
+	if items, err := extractContentMap(respMap); err == nil {
+		// return the []map[string]interface{} directly
+		return items, nil
 	}
 
-	// Otherwise, return the full response map
+	// otherwise, fall back to the whole map
 	return respMap, nil
+}
+
+// extractContentMap unwraps a {"content":…} envelope and
+// always returns exactly one map[string]any.
+// If content is already a map, it returns that.
+// If content is a slice, it returns the first element (if that is a map).
+func extractContentMap(response map[string]any) (map[string]any, error) {
+	raw, ok := response["content"]
+	if !ok {
+		return nil, fmt.Errorf("extractContentMap: no content key found")
+	}
+
+	// case 1: content is directly a map
+	if m, ok := raw.(map[string]any); ok {
+		return m, nil
+	}
+
+	// case 2: content is a slice of maps
+	if slice, ok := raw.([]any); ok {
+		if len(slice) == 0 {
+			return nil, fmt.Errorf("extractContentMap: content slice is empty")
+		}
+		first := slice[0]
+		if m, ok := first.(map[string]any); ok {
+			return m, nil
+		}
+		return nil, fmt.Errorf("extractContentMap: first element is not a map[string]any")
+	}
+
+	return nil, fmt.Errorf(
+		"extractContentMap: unexpected content type %T (want map or []any)", raw,
+	)
 }
