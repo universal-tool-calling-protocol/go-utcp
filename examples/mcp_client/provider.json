@@ -8,10 +8,7 @@
       "env": {},
       "workingDir": ".",
       "stdinData": "",
-      "timeout": 30,
-      "streamingTools": [
-        "call_stream"
-      ]
+      "timeout": 30
     }
   ]
 }

@@ -9,7 +9,7 @@ def hello(name: str) -> str:
     return f"Hello, {name}!"
 
 @mcp.tool()
-def handle_call_stream(count: int = 5, delay: float = 1.0):
+def handle_call_stream(count: int = 5, delay: float = 1.0, contentType: str = "event-stream"):
     for i in range(count):
         yield f"Chunk {i+1} of {count}"
         time.sleep(delay)

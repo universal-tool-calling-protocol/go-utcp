@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"strings"
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
-	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 	mcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
 )
 
@@ -67,25 +65,4 @@ func main() {
 
 	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, nil)
 	fmt.Println(res.(map[string]any))
-	// Call the tool directly using MCPTransport
-	argsMap = map[string]any{"count": "5"}
-	res, err = transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
-	if err != nil {
-		log.Fatalf("subscription call error: %v", err)
-	}
-	sub, ok := res.(*transports.ChannelStreamResult)
-	if !ok {
-		log.Fatalf("unexpected subscription type: %T", res)
-	}
-	for {
-		val, err := sub.Next()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Fatalf("subscription next error: %v", err)
-		}
-		fmt.Printf("Subscription update: %#v\n", val)
-	}
-	sub.Close()
 }

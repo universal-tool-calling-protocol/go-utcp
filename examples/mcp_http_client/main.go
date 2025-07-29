@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -40,7 +39,10 @@ func main() {
 	}
 	fmt.Println(res)
 	// Call streaming tool: returns StreamResult
-	res, err = client.CallTool(ctx, tools[1].Name, map[string]any{"count": 5})
+	res, err = client.CallTool(ctx, tools[1].Name, map[string]any{
+		"count":       5,
+		"contentType": "event-stream",
+	})
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}
@@ -50,36 +52,19 @@ func main() {
 	if !ok {
 		log.Fatalf("unexpected type: %T", res)
 	}
+	if err != nil {
+		log.Fatalf("streaming call error: %v", err)
+	}
 	defer sub.Close()
 
-	// Iterate over stream
 	for {
 		item, err := sub.Next()
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
 			log.Fatalf("stream next error: %v", err)
 		}
-
-		// If payload is a notification with JSON array, split it
-		if m, ok := item.(map[string]any); ok && m["method"] == "streamChunk" {
-			params := m["params"].(map[string]any)
-			if textRaw, ok := params["text"].(string); ok {
-				var parts []string
-				if err := json.Unmarshal([]byte(textRaw), &parts); err == nil {
-					for _, p := range parts {
-						fmt.Println(p)
-					}
-					continue
-				}
-			}
-			// Fallback: print raw
-			fmt.Printf("%#v\n", item)
-			continue
-		}
-
-		// Otherwise print the item
-		fmt.Printf("Stream update: %#v\n", item)
+		fmt.Println("Stream update:", item)
 	}
 }

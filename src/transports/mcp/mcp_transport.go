@@ -259,13 +259,20 @@ func (t *MCPTransport) CallTool(
 	// Dispatch based on tool capabilities
 	var res interface{}
 	var err error
+
+	// If args["contentType"] == "event-stream", treat as streaming
+	isEventStream := false
+	if ct, ok := args["contentType"].(string); ok {
+		isEventStream = (ct == "event-stream")
+	}
+
 	switch {
-	case mp.IsStreamingTool(toolName):
-		// Streaming-capable tools
+	case isEventStream:
+		// Streaming‑capable tools
 		res, err = t.callStreamingTool(ctx, toolName, args, p)
 
 	case proc.httpClient != nil:
-		// HTTP-capable synchronous tools
+		// HTTP‑capable synchronous tools
 		res, err = t.callHTTPTool(ctx, proc.httpClient, toolName, args)
 
 	default:
@@ -276,16 +283,7 @@ func (t *MCPTransport) CallTool(
 		return nil, err
 	}
 
-	// Handle the returned type
-	switch v := res.(type) {
-	case transports.ChannelStreamResult, *transports.ChannelStreamResult:
-		return v, nil
-	case map[string]any:
-		return v, nil
-	default:
-		// Wrap unexpected types for consistency
-		return map[string]any{"result": v}, nil
-	}
+	return res, nil
 }
 
 // callStdioTool runs a stdio‐backed tool to completion, skipping
