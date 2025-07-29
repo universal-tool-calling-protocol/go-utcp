@@ -39,8 +39,7 @@ func main() {
 	}
 	fmt.Println(res)
 	// Call streaming tool: returns StreamResult
-	ctxWithCT := context.WithValue(ctx, "contentType", "event-stream")
-	res, err = client.CallTool(ctxWithCT, tools[1].Name, map[string]any{
+	res, err = client.CallToolStream(ctx, tools[1].Name, map[string]any{
 		"count": 5,
 	})
 	if err != nil {
@@ -48,17 +47,9 @@ func main() {
 	}
 
 	// Expect StreamResult
-	sub, ok := res.(transports.StreamResult)
-	if !ok {
-		log.Fatalf("unexpected type: %T", res)
-	}
-	if err != nil {
-		log.Fatalf("streaming call error: %v", err)
-	}
-	defer sub.Close()
 
 	for {
-		item, err := sub.Next()
+		item, err := res.(transports.StreamResult).Next()
 		if err == io.EOF {
 			break
 		}

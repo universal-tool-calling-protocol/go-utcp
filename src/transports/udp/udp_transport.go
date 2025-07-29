@@ -8,6 +8,7 @@ import (
 	"net"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	"time"
 
@@ -101,4 +102,13 @@ func (t *UDPTransport) CallTool(ctx context.Context, toolName string, args map[s
 		return nil, err
 	}
 	return result, nil
+}
+
+func (t *UDPTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (transports.StreamResult, error) {
+	return nil, errors.New("streaming not supported by UDPTransport")
 }

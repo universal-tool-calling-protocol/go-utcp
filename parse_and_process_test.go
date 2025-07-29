@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tag"
@@ -20,6 +21,10 @@ func (m *miniTransport) RegisterToolProvider(ctx context.Context, prov Provider)
 }
 func (m *miniTransport) DeregisterToolProvider(ctx context.Context, prov Provider) error { return nil }
 func (m *miniTransport) CallTool(ctx context.Context, tool string, args map[string]any, prov Provider, l *string) (any, error) {
+	return nil, nil
+}
+
+func (m *miniTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (transports.StreamResult, error) {
 	return nil, nil
 }
 

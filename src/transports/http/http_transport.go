@@ -12,6 +12,7 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 
@@ -289,4 +290,13 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 	}
 
 	return result, nil
+}
+
+func (t *HttpClientTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (transports.StreamResult, error) {
+	return nil, errors.New("streaming not supported by HttpClientTransport")
 }

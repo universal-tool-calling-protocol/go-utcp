@@ -11,6 +11,7 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
@@ -110,3 +111,12 @@ func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args
 
 // Close cleans up resources (no-op).
 func (t *TCPClientTransport) Close() error { return nil }
+
+func (t *TCPClientTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (transports.StreamResult, error) {
+	return nil, errors.New("streaming not supported by TCPClientTransport")
+}

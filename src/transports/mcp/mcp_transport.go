@@ -260,19 +260,7 @@ func (t *MCPTransport) CallTool(
 	var res interface{}
 	var err error
 
-	// Check if the tool supports streaming
-	// Default to false, but check the context for content type
-	isEventStream := false
-	if ctFromCtx, ok := ctx.Value("contentType").(string); ok {
-		// fallback: context
-		isEventStream = (ctFromCtx == "event-stream")
-	}
-
 	switch {
-	case isEventStream:
-		// Streaming‑capable tools
-		res, err = t.callStreamingTool(ctx, toolName, args, p)
-
 	case proc.httpClient != nil:
 		// HTTP‑capable synchronous tools
 		res, err = t.callHTTPTool(ctx, proc.httpClient, toolName, args)
@@ -320,13 +308,13 @@ func (t *MCPTransport) callStdioTool(
 	return nil, fmt.Errorf("no output from tool %q", toolName)
 }
 
-func (t *MCPTransport) callStreamingTool(
+func (t *MCPTransport) CallToolStream(
 	ctx context.Context,
 	toolName string,
 	args map[string]any,
 	p Provider,
-) (interface{}, error) {
-	stream, err := t.CallToolStream(ctx, toolName, args, p)
+) (transports.StreamResult, error) {
+	stream, err := t.CallingToolStream(ctx, toolName, args, p)
 	if err != nil {
 		return nil, err
 	}
@@ -398,8 +386,8 @@ func (t *MCPTransport) callStreamingTool(
 	return transports.NewChannelStreamResult(ch, stream.Close), nil
 }
 
-// CallToolStream returns a transports.StreamResult for live streaming.
-func (t *MCPTransport) CallToolStream(
+// CallingToolStream returns a transports.StreamResult for live streaming.
+func (t *MCPTransport) CallingToolStream(
 	ctx context.Context,
 	toolName string,
 	args map[string]any,

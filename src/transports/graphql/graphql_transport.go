@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
@@ -601,4 +602,13 @@ func (t *GraphQLClientTransport) Close() error {
 	t.oauthTokens = make(map[string]OAuth2TokenResponse)
 	t.mu.Unlock()
 	return nil
+}
+
+func (t *GraphQLClientTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (transports.StreamResult, error) {
+	return nil, errors.New("streaming not supported by GraphQLClientTransport")
 }

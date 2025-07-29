@@ -65,4 +65,5 @@ func main() {
 
 	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, nil)
 	fmt.Println(res.(map[string]any))
+	res, err = transport.CallTool(ctx, tools[1], argsMap, mcpProvider, nil)
 }
