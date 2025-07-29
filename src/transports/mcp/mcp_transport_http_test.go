@@ -105,8 +105,9 @@ func TestMCPHTTPStreamReturnsStreamResult(t *testing.T) {
 	if _, err := tr.RegisterToolProvider(ctx, prov); err != nil {
 		t.Fatalf("register err: %v", err)
 	}
+	ctxWithCT := context.WithValue(ctx, "contentType", "event-stream")
 
-	res, err := tr.CallTool(ctx, "count", map[string]any{"n": 3, "contentType": "event-stream"}, prov, nil)
+	res, err := tr.CallTool(ctxWithCT, "count", map[string]any{"n": 3}, prov, nil)
 	if err != nil {
 		t.Fatalf("call err: %v", err)
 	}
