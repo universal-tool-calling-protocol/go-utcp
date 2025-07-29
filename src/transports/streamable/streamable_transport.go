@@ -172,10 +172,8 @@ func (t *StreamableHTTPClientTransport) CallToolStream(
 	ctx context.Context,
 	toolName string,
 	args map[string]interface{},
-	prov Provider,
-	l *string,
-) (transports.StreamResult, error) {
-	result, err := t.CallTool(ctx, toolName, args, prov, l)
+	prov Provider) (transports.StreamResult, error) {
+	result, err := t.CallTool(ctx, toolName, args, prov, nil)
 	if err != nil {
 		return nil, err
 	}

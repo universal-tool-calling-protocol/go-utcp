@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
-	"strings"
 	"time"
 
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 	mcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
 )
 
@@ -48,21 +49,32 @@ func main() {
 	for _, t := range tools {
 		fmt.Printf(" - %s: %s\n", t.Name, t.Description)
 	}
+	if len(tools) != 2 {
+		log.Fatalf("expected exactly two tools, got %d", len(tools))
+	}
 
-	// Choose the "hello" tool if available, otherwise pick the first one
-	var toolName string
-	for _, t := range tools {
-		if strings.HasSuffix(t.Name, "hello") {
-			toolName = t.Name
-			break
-		}
-	}
-	if toolName == "" {
-		toolName = tools[0].Name
-		fmt.Printf("WARNING: \"hello\" tool not found; defaulting to %s\n", toolName)
-	}
 	argsMap := map[string]any{"name": "Kamil"}
 
 	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, nil)
 	fmt.Println(res.(map[string]any))
+	res, err = transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
+
+	if err != nil {
+		log.Fatalf("stream call error: %v", err)
+	}
+	sub, ok := res.(*transports.ChannelStreamResult)
+	if !ok {
+		log.Fatalf("unexpected subscription type: %T", res)
+	}
+	for {
+		val, err := sub.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("subscription next error: %v", err)
+		}
+		fmt.Printf("Subscription update: %#v\n", val)
+	}
+	sub.Close()
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
@@ -254,4 +255,13 @@ func (t *CliTransport) CallTool(
 // Close cleans up resources (no-op).
 func (t *CliTransport) Close() error {
 	return nil
+}
+
+func (t *CliTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (transports.StreamResult, error) {
+	return nil, errors.New("streaming not supported by CliTransport")
 }

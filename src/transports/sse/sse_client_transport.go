@@ -260,3 +260,12 @@ func (t *SSEClientTransport) handleSSE(body io.ReadCloser) ([]interface{}, error
 	}
 	return events, nil
 }
+
+func (t *SSEClientTransport) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	p Provider,
+) (transports.StreamResult, error) {
+	return nil, errors.New("streaming not supported by SSEClientTransport")
+}

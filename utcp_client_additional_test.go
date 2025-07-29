@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
@@ -55,6 +56,10 @@ func (s *stubTransport) DeregisterToolProvider(ctx context.Context, prov Provide
 func (s *stubTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, l *string) (any, error) {
 	s.callCalled = true
 	return "ok", nil
+}
+
+func (m *stubTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (transports.StreamResult, error) {
+	return nil, nil
 }
 
 func TestGetVariableSources(t *testing.T) {

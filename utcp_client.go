@@ -13,6 +13,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tag"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
@@ -51,6 +52,7 @@ type UtcpClientInterface interface {
 	CallTool(ctx context.Context, toolName string, args map[string]any) (any, error)
 	SearchTools(query string, limit int) ([]Tool, error)
 	GetTransports() map[string]ClientTransport
+	CallToolStream(ctx context.Context, toolName string, args map[string]any) (transports.StreamResult, error)
 }
 
 // UtcpClient holds all state and implements UtcpClientInterface.
@@ -582,4 +584,56 @@ func (c *UtcpClient) processProvider(ctx context.Context, raw map[string]any, in
 
 func (u *UtcpClient) GetTransports() map[string]ClientTransport {
 	return u.transports
+}
+
+func (c *UtcpClient) CallToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+) (transports.StreamResult, error) {
+	parts := strings.SplitN(toolName, ".", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid tool name: %s", toolName)
+	}
+	providerName := parts[0]
+
+	prov, err := c.toolRepository.GetProvider(ctx, providerName)
+	if err != nil {
+		return nil, err
+	}
+	if prov == nil {
+		return nil, fmt.Errorf("provider not found: %s", providerName)
+	}
+
+	tools, err := c.toolRepository.GetToolsByProvider(ctx, providerName)
+	if err != nil {
+		return nil, err
+	}
+	var selectedTool *Tool
+	for _, t := range tools {
+		if t.Name == toolName {
+			selectedTool = &t
+			break
+		}
+	}
+	if selectedTool == nil {
+		return nil, fmt.Errorf("tool not found: %s", toolName)
+	}
+
+	// re‑substitute any provider vars before call
+	*prov = c.substituteProviderVariables(*prov)
+
+	tr, ok := c.transports[string((*prov).Type())]
+	if !ok {
+		return nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
+	}
+
+	// Determine remote method name for MCP transport
+	callName := toolName
+	if (*prov).Type() == ProviderMCP {
+		// Strip provider prefix for MCP transport
+		callName = parts[1]
+	}
+
+	return tr.CallToolStream(ctx, callName, args, *prov)
 }
