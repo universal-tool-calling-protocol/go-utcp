@@ -260,7 +260,8 @@ func (t *MCPTransport) CallTool(
 	var res interface{}
 	var err error
 
-	// If args["contentType"] == "event-stream", treat as streaming
+	// Check if the tool supports streaming
+	// Default to false, but check the context for content type
 	isEventStream := false
 	if ctFromCtx, ok := ctx.Value("contentType").(string); ok {
 		// fallback: context
