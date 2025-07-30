@@ -77,7 +77,7 @@ func TestWebRTCTransport_RegisterAndCall(t *testing.T) {
 	if err != nil || len(tools) != 1 || tools[0].Name != "echo" {
 		t.Fatalf("register: %v tools:%v", err, tools)
 	}
-	res, err := tr.CallTool(ctx, "echo", map[string]any{"msg": "hi"}, prov, false)
+	res, err := tr.CallTool(ctx, "echo", map[string]any{"msg": "hi"}, prov)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}

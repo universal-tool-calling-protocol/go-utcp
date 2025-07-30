@@ -81,7 +81,7 @@ func (t *UDPTransport) DeregisterToolProvider(ctx context.Context, prov Provider
 }
 
 // CallTool sends a JSON request with tool name and arguments and waits for the response.
-func (t *UDPTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
+func (t *UDPTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, options ...CallingOptions) (any, error) {
 	p, ok := prov.(*UDPProvider)
 	if !ok {
 		return nil, errors.New("UDPTransport can only be used with UDPProvider")

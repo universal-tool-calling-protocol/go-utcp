@@ -44,7 +44,7 @@ func TestWebSocketTransport_RegisterWrongType(t *testing.T) {
 
 func TestWebSocketTransport_CallWrongType(t *testing.T) {
 	tr := NewWebSocketTransport(nil)
-	_, err := tr.CallTool(context.Background(), "x", nil, &HttpProvider{}, false)
+	_, err := tr.CallTool(context.Background(), "x", nil, &HttpProvider{})
 	if err == nil {
 		t.Fatal("expected type error")
 	}

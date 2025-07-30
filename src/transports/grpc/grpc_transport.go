@@ -75,7 +75,7 @@ func (t *GRPCClientTransport) DeregisterToolProvider(ctx context.Context, prov P
 }
 
 // CallTool invokes the CallTool RPC on the UTCPService.
-func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
+func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, options ...CallingOptions) (any, error) {
 	gp, ok := prov.(*GRPCProvider)
 	if !ok {
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")

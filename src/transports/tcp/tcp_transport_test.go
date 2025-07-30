@@ -74,7 +74,7 @@ func TestTCPClientTransport_RegisterAndCall(t *testing.T) {
 	if len(tools) != 1 || tools[0].Name != "ping" {
 		t.Fatalf("unexpected tools: %+v", tools)
 	}
-	res, err := tr.CallTool(ctx, "ping", map[string]any{}, prov, false)
+	res, err := tr.CallTool(ctx, "ping", map[string]any{}, prov)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

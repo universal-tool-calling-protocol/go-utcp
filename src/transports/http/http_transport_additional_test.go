@@ -25,7 +25,7 @@ func TestHttpTransport_CallTool_Error(t *testing.T) {
 	defer server.Close()
 	prov := &HttpProvider{BaseProvider: BaseProvider{Name: "h", ProviderType: ProviderHTTP}, HTTPMethod: http.MethodGet, URL: server.URL}
 	tr := NewHttpClientTransport(nil)
-	_, err := tr.CallTool(context.Background(), "t", map[string]any{}, prov, false)
+	_, err := tr.CallTool(context.Background(), "t", map[string]any{}, prov)
 	if err == nil {
 		t.Fatalf("expected error from call")
 	}
@@ -41,7 +41,7 @@ func TestHttpTransport_CallTool_PathSub(t *testing.T) {
 	defer server.Close()
 	prov := &HttpProvider{BaseProvider: BaseProvider{Name: "h", ProviderType: ProviderHTTP}, HTTPMethod: http.MethodGet, URL: server.URL + "/{id}"}
 	tr := NewHttpClientTransport(nil)
-	res, err := tr.CallTool(context.Background(), "t", map[string]any{"id": 5}, prov, false)
+	res, err := tr.CallTool(context.Background(), "t", map[string]any{"id": 5}, prov)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

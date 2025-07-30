@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 )
 
@@ -20,7 +21,9 @@ func TestMCPClientTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("expected non-nil tools")
 	}
 
-	if res, err := tr.CallTool(ctx, "hello", nil, prov, false); err != nil {
+	if res, err := tr.CallTool(ctx, "hello", nil, prov, base.CallingOptions{
+		Stream: false,
+	}); err != nil {
 		t.Fatalf("call error: %v", err)
 	} else if res == nil {
 		t.Fatalf("expected non-nil result")

@@ -50,7 +50,7 @@ func main() {
 	}
 
 	fmt.Printf("Calling tool '%s' with input: %v\n", tool.Name, input)
-	result, err := client.CallTool(ctx, tool.Name, input, false)
+	result, err := client.CallTool(ctx, tool.Name, input)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 

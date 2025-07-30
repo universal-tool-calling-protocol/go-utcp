@@ -11,6 +11,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cast"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 	mcp_transport "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
@@ -86,13 +87,15 @@ func main() {
 	}
 
 	// 5) Call hello tool
-	result, err := transport.CallTool(ctx, "hello", map[string]any{"name": "Go"}, provider, false)
+	result, err := transport.CallTool(ctx, "hello", map[string]any{"name": "Go"}, provider)
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
 	fmt.Printf("Hello result: %#v\n", result)
 
-	result, err = transport.CallTool(ctx, "count_stream", map[string]any{"count": 5, "contentType": "event-stream"}, provider, true)
+	result, err = transport.CallTool(ctx, "count_stream", map[string]any{"count": 5}, provider, base.CallingOptions{
+		Stream: true,
+	})
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}

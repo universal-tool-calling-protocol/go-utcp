@@ -18,5 +18,5 @@ type ClientTransport interface {
 
 	// CallTool invokes a named tool with the given arguments on a specific provider.
 	// It returns whatever the tool returns (often map[string]interface{} or a typed result).
-	CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider Provider, stream bool) (any, error)
+	CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider Provider, options ...CallingOptions) (any, error)
 }

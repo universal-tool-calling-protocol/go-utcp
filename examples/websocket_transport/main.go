@@ -71,7 +71,7 @@ func main() {
 		log.Printf(" - %s: %s", t.Name, t.Description)
 	}
 
-	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "hello"}, prov, true)
+	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "hello"}, prov)
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}

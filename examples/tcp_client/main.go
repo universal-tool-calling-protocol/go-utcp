@@ -118,7 +118,7 @@ func main() {
 		log.Fatal("No tools discovered!")
 	}
 
-	res, err := transport.CallTool(ctx, "ping", map[string]any{}, prov, false)
+	res, err := transport.CallTool(ctx, "ping", map[string]any{}, prov)
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}

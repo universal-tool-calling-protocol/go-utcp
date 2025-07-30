@@ -8,6 +8,7 @@ import (
 	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
 
@@ -33,15 +34,18 @@ func main() {
 	}
 
 	// Call hello tool
-	res, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "Go"}, false)
+	res, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "Go"})
 	if err != nil {
 		log.Fatalf("hello call error: %v", err)
 	}
 	fmt.Println(res)
+	options := base.CallingOptions{
+		Stream: true,
+	}
 	// Call streaming tool: returns StreamResult
 	res, err = client.CallTool(ctx, tools[1].Name, map[string]any{
 		"count": 5,
-	}, true)
+	}, options)
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}

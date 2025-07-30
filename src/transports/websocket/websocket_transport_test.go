@@ -59,7 +59,7 @@ func TestWebSocketTransport_RegisterAndCall(t *testing.T) {
 	}
 
 	prov.URL = wsURL
-	res, err := tr.CallTool(ctx, "ping", map[string]any{"msg": "hi"}, prov, false)
+	res, err := tr.CallTool(ctx, "ping", map[string]any{"msg": "hi"}, prov)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

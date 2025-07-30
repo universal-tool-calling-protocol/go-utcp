@@ -241,7 +241,7 @@ func (t *MCPTransport) CallTool(
 	toolName string,
 	args map[string]any,
 	p Provider,
-	stream bool,
+	options ...CallingOptions,
 ) (interface{}, error) {
 	mp, ok := p.(*MCPProvider)
 	if !ok {
@@ -259,9 +259,8 @@ func (t *MCPTransport) CallTool(
 	// Dispatch based on tool capabilities
 	var res interface{}
 	var err error
-
 	switch {
-	case stream == true:
+	case options[0].Stream == true:
 		res, err = t.CallToolStream(ctx, toolName, args, p)
 	case proc.httpClient != nil:
 		// HTTP‑capable synchronous tools

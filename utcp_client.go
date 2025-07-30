@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,7 +49,7 @@ import (
 type UtcpClientInterface interface {
 	RegisterToolProvider(ctx context.Context, prov Provider) ([]Tool, error)
 	DeregisterToolProvider(ctx context.Context, providerName string) error
-	CallTool(ctx context.Context, toolName string, args map[string]any, stream bool) (any, error)
+	CallTool(ctx context.Context, toolName string, args map[string]any, opts ...CallingOptions) (any, error)
 	SearchTools(query string, limit int) ([]Tool, error)
 	GetTransports() map[string]ClientTransport
 }
@@ -315,7 +316,7 @@ func (c *UtcpClient) CallTool(
 	ctx context.Context,
 	toolName string,
 	args map[string]any,
-	stream bool,
+	opts ...CallingOptions,
 ) (any, error) {
 	parts := strings.SplitN(toolName, ".", 2)
 	if len(parts) != 2 {
@@ -360,8 +361,9 @@ func (c *UtcpClient) CallTool(
 		// Strip provider prefix for MCP transport
 		callName = parts[1]
 	}
+	log.Println(opts)
 
-	return tr.CallTool(ctx, callName, args, *prov, stream)
+	return tr.CallTool(ctx, callName, args, *prov, opts...)
 }
 
 func (c *UtcpClient) SearchTools(query string, limit int) ([]Tool, error) {

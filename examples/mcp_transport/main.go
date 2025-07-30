@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 	mcp "github.com/universal-tool-calling-protocol/go-utcp/src/transports/mcp"
@@ -57,7 +58,9 @@ func main() {
 
 	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, false)
 	fmt.Println(res.(map[string]any))
-	res, err = transport.CallTool(ctx, tools[1].Name, argsMap, mcpProvider, true)
+	res, err = transport.CallTool(ctx, tools[1].Name, argsMap, mcpProvider, base.CallingOptions{
+		Stream: true,
+	})
 
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)

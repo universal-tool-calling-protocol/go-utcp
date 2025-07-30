@@ -43,7 +43,7 @@ func main() {
 	for _, t := range tools {
 		log.Printf(" • %s: %s", t.Name, t.Description)
 	}
-	res, err := transport.CallTool(ctx, "streamNumbers", nil, provider, true)
+	res, err := transport.CallTool(ctx, "streamNumbers", nil, provider)
 	if err != nil {
 		log.Fatalf("CallTool error: %v", err)
 	}

@@ -173,7 +173,7 @@ func (t *WebRTCClientTransport) DeregisterToolProvider(ctx context.Context, prov
 	return nil
 }
 
-func (t *WebRTCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
+func (t *WebRTCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, options ...CallingOptions) (any, error) {
 	if t.dc == nil {
 		return nil, errors.New("data channel not established")
 	}

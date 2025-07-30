@@ -20,7 +20,7 @@ func (m *miniTransport) RegisterToolProvider(ctx context.Context, prov Provider)
 	return []Tool{{Name: "x"}}, nil
 }
 func (m *miniTransport) DeregisterToolProvider(ctx context.Context, prov Provider) error { return nil }
-func (m *miniTransport) CallTool(ctx context.Context, tool string, args map[string]any, prov Provider, stream bool) (any, error) {
+func (m *miniTransport) CallTool(ctx context.Context, tool string, args map[string]any, prov Provider, options ...CallingOptions) (any, error) {
 	return nil, errors.ErrUnsupported
 }
 
