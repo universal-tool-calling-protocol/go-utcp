@@ -56,7 +56,7 @@ func main() {
 
 	argsMap := map[string]any{"name": "Kamil"}
 
-	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, false)
+	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider)
 	fmt.Println(res.(map[string]any))
 	res, err = transport.CallTool(ctx, tools[1].Name, argsMap, mcpProvider, base.CallingOptions{
 		Stream: true,
