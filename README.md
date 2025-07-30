@@ -1,5 +1,6 @@
 # go-utcp
 [![Go Report Card](https://goreportcard.com/badge/github.com/universal-tool-calling-protocol/go-utcp)](https://goreportcard.com/report/github.com/universal-tool-calling-protocol/go-utcp)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/universal-tool-calling-protocol/go-utcp)](https://pkg.go.dev/github.com/universal-tool-calling-protocol/go-utcp)
 
 ## Introduction
 
