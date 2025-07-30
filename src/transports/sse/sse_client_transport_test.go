@@ -44,7 +44,7 @@ func TestSSEClientTransport_RegisterAndCall(t *testing.T) {
 	}
 
 	prov.URL = server.URL
-	res, err := tr.CallTool(ctx, "echo", map[string]interface{}{"msg": "hi"}, prov, nil)
+	res, err := tr.CallTool(ctx, "echo", map[string]interface{}{"msg": "hi", "lastEventID": nil}, prov, false)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

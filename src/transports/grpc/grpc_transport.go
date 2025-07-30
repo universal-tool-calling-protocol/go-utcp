@@ -12,7 +12,6 @@ import (
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
@@ -76,7 +75,7 @@ func (t *GRPCClientTransport) DeregisterToolProvider(ctx context.Context, prov P
 }
 
 // CallTool invokes the CallTool RPC on the UTCPService.
-func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, l *string) (any, error) {
+func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
 	gp, ok := prov.(*GRPCProvider)
 	if !ok {
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
@@ -104,12 +103,3 @@ func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, arg
 
 // Close cleans up (no-op).
 func (t *GRPCClientTransport) Close() error { return nil }
-
-func (t *GRPCClientTransport) CallToolStream(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	p Provider,
-) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by GRPCClientTransport")
-}

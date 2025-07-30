@@ -103,7 +103,7 @@ func runClient(baseURL string) {
 	// Update URL for tool calls
 	provider.URL = baseURL
 	// Call with streaming
-	res, err := transport.CallTool(ctx, "hello", map[string]interface{}{"name": "UTCP"}, provider, nil)
+	res, err := transport.CallTool(ctx, "hello", map[string]interface{}{"name": "UTCP"}, provider, true)
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}

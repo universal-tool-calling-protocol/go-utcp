@@ -120,7 +120,7 @@ func main() {
 		log.Printf(" - %s", t.Name)
 	}
 	// call echo
-	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "Hello, WebRTC!"}, prov, nil)
+	res, err := transport.CallTool(ctx, "echo", map[string]any{"msg": "Hello, WebRTC!"}, prov, true)
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}

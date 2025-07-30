@@ -27,7 +27,7 @@ func TestCliTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("register error %v tools %v", err, tools)
 	}
 
-	res, err := tr.CallTool(ctx, "echo", map[string]interface{}{}, prov, nil)
+	res, err := tr.CallTool(ctx, "echo", map[string]interface{}{}, prov, false)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

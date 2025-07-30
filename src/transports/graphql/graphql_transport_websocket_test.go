@@ -51,7 +51,7 @@ func TestGraphQLClientTransport_WebSocketSubscription(t *testing.T) {
 
 	prov := &GraphQLProvider{BaseProvider: BaseProvider{ProviderType: ProviderGraphQL}, URL: wsURL, OperationType: "subscription"}
 	tr := NewGraphQLClientTransport(nil)
-	res, err := tr.CallTool(context.Background(), "updates", nil, prov, nil)
+	res, err := tr.CallTool(context.Background(), "updates", nil, prov, false)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

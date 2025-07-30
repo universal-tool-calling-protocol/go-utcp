@@ -11,7 +11,6 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
@@ -75,7 +74,7 @@ func (t *TCPClientTransport) DeregisterToolProvider(ctx context.Context, prov Pr
 }
 
 // CallTool connects to the provider and sends a tool invocation request.
-func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, requestID *string) (any, error) {
+func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
 	tcpProv, ok := prov.(*TCPProvider)
 	if !ok {
 		return nil, errors.New("TCPClientTransport can only be used with TCPProvider")
@@ -111,12 +110,3 @@ func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args
 
 // Close cleans up resources (no-op).
 func (t *TCPClientTransport) Close() error { return nil }
-
-func (t *TCPClientTransport) CallToolStream(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	p Provider,
-) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by TCPClientTransport")
-}

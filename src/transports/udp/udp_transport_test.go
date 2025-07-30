@@ -89,7 +89,7 @@ func TestUDPTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("unexpected tools: %+v", tools)
 	}
 
-	res, err := tr.CallTool(ctx, "udp_echo", map[string]any{"msg": "hi"}, prov, nil)
+	res, err := tr.CallTool(ctx, "udp_echo", map[string]any{"msg": "hi"}, prov, false)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

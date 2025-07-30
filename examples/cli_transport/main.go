@@ -61,7 +61,7 @@ func main() {
 	fmt.Printf("Calling tool '%s' with input: %v\n", tool.Name, input)
 
 	// Call the tool directly using the transport
-	result, err := transport.CallTool(ctx, tool.Name, input, provider, nil)
+	result, err := transport.CallTool(ctx, tool.Name, input, provider, false)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		fmt.Printf("Error type: %T\n", err)

@@ -159,7 +159,7 @@ func runClient(baseURL string) {
 
 	// Call "echo" tool
 	args := map[string]interface{}{"message": "Hello from Go!"}
-	result, err := transport.CallTool(ctx, "echo", args, callProvider, nil)
+	result, err := transport.CallTool(ctx, "echo", args, callProvider, false)
 	if err != nil {
 		log.Fatalf("CallTool error: %v", err)
 	}
@@ -172,7 +172,7 @@ func runClient(baseURL string) {
 		Headers:    map[string]string{"Content-Type": "application/json"},
 	}
 
-	timestampResult, err := transport.CallTool(ctx, "timestamp", map[string]interface{}{}, timestampProvider, nil)
+	timestampResult, err := transport.CallTool(ctx, "timestamp", map[string]interface{}{}, timestampProvider, false)
 	if err != nil {
 		log.Fatalf("CallTool timestamp error: %v", err)
 	}

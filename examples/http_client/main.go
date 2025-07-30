@@ -135,14 +135,14 @@ func main() {
 	}
 
 	// Call the "echo" tool
-	res, err := client.CallTool(ctx, "http.echo", map[string]any{"message": "hi"})
+	res, err := client.CallTool(ctx, "http.echo", map[string]any{"message": "hi"}, false)
 	if err != nil {
 		log.Fatalf("call echo: %v", err)
 	}
 	fmt.Printf("Echo result: %#v\n", res)
 
 	// Call the "timestamp" tool
-	ts, err := client.CallTool(ctx, "http.timestamp", map[string]any{})
+	ts, err := client.CallTool(ctx, "http.timestamp", map[string]any{}, false)
 	if err != nil {
 		log.Fatalf("call timestamp: %v", err)
 	}

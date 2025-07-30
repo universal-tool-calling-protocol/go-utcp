@@ -79,7 +79,7 @@ func (t *SSEClientTransport) DeregisterToolProvider(ctx context.Context, prov Pr
 }
 
 // CallTool invokes a named tool, using SSE if available.
-func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, lastEventID *string) (interface{}, error) {
+func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, stream bool) (interface{}, error) {
 	sseProv, ok := prov.(*SSEProvider)
 	if !ok {
 		return nil, errors.New("SSEClientTransport can only be used with SSEProvider")
@@ -103,6 +103,7 @@ func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	lastEventID, ok := args["lastEventID"].(*string)
 	if lastEventID != nil {
 		req.Header.Set("Last-Event-ID", *lastEventID)
 	}
@@ -259,13 +260,4 @@ func (t *SSEClientTransport) handleSSE(body io.ReadCloser) ([]interface{}, error
 		}
 	}
 	return events, nil
-}
-
-func (t *SSEClientTransport) CallToolStream(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	p Provider,
-) (transports.StreamResult, error) {
-	return nil, errors.New("streaming is supported by SSEClientTransport, use CallTool")
 }

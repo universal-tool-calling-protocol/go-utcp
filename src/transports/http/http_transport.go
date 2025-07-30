@@ -12,7 +12,6 @@ import (
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 
@@ -199,7 +198,7 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p Provid
 }
 
 // CallTool calls a specific tool on the HTTP provider.
-func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p Provider, l *string) (any, error) {
+func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, p Provider, stream bool) (any, error) {
 	hp, ok := p.(*HttpProvider)
 	if !ok {
 		return nil, errors.New("HttpTransport can only be used with HttpProvider")
@@ -290,13 +289,4 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 	}
 
 	return result, nil
-}
-
-func (t *HttpClientTransport) CallToolStream(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	p Provider,
-) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by HttpClientTransport")
 }

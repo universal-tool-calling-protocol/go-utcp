@@ -211,7 +211,7 @@ func main() {
 	}
 
 	log.Println("Attempting to call echo tool...")
-	res, err := client.CallTool(ctx, "webrtc.echo", map[string]any{"msg": "Hello, WebRTC!"})
+	res, err := client.CallTool(ctx, "webrtc.echo", map[string]any{"msg": "Hello, WebRTC!"}, true)
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}

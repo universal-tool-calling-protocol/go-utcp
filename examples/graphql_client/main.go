@@ -207,14 +207,14 @@ func main() {
 	}
 
 	// Example query
-	res, err := client.CallTool(ctx, "graphql.echo", map[string]any{"msg": "hi"})
+	res, err := client.CallTool(ctx, "graphql.echo", map[string]any{"msg": "hi"}, false)
 	if err != nil {
 		log.Fatalf("query call error: %v", err)
 	}
 	log.Printf("Query result: %#v", res)
 
 	// Example subscription
-	subRes, err := client.CallTool(ctx, "graphqlsub.updates", nil)
+	subRes, err := client.CallTool(ctx, "graphqlsub.updates", nil, true)
 	if err != nil {
 		log.Fatalf("subscription call error: %v", err)
 	}
