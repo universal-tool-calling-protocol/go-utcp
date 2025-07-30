@@ -51,7 +51,7 @@ func main() {
         panic("no tools found")
     }
 
-    result, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "UTCP"}, false)
+    result, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "UTCP"})
     if err != nil {
         panic(err)
     }
