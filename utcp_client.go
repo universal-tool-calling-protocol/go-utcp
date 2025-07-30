@@ -339,8 +339,7 @@ func (c *UtcpClient) CallTool(
 	if cache != nil {
 		if info, ok := cache[toolName]; ok {
 			c.cacheMu.RUnlock()
-			prov := c.substituteProviderVariables(info.provider)
-			return info.transport.CallTool(ctx, info.callName, args, prov, nil)
+			return info.transport.CallTool(ctx, info.callName, args, info.provider, nil)
 		}
 	}
 	c.cacheMu.RUnlock()
@@ -358,24 +357,7 @@ func (c *UtcpClient) CallTool(
 	if prov == nil {
 		return nil, fmt.Errorf("provider not found: %s", providerName)
 	}
-
-	tools, err := c.toolRepository.GetToolsByProvider(ctx, providerName)
-	if err != nil {
-		return nil, err
-	}
-	var selectedTool *Tool
-	for _, t := range tools {
-		if t.Name == toolName {
-			selectedTool = &t
-			break
-		}
-	}
-	if selectedTool == nil {
-		return nil, fmt.Errorf("tool not found: %s", toolName)
-	}
-
-	// re‑substitute any provider vars before call
-	*prov = c.substituteProviderVariables(*prov)
+	// provider variables were substituted during registration
 
 	tr, ok := c.transports[string((*prov).Type())]
 	if !ok {
@@ -630,8 +612,7 @@ func (c *UtcpClient) CallToolStream(
 	if cache != nil {
 		if info, ok := cache[toolName]; ok {
 			c.cacheMu.RUnlock()
-			prov := c.substituteProviderVariables(info.provider)
-			return info.transport.CallToolStream(ctx, info.callName, args, prov)
+			return info.transport.CallToolStream(ctx, info.callName, args, info.provider)
 		}
 	}
 	c.cacheMu.RUnlock()
@@ -649,24 +630,7 @@ func (c *UtcpClient) CallToolStream(
 	if prov == nil {
 		return nil, fmt.Errorf("provider not found: %s", providerName)
 	}
-
-	tools, err := c.toolRepository.GetToolsByProvider(ctx, providerName)
-	if err != nil {
-		return nil, err
-	}
-	var selectedTool *Tool
-	for _, t := range tools {
-		if t.Name == toolName {
-			selectedTool = &t
-			break
-		}
-	}
-	if selectedTool == nil {
-		return nil, fmt.Errorf("tool not found: %s", toolName)
-	}
-
-	// re‑substitute any provider vars before call
-	*prov = c.substituteProviderVariables(*prov)
+	// provider variables were substituted during registration
 
 	tr, ok := c.transports[string((*prov).Type())]
 	if !ok {
