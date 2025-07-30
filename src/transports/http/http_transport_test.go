@@ -42,7 +42,7 @@ func TestHttpClientTransport_RegisterAndCall(t *testing.T) {
 	}
 
 	prov.URL = server.URL + "/ping"
-	res, err := tr.CallTool(ctx, "ping", map[string]any{}, prov, false)
+	res, err := tr.CallTool(ctx, "ping", map[string]any{}, prov)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

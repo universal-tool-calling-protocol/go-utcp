@@ -151,7 +151,7 @@ func main() {
 	}
 
 	// Call the streaming tool
-	res, err := client.CallTool(ctx, "websocket.multipleChunks", map[string]any{}, true)
+	res, err := client.CallTool(ctx, "websocket.multipleChunks", map[string]any{})
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}

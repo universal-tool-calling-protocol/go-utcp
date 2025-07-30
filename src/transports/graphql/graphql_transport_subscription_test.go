@@ -75,7 +75,7 @@ func TestGraphQLClientTransport_OperationType(t *testing.T) {
 
 	prov := &GraphQLProvider{URL: server.URL, OperationType: "subscription"}
 	tr := NewGraphQLClientTransport(nil)
-	if _, err := tr.CallTool(context.Background(), "ok", nil, prov, false); err != nil {
+	if _, err := tr.CallTool(context.Background(), "ok", nil, prov); err != nil {
 		t.Fatalf("call error: %v", err)
 	}
 	if !strings.HasPrefix(gotQuery, "subscription ") {
@@ -83,7 +83,7 @@ func TestGraphQLClientTransport_OperationType(t *testing.T) {
 	}
 
 	prov.OperationType = "mutation"
-	if _, err := tr.CallTool(context.Background(), "ok", nil, prov, false); err != nil {
+	if _, err := tr.CallTool(context.Background(), "ok", nil, prov); err != nil {
 		t.Fatalf("call error: %v", err)
 	}
 	if !strings.HasPrefix(gotQuery, "mutation ") {

@@ -203,7 +203,7 @@ func (t *CliTransport) CallTool(
 	toolName string,
 	args map[string]interface{},
 	prov Provider,
-	stream bool,
+	options ...CallingOptions,
 ) (interface{}, error) {
 	cliProv, ok := prov.(*CliProvider)
 	if !ok || cliProv.CommandName == "" {

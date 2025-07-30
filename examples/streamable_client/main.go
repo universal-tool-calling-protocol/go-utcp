@@ -97,7 +97,7 @@ func main() {
 		log.Printf(" - %s", t.Name)
 	}
 
-	res, err := client.CallTool(ctx, "http_stream.streamNumbers", nil, true)
+	res, err := client.CallTool(ctx, "http_stream.streamNumbers", nil)
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}

@@ -102,7 +102,7 @@ func (t *WebSocketClientTransport) DeregisterToolProvider(ctx context.Context, p
 	return nil
 }
 
-func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
+func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, options ...CallingOptions) (any, error) {
 	wsProv, ok := prov.(*WebSocketProvider)
 	if !ok {
 		return nil, errors.New("WebSocketClientTransport can only be used with WebSocketProvider")

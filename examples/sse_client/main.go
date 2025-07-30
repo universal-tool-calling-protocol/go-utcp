@@ -82,7 +82,7 @@ func main() {
 		log.Printf(" - %s", t.Name)
 	}
 
-	res, err := client.CallTool(ctx, "sse.hello", map[string]any{"name": "UTCP"}, true)
+	res, err := client.CallTool(ctx, "sse.hello", map[string]any{"name": "UTCP"})
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}

@@ -74,7 +74,7 @@ func (t *TCPClientTransport) DeregisterToolProvider(ctx context.Context, prov Pr
 }
 
 // CallTool connects to the provider and sends a tool invocation request.
-func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
+func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, options ...CallingOptions) (any, error) {
 	tcpProv, ok := prov.(*TCPProvider)
 	if !ok {
 		return nil, errors.New("TCPClientTransport can only be used with TCPProvider")

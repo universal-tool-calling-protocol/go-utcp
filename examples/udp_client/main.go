@@ -103,7 +103,7 @@ func main() {
 	}
 
 	// Call the udp_echo tool
-	res, err := client.CallTool(ctx, "udp.udp_echo", map[string]any{"msg": "hi"}, false)
+	res, err := client.CallTool(ctx, "udp.udp_echo", map[string]any{"msg": "hi"})
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}

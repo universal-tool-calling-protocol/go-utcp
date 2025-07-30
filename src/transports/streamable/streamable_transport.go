@@ -69,7 +69,7 @@ func (t *StreamableHTTPClientTransport) CallTool(
 	toolName string,
 	args map[string]interface{},
 	prov Provider,
-	stream bool,
+	options ...CallingOptions,
 ) (interface{}, error) {
 	streamProv, ok := prov.(*StreamableHttpProvider)
 	if !ok {
@@ -174,7 +174,7 @@ func (t *StreamableHTTPClientTransport) CallToolStream(
 	toolName string,
 	args map[string]interface{},
 	prov Provider) (transports.StreamResult, error) {
-	result, err := t.CallTool(ctx, toolName, args, prov, true)
+	result, err := t.CallTool(ctx, toolName, args, prov)
 	if err != nil {
 		return nil, err
 	}

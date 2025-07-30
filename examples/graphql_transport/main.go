@@ -136,7 +136,7 @@ func main() {
 	variables := map[string]any{
 		"limit": "3",
 	}
-	result, err := transport.CallTool(ctx, "launchesPast", variables, provider, false)
+	result, err := transport.CallTool(ctx, "launchesPast", variables, provider)
 	if err != nil {
 		log.Fatalf("GraphQL query failed: %v", err)
 	}

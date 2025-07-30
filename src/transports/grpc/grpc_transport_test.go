@@ -51,7 +51,7 @@ func TestGRPCTransport_RegisterAndCall(t *testing.T) {
 	if err != nil || len(tools) != 1 || tools[0].Name != "ping" {
 		t.Fatalf("register error: %v tools:%v", err, tools)
 	}
-	res, err := tr.CallTool(ctx, "ping", map[string]any{"msg": "hi"}, prov, false)
+	res, err := tr.CallTool(ctx, "ping", map[string]any{"msg": "hi"}, prov)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestGRPCTransport_Errors(t *testing.T) {
 	if err := tr.DeregisterToolProvider(context.Background(), &HttpProvider{}); err == nil {
 		t.Fatal("expected type error")
 	}
-	if _, err := tr.CallTool(context.Background(), "ping", nil, &HttpProvider{}, false); err == nil {
+	if _, err := tr.CallTool(context.Background(), "ping", nil, &HttpProvider{}); err == nil {
 		t.Fatal("expected type error")
 	}
 }

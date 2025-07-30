@@ -52,7 +52,7 @@ func TestGraphQLClientTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("expected 1 tool, got %d: %+v", len(tools), tools)
 	}
 
-	res, err := tr.CallTool(ctx, "hello", map[string]interface{}{"name": "bob"}, prov, false)
+	res, err := tr.CallTool(ctx, "hello", map[string]interface{}{"name": "bob"}, prov)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

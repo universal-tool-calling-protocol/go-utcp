@@ -12,6 +12,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cast"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
@@ -46,7 +47,9 @@ func TestMCPHTTPNonStreamReturnsMap(t *testing.T) {
 		t.Fatalf("register err: %v", err)
 	}
 
-	res, err := tr.CallTool(ctx, "hello", map[string]any{"name": "Go"}, prov, false)
+	res, err := tr.CallTool(ctx, "hello", map[string]any{"name": "Go"}, prov, base.CallingOptions{
+		Stream: false,
+	})
 	if err != nil {
 		t.Fatalf("call err: %v", err)
 	}

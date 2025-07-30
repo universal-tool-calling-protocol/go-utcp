@@ -49,7 +49,7 @@ func TestStreamableHTTPClientTransport_RegisterAndCall(t *testing.T) {
 	}
 
 	prov.URL = server.URL
-	res, err := tr.CallTool(ctx, "echo", map[string]interface{}{"msg": "hi"}, prov, true)
+	res, err := tr.CallTool(ctx, "echo", map[string]interface{}{"msg": "hi"}, prov)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

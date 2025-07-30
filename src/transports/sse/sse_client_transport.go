@@ -79,7 +79,7 @@ func (t *SSEClientTransport) DeregisterToolProvider(ctx context.Context, prov Pr
 }
 
 // CallTool invokes a named tool, using SSE if available.
-func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, stream bool) (interface{}, error) {
+func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args map[string]interface{}, prov Provider, options ...CallingOptions) (interface{}, error) {
 	sseProv, ok := prov.(*SSEProvider)
 	if !ok {
 		return nil, errors.New("SSEClientTransport can only be used with SSEProvider")

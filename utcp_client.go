@@ -48,7 +48,7 @@ import (
 type UtcpClientInterface interface {
 	RegisterToolProvider(ctx context.Context, prov Provider) ([]Tool, error)
 	DeregisterToolProvider(ctx context.Context, providerName string) error
-	CallTool(ctx context.Context, toolName string, args map[string]any, stream bool) (any, error)
+	CallTool(ctx context.Context, toolName string, args map[string]any, opts ...CallingOptions) (any, error)
 	SearchTools(query string, limit int) ([]Tool, error)
 	GetTransports() map[string]ClientTransport
 }
@@ -315,14 +315,16 @@ func (c *UtcpClient) CallTool(
 	ctx context.Context,
 	toolName string,
 	args map[string]any,
-	stream bool,
+	opts ...CallingOptions,
 ) (any, error) {
+	// 1. Split and validate before any indexing
 	parts := strings.SplitN(toolName, ".", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid tool name: %s", toolName)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return nil, fmt.Errorf("invalid tool name %q; must be in format provider.tool", toolName)
 	}
 	providerName := parts[0]
 
+	// 2. Fetch the provider
 	prov, err := c.toolRepository.GetProvider(ctx, providerName)
 	if err != nil {
 		return nil, err
@@ -331,37 +333,44 @@ func (c *UtcpClient) CallTool(
 		return nil, fmt.Errorf("provider not found: %s", providerName)
 	}
 
+	// 3. Load and select the tool metadata
 	tools, err := c.toolRepository.GetToolsByProvider(ctx, providerName)
 	if err != nil {
 		return nil, err
 	}
-	var selectedTool *Tool
-	for _, t := range tools {
-		if t.Name == toolName {
-			selectedTool = &t
+	var selected *Tool
+	for i := range tools {
+		if tools[i].Name == toolName {
+			selected = &tools[i]
 			break
 		}
 	}
-	if selectedTool == nil {
+	if selected == nil {
 		return nil, fmt.Errorf("tool not found: %s", toolName)
 	}
 
-	// re‑substitute any provider vars before call
+	// 4. Re‑substitute any provider variables
 	*prov = c.substituteProviderVariables(*prov)
 
+	// 5. Lookup the transport
 	tr, ok := c.transports[string((*prov).Type())]
 	if !ok {
 		return nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
 	}
 
-	// Determine remote method name for MCP transport
+	// 6. Determine the remote call name for MCP vs other transports
 	callName := toolName
 	if (*prov).Type() == ProviderMCP {
-		// Strip provider prefix for MCP transport
 		callName = parts[1]
 	}
 
-	return tr.CallTool(ctx, callName, args, *prov, stream)
+	// 7. Debug log to confirm opts arrived
+	if len(opts) == 0 {
+		// populate with a “zero” option, or whatever default makes sense
+		opts = []CallingOptions{{}}
+	}
+	// 8. Finally, dispatch to the transport with the exact opts slice
+	return tr.CallTool(ctx, callName, args, *prov, opts...)
 }
 
 func (c *UtcpClient) SearchTools(query string, limit int) ([]Tool, error) {
