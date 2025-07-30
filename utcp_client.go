@@ -298,6 +298,21 @@ func (c *UtcpClient) RegisterToolProvider(
 	if err := c.toolRepository.SaveProviderWithTools(ctx, prov, tools); err != nil {
 		return nil, err
 	}
+
+	// Pre-populate call cache for faster lookups
+	c.cacheMu.Lock()
+	if c.callCache == nil {
+		c.callCache = make(map[string]cachedCall)
+	}
+	for _, tool := range tools {
+		callName := tool.Name
+		if prov.Type() == ProviderMCP {
+			callName = strings.TrimPrefix(tool.Name, name+".")
+		}
+		c.callCache[tool.Name] = cachedCall{provider: prov, transport: tr, callName: callName}
+	}
+	c.cacheMu.Unlock()
+
 	return tools, nil
 }
 

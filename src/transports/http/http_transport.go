@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
@@ -27,6 +29,7 @@ type HttpClientTransport struct {
 	httpClient  *http.Client
 	oauthTokens map[string]map[string]interface{}
 	logger      func(format string, args ...interface{})
+	bufPool     sync.Pool
 }
 
 // NewHttpClientTransport constructs a new HttpClientTransport.
@@ -38,6 +41,7 @@ func NewHttpClientTransport(logger func(format string, args ...interface{})) *Ht
 		httpClient:  &http.Client{Timeout: 30 * time.Second},
 		oauthTokens: make(map[string]map[string]interface{}),
 		logger:      logger,
+		bufPool:     sync.Pool{New: func() any { return new(bytes.Buffer) }},
 	}
 }
 
@@ -226,17 +230,21 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 
 	// Determine request method and body based on remaining args and HTTP method
 	if len(args) > 0 && hp.HTTPMethod == "POST" {
-		// POST with JSON body
-		jsonData, err := json.Marshal(args)
-		if err != nil {
+		// POST with JSON body using pooled buffer
+		buf := t.bufPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		if err := json.NewEncoder(buf).Encode(args); err != nil {
+			t.bufPool.Put(buf)
 			return nil, err
 		}
-		req, err = http.NewRequestWithContext(ctx, hp.HTTPMethod, u.String(), strings.NewReader(string(jsonData)))
+		req, err = http.NewRequestWithContext(ctx, hp.HTTPMethod, u.String(), buf)
 		if err != nil {
+			t.bufPool.Put(buf)
 			return nil, err
 		}
 		req.Header = make(http.Header)
 		req.Header.Set("Content-Type", "application/json")
+		t.bufPool.Put(buf)
 	} else {
 		// GET or POST with query parameters
 		q := u.Query()
