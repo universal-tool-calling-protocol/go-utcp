@@ -33,5 +33,5 @@ func (b *BaseProvider) Type() ProviderType {
 }
 
 type CallingOptions struct {
-	Stream bool `json:"streaming"`
+	Stream bool
 }

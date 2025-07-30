@@ -39,13 +39,13 @@ func main() {
 		log.Fatalf("hello call error: %v", err)
 	}
 	fmt.Println(res)
-	options := base.CallingOptions{
+	opt := base.CallingOptions{
 		Stream: true,
 	}
 	// Call streaming tool: returns StreamResult
 	res, err = client.CallTool(ctx, tools[1].Name, map[string]any{
 		"count": 5,
-	}, options)
+	}, opt)
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}

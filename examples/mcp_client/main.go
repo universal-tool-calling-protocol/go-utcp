@@ -30,7 +30,7 @@ func main() {
 	args := map[string]any{
 		"name": "Kamil",
 	}
-	data, err := client.CallTool(ctx, tools[0].Name, args, false)
+	data, err := client.CallTool(ctx, tools[0].Name, args)
 	if err != nil {
 		log.Fatalf("cannot proceed")
 	}

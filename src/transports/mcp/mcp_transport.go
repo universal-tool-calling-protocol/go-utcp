@@ -241,13 +241,17 @@ func (t *MCPTransport) CallTool(
 	toolName string,
 	args map[string]any,
 	p Provider,
-	options ...CallingOptions,
+	opts ...CallingOptions,
 ) (interface{}, error) {
 	mp, ok := p.(*MCPProvider)
 	if !ok {
 		return nil, errors.New("MCPTransport can only be used with MCPProvider")
 	}
-
+	// 7. Debug log to confirm opts arrived
+	if len(opts) == 0 {
+		// populate with a “zero” option, or whatever default makes sense
+		opts = []CallingOptions{{}}
+	}
 	// Lookup the process for this provider
 	t.mutex.RLock()
 	proc, exists := t.processes[mp.Name]
@@ -260,7 +264,7 @@ func (t *MCPTransport) CallTool(
 	var res interface{}
 	var err error
 	switch {
-	case options[0].Stream == true:
+	case opts[0].Stream == true:
 		res, err = t.CallToolStream(ctx, toolName, args, p)
 	case proc.httpClient != nil:
 		// HTTP‑capable synchronous tools
