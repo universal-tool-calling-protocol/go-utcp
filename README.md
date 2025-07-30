@@ -128,3 +128,5 @@ func main() {
 	}
 }
 ```
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/universal-tool-calling-protocol/go-utcp.svg)](https://pkg.go.dev/github.com/universal-tool-calling-protocol/go-utcp)
