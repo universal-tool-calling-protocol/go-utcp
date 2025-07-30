@@ -8,7 +8,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/src/providers"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/tcp"
 )
 
@@ -93,9 +94,9 @@ func main() {
 	logger := func(format string, args ...interface{}) { log.Printf("[CLIENT] "+format, args...) }
 	transport := transports.NewTCPClientTransport(logger)
 	prov := &providers.TCPProvider{
-		BaseProvider: providers.BaseProvider{
+		BaseProvider: base.BaseProvider{
 			Name:         "tcp",
-			ProviderType: providers.ProviderTCP,
+			ProviderType: base.ProviderTCP,
 		},
 		Host:    "127.0.0.1",
 		Port:    9090,
