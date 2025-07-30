@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
@@ -61,6 +62,14 @@ type UtcpClient struct {
 	transports     map[string]ClientTransport
 	toolRepository ToolRepository
 	searchStrategy ToolSearchStrategy
+	cacheMu        sync.RWMutex
+	callCache      map[string]cachedCall
+}
+
+type cachedCall struct {
+	provider  Provider
+	transport ClientTransport
+	callName  string
 }
 
 // NewUtcpClient constructs a new client, loading providers if configured.
@@ -85,6 +94,7 @@ func NewUTCPClient(
 		transports:     defaultTransports(),
 		toolRepository: repo,
 		searchStrategy: strat,
+		callCache:      make(map[string]cachedCall),
 	}
 
 	// if providersFilePath is set, adjust TextTransport base path
@@ -307,6 +317,15 @@ func (c *UtcpClient) DeregisterToolProvider(ctx context.Context, providerName st
 	if err := tr.DeregisterToolProvider(ctx, *prov); err != nil {
 		return err
 	}
+	c.cacheMu.Lock()
+	if c.callCache != nil {
+		for tool := range c.callCache {
+			if strings.HasPrefix(tool, providerName+".") {
+				delete(c.callCache, tool)
+			}
+		}
+	}
+	c.cacheMu.Unlock()
 	return c.toolRepository.RemoveProvider(ctx, providerName)
 }
 
@@ -315,6 +334,17 @@ func (c *UtcpClient) CallTool(
 	toolName string,
 	args map[string]any,
 ) (any, error) {
+	c.cacheMu.RLock()
+	cache := c.callCache
+	if cache != nil {
+		if info, ok := cache[toolName]; ok {
+			c.cacheMu.RUnlock()
+			prov := c.substituteProviderVariables(info.provider)
+			return info.transport.CallTool(ctx, info.callName, args, prov, nil)
+		}
+	}
+	c.cacheMu.RUnlock()
+
 	parts := strings.SplitN(toolName, ".", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid tool name: %s", toolName)
@@ -358,6 +388,13 @@ func (c *UtcpClient) CallTool(
 		// Strip provider prefix for MCP transport
 		callName = parts[1]
 	}
+
+	c.cacheMu.Lock()
+	if c.callCache == nil {
+		c.callCache = make(map[string]cachedCall)
+	}
+	c.callCache[toolName] = cachedCall{provider: *prov, transport: tr, callName: callName}
+	c.cacheMu.Unlock()
 
 	return tr.CallTool(ctx, callName, args, *prov, nil)
 }
@@ -588,6 +625,17 @@ func (c *UtcpClient) CallToolStream(
 	toolName string,
 	args map[string]any,
 ) (transports.StreamResult, error) {
+	c.cacheMu.RLock()
+	cache := c.callCache
+	if cache != nil {
+		if info, ok := cache[toolName]; ok {
+			c.cacheMu.RUnlock()
+			prov := c.substituteProviderVariables(info.provider)
+			return info.transport.CallToolStream(ctx, info.callName, args, prov)
+		}
+	}
+	c.cacheMu.RUnlock()
+
 	parts := strings.SplitN(toolName, ".", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid tool name: %s", toolName)
@@ -631,6 +679,13 @@ func (c *UtcpClient) CallToolStream(
 		// Strip provider prefix for MCP transport
 		callName = parts[1]
 	}
+
+	c.cacheMu.Lock()
+	if c.callCache == nil {
+		c.callCache = make(map[string]cachedCall)
+	}
+	c.callCache[toolName] = cachedCall{provider: *prov, transport: tr, callName: callName}
+	c.cacheMu.Unlock()
 
 	return tr.CallToolStream(ctx, callName, args, *prov)
 }
