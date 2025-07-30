@@ -610,5 +610,5 @@ func (t *GraphQLClientTransport) CallToolStream(
 	args map[string]any,
 	p Provider,
 ) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by GraphQLClientTransport")
+	return nil, errors.New("streaming is supported, use CallTool")
 }

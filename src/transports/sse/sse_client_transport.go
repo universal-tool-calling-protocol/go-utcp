@@ -267,5 +267,5 @@ func (t *SSEClientTransport) CallToolStream(
 	args map[string]any,
 	p Provider,
 ) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by SSEClientTransport")
+	return nil, errors.New("streaming is supported by SSEClientTransport, use CallTool")
 }
