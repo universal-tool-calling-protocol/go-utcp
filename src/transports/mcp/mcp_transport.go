@@ -138,7 +138,6 @@ func (t *MCPTransport) RegisterToolProvider(ctx context.Context, p Provider) ([]
 		t.mutex.Lock()
 		t.processes[mp.Name] = process
 		t.mutex.Unlock()
-		t.logger("Successfully registered MCP HTTP provider '%s'", mp.Name)
 		return tools, nil
 	}
 
@@ -229,7 +228,6 @@ func (t *MCPTransport) DeregisterToolProvider(ctx context.Context, p Provider) e
 		return nil
 	}
 
-	t.logger("Deregistering MCP provider '%s'", mp.Name)
 	t.cleanupProcess(process)
 	return nil
 }

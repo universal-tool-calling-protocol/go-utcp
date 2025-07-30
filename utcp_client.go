@@ -192,9 +192,6 @@ func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 		}
 		successCount++
 	}
-
-	fmt.Printf("Successfully registered %d out of %d providers\n", successCount, len(rawList))
-
 	if len(errors) > 0 {
 		fmt.Fprintf(os.Stderr, "Warning: %d providers failed to load:\n", len(errors))
 		for _, errMsg := range errors {

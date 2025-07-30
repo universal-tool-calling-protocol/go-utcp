@@ -94,7 +94,7 @@ func main() {
 
 	ctxWithCT := context.WithValue(ctx, "contentType", "event-stream")
 
-	result, err = transport.CallToolStream(ctxWithCT, "count_stream", map[string]any{"count": 5, "contentType": "event-stream"}, provider)
+	result, err = transport.CallToolStream(ctxWithCT, "count_stream", map[string]any{"count": 5}, provider)
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}
