@@ -147,7 +147,7 @@ func main() {
 		{"grpc.uppercase", map[string]any{"msg": "hello"}},
 		{"grpc.wordcount", map[string]any{"msg": "Hello world from Go server"}},
 	} {
-		res, err := client.CallTool(ctx, call.method, call.args)
+		res, err := client.CallTool(ctx, call.method, call.args, false)
 		if err != nil {
 			log.Fatalf("call %s error: %v", call.method, err)
 		}

@@ -85,7 +85,7 @@ func main() {
 		log.Printf(" - %s", t.Name)
 	}
 
-	res, err := transport.CallTool(ctx, "udp_echo", map[string]any{"msg": "hi"}, prov, nil)
+	res, err := transport.CallTool(ctx, "udp_echo", map[string]any{"msg": "hi"}, prov, false)
 	if err != nil {
 		log.Fatalf("call: %v", err)
 	}

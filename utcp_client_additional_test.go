@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
@@ -53,13 +52,9 @@ func (s *stubTransport) DeregisterToolProvider(ctx context.Context, prov Provide
 	return nil
 }
 
-func (s *stubTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, l *string) (any, error) {
+func (s *stubTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
 	s.callCalled = true
 	return "ok", nil
-}
-
-func (m *stubTransport) CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (transports.StreamResult, error) {
-	return nil, nil
 }
 
 func TestGetVariableSources(t *testing.T) {
@@ -169,7 +164,7 @@ func TestUtcpClientFlow(t *testing.T) {
 	if err != nil || len(tools) != 1 || tools[0].Name != "my_cli.echo" || !tr.registerCalled {
 		t.Fatalf("register failed: %v %v", tools, err)
 	}
-	if _, err := client.CallTool(ctx, "my_cli.echo", map[string]any{"a": 1}); err != nil || !tr.callCalled {
+	if _, err := client.CallTool(ctx, "my_cli.echo", map[string]any{"a": 1}, false); err != nil || !tr.callCalled {
 		t.Fatalf("call failed: %v", err)
 	}
 	res, err := client.SearchTools("my_cli", 10)

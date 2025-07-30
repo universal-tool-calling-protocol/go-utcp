@@ -14,7 +14,6 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
@@ -174,7 +173,7 @@ func (t *WebRTCClientTransport) DeregisterToolProvider(ctx context.Context, prov
 	return nil
 }
 
-func (t *WebRTCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, l *string) (any, error) {
+func (t *WebRTCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
 	if t.dc == nil {
 		return nil, errors.New("data channel not established")
 	}
@@ -191,7 +190,7 @@ func (t *WebRTCClientTransport) CallTool(ctx context.Context, toolName string, a
 	t.mu.Lock()
 	t.pending[id] = respCh
 	t.mu.Unlock()
-
+	var l *string
 	// Send request
 	if err := t.dc.SendText(string(payload)); err != nil {
 		return nil, err
@@ -208,13 +207,4 @@ func (t *WebRTCClientTransport) CallTool(ctx context.Context, toolName string, a
 		}
 		return res, nil
 	}
-}
-
-func (t *WebRTCClientTransport) CallToolStream(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	p Provider,
-) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by WebRTCClientTransport")
 }

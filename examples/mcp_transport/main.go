@@ -55,9 +55,9 @@ func main() {
 
 	argsMap := map[string]any{"name": "Kamil"}
 
-	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, nil)
+	res, err := transport.CallTool(ctx, tools[0].Name, argsMap, mcpProvider, false)
 	fmt.Println(res.(map[string]any))
-	res, err = transport.CallToolStream(ctx, tools[1].Name, argsMap, mcpProvider)
+	res, err = transport.CallTool(ctx, tools[1].Name, argsMap, mcpProvider, true)
 
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)

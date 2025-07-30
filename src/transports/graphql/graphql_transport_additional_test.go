@@ -120,14 +120,14 @@ func TestGraphQL_RegisterAndCall_Errors(t *testing.T) {
 	if _, err := tr.RegisterToolProvider(ctx, &CliProvider{}); err == nil {
 		t.Fatalf("expected error for wrong provider")
 	}
-	if _, err := tr.CallTool(ctx, "x", nil, &CliProvider{}, nil); err == nil {
+	if _, err := tr.CallTool(ctx, "x", nil, &CliProvider{}, false); err == nil {
 		t.Fatalf("expected error for wrong provider")
 	}
 	prov := &GraphQLProvider{URL: "http://example.com"}
 	if _, err := tr.RegisterToolProvider(ctx, prov); err == nil {
 		t.Fatalf("expected https enforcement error")
 	}
-	if _, err := tr.CallTool(ctx, "foo", nil, prov, nil); err == nil {
+	if _, err := tr.CallTool(ctx, "foo", nil, prov, false); err == nil {
 		t.Fatalf("expected https enforcement error")
 	}
 }
@@ -140,7 +140,7 @@ func TestGraphQL_CallTool_NoData(t *testing.T) {
 	defer server.Close()
 	prov := &GraphQLProvider{URL: server.URL}
 	tr := NewGraphQLClientTransport(nil)
-	res, err := tr.CallTool(context.Background(), "foo", nil, prov, nil)
+	res, err := tr.CallTool(context.Background(), "foo", nil, prov, false)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}

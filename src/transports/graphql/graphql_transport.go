@@ -16,7 +16,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
@@ -329,7 +328,7 @@ func (t *GraphQLClientTransport) DeregisterToolProvider(ctx context.Context, man
 }
 
 // CallTool executes a GraphQL operation by name with proper type support.
-func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider Provider, l *string) (any, error) {
+func (t *GraphQLClientTransport) CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider Provider, stream bool) (any, error) {
 	prov, ok := toolProvider.(*GraphQLProvider)
 	if !ok {
 		return nil, errors.New("GraphQLClientTransport can only be used with GraphQLProvider")
@@ -602,13 +601,4 @@ func (t *GraphQLClientTransport) Close() error {
 	t.oauthTokens = make(map[string]OAuth2TokenResponse)
 	t.mu.Unlock()
 	return nil
-}
-
-func (t *GraphQLClientTransport) CallToolStream(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	p Provider,
-) (transports.StreamResult, error) {
-	return nil, errors.New("streaming is supported, use CallTool")
 }

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 	streamresult "github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
@@ -103,7 +102,7 @@ func (t *WebSocketClientTransport) DeregisterToolProvider(ctx context.Context, p
 	return nil
 }
 
-func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, l *string) (any, error) {
+func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, stream bool) (any, error) {
 	wsProv, ok := prov.(*WebSocketProvider)
 	if !ok {
 		return nil, errors.New("WebSocketClientTransport can only be used with WebSocketProvider")
@@ -159,13 +158,4 @@ func (t *WebSocketClientTransport) CallTool(ctx context.Context, toolName string
 	}
 
 	return streamresult.NewSliceStreamResult(results, nil), nil
-}
-
-func (t *WebSocketClientTransport) CallToolStream(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	p Provider,
-) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by WebSocketClientTransport")
 }

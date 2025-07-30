@@ -33,15 +33,15 @@ func main() {
 	}
 
 	// Call hello tool
-	res, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "Go"})
+	res, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "Go"}, false)
 	if err != nil {
 		log.Fatalf("hello call error: %v", err)
 	}
 	fmt.Println(res)
 	// Call streaming tool: returns StreamResult
-	res, err = client.CallToolStream(ctx, tools[1].Name, map[string]any{
+	res, err = client.CallTool(ctx, tools[1].Name, map[string]any{
 		"count": 5,
-	})
+	}, true)
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}

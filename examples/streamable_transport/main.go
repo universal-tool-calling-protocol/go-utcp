@@ -43,8 +43,7 @@ func main() {
 	for _, t := range tools {
 		log.Printf(" • %s: %s", t.Name, t.Description)
 	}
-	var lastChunk string
-	res, err := transport.CallTool(ctx, "streamNumbers", nil, provider, &lastChunk)
+	res, err := transport.CallTool(ctx, "streamNumbers", nil, provider, true)
 	if err != nil {
 		log.Fatalf("CallTool error: %v", err)
 	}

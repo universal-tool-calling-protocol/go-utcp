@@ -86,15 +86,13 @@ func main() {
 	}
 
 	// 5) Call hello tool
-	result, err := transport.CallTool(ctx, "hello", map[string]any{"name": "Go"}, provider, nil)
+	result, err := transport.CallTool(ctx, "hello", map[string]any{"name": "Go"}, provider, false)
 	if err != nil {
 		log.Fatalf("call error: %v", err)
 	}
 	fmt.Printf("Hello result: %#v\n", result)
 
-	ctxWithCT := context.WithValue(ctx, "contentType", "event-stream")
-
-	result, err = transport.CallToolStream(ctxWithCT, "count_stream", map[string]any{"count": 5, "contentType": "event-stream"}, provider)
+	result, err = transport.CallTool(ctx, "count_stream", map[string]any{"count": 5, "contentType": "event-stream"}, provider, true)
 	if err != nil {
 		log.Fatalf("stream call error: %v", err)
 	}

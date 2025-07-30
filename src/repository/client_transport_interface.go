@@ -5,7 +5,6 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
-	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
 
 // ClientTransport defines how a client registers, deregisters, and invokes UTCP tools.
@@ -19,6 +18,5 @@ type ClientTransport interface {
 
 	// CallTool invokes a named tool with the given arguments on a specific provider.
 	// It returns whatever the tool returns (often map[string]interface{} or a typed result).
-	CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider Provider, l *string) (any, error)
-	CallToolStream(ctx context.Context, toolName string, args map[string]any, p Provider) (transports.StreamResult, error)
+	CallTool(ctx context.Context, toolName string, arguments map[string]any, toolProvider Provider, stream bool) (any, error)
 }

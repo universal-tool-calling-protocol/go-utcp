@@ -46,7 +46,7 @@ func TestMCPHTTPNonStreamReturnsMap(t *testing.T) {
 		t.Fatalf("register err: %v", err)
 	}
 
-	res, err := tr.CallTool(ctx, "hello", map[string]any{"name": "Go"}, prov, nil)
+	res, err := tr.CallTool(ctx, "hello", map[string]any{"name": "Go"}, prov, false)
 	if err != nil {
 		t.Fatalf("call err: %v", err)
 	}

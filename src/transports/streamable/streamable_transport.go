@@ -69,7 +69,7 @@ func (t *StreamableHTTPClientTransport) CallTool(
 	toolName string,
 	args map[string]interface{},
 	prov Provider,
-	l *string,
+	stream bool,
 ) (interface{}, error) {
 	streamProv, ok := prov.(*StreamableHttpProvider)
 	if !ok {
@@ -102,6 +102,7 @@ func (t *StreamableHTTPClientTransport) CallTool(
 
 	// Create a channel for streaming results
 	resultCh := make(chan any, 10) // Buffer to prevent blocking
+	var l *string
 
 	// Start a goroutine to process the stream
 	go func() {
@@ -173,7 +174,7 @@ func (t *StreamableHTTPClientTransport) CallToolStream(
 	toolName string,
 	args map[string]interface{},
 	prov Provider) (transports.StreamResult, error) {
-	result, err := t.CallTool(ctx, toolName, args, prov, nil)
+	result, err := t.CallTool(ctx, toolName, args, prov, true)
 	if err != nil {
 		return nil, err
 	}
