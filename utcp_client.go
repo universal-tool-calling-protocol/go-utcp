@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
@@ -54,6 +55,12 @@ type UtcpClientInterface interface {
 	GetTransports() map[string]ClientTransport
 	CallToolStream(ctx context.Context, toolName string, args map[string]any) (transports.StreamResult, error)
 }
+type resolvedTool struct {
+	provider  Provider
+	transport ClientTransport
+	callName  string
+	tool      *Tool
+}
 
 // UtcpClient holds all state and implements UtcpClientInterface.
 type UtcpClient struct {
@@ -61,6 +68,12 @@ type UtcpClient struct {
 	transports     map[string]ClientTransport
 	toolRepository ToolRepository
 	searchStrategy ToolSearchStrategy
+
+	// caches
+	providerToolsCache    map[string][]Tool
+	providerToolsCacheMu  sync.RWMutex
+	toolResolutionCache   map[string]*resolvedTool // key is full tool name
+	toolResolutionCacheMu sync.RWMutex
 }
 
 // NewUtcpClient constructs a new client, loading providers if configured.
@@ -81,10 +94,12 @@ func NewUTCPClient(
 	}
 
 	client := &UtcpClient{
-		config:         cfg,
-		transports:     defaultTransports(),
-		toolRepository: repo,
-		searchStrategy: strat,
+		config:              cfg,
+		transports:          defaultTransports(),
+		toolRepository:      repo,
+		searchStrategy:      strat,
+		providerToolsCache:  make(map[string][]Tool),
+		toolResolutionCache: make(map[string]*resolvedTool),
 	}
 
 	// if providersFilePath is set, adjust TextTransport base path
@@ -265,9 +280,41 @@ func (c *UtcpClient) RegisterToolProvider(
 	ctx context.Context,
 	prov Provider,
 ) ([]Tool, error) {
+	c.ensureCaches() // defensive
 	prov = c.substituteProviderVariables(prov)
 	name := strings.ReplaceAll(c.getProviderName(prov), ".", "_")
 	c.setProviderName(prov, name)
+
+	// Check cache: if already registered, return cached tools and ensure resolution cache is primed
+	c.providerToolsCacheMu.RLock()
+	if tools, ok := c.providerToolsCache[name]; ok {
+		c.providerToolsCacheMu.RUnlock()
+
+		// Prime resolution cache for any missing entries
+		tr, _ := c.transports[string(prov.Type())]
+		c.toolResolutionCacheMu.Lock()
+		for i := range tools {
+			tool := tools[i] // new variable per iteration so &tool is stable
+			if _, exists := c.toolResolutionCache[tool.Name]; !exists {
+				callName := tool.Name
+				if prov.Type() == ProviderMCP {
+					if _, suffix, ok := strings.Cut(tool.Name, "."); ok {
+						callName = suffix
+					}
+				}
+				c.toolResolutionCache[tool.Name] = &resolvedTool{
+					provider:  prov,
+					transport: tr,
+					callName:  callName,
+					tool:      &tool,
+				}
+			}
+		}
+		c.toolResolutionCacheMu.Unlock()
+
+		return tools, nil
+	}
+	c.providerToolsCacheMu.RUnlock()
 
 	tr, ok := c.transports[string(prov.Type())]
 	if !ok {
@@ -288,6 +335,31 @@ func (c *UtcpClient) RegisterToolProvider(
 	if err := c.toolRepository.SaveProviderWithTools(ctx, prov, tools); err != nil {
 		return nil, err
 	}
+
+	// Populate cache
+	c.providerToolsCacheMu.Lock()
+	c.providerToolsCache[name] = tools
+	c.providerToolsCacheMu.Unlock()
+
+	// Also prime resolution cache for each tool
+	c.toolResolutionCacheMu.Lock()
+	for i := range tools {
+		tool := tools[i]
+		callName := tool.Name
+		if prov.Type() == ProviderMCP {
+			if _, suffix, ok := strings.Cut(tool.Name, "."); ok {
+				callName = suffix
+			}
+		}
+		c.toolResolutionCache[tool.Name] = &resolvedTool{
+			provider:  prov,
+			transport: tr,
+			callName:  callName,
+			tool:      &tool,
+		}
+	}
+	c.toolResolutionCacheMu.Unlock()
+
 	return tools, nil
 }
 
@@ -307,7 +379,31 @@ func (c *UtcpClient) DeregisterToolProvider(ctx context.Context, providerName st
 	if err := tr.DeregisterToolProvider(ctx, *prov); err != nil {
 		return err
 	}
-	return c.toolRepository.RemoveProvider(ctx, providerName)
+	if err := c.toolRepository.RemoveProvider(ctx, providerName); err != nil {
+		return err
+	}
+
+	// Invalidate providerToolsCache
+	c.providerToolsCacheMu.Lock()
+	delete(c.providerToolsCache, providerName)
+	c.providerToolsCacheMu.Unlock()
+
+	// Invalidate resolution cache entries for tools of this provider
+	c.toolResolutionCacheMu.Lock()
+	for k, res := range c.toolResolutionCache {
+		// Assuming tool.Name has prefix providerName.
+		if strings.HasPrefix(k, providerName+".") {
+			delete(c.toolResolutionCache, k)
+		} else if res.provider != nil {
+			// Fallback check: if provider name matches
+			if c.getProviderName(res.provider) == providerName {
+				delete(c.toolResolutionCache, k)
+			}
+		}
+	}
+	c.toolResolutionCacheMu.Unlock()
+
+	return nil
 }
 
 func (c *UtcpClient) CallTool(
@@ -315,51 +411,11 @@ func (c *UtcpClient) CallTool(
 	toolName string,
 	args map[string]any,
 ) (any, error) {
-	parts := strings.SplitN(toolName, ".", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid tool name: %s", toolName)
-	}
-	providerName := parts[0]
-
-	prov, err := c.toolRepository.GetProvider(ctx, providerName)
+	prov, tr, callName, _, err := c.resolveTool(ctx, toolName)
 	if err != nil {
 		return nil, err
 	}
-	if prov == nil {
-		return nil, fmt.Errorf("provider not found: %s", providerName)
-	}
-
-	tools, err := c.toolRepository.GetToolsByProvider(ctx, providerName)
-	if err != nil {
-		return nil, err
-	}
-	var selectedTool *Tool
-	for _, t := range tools {
-		if t.Name == toolName {
-			selectedTool = &t
-			break
-		}
-	}
-	if selectedTool == nil {
-		return nil, fmt.Errorf("tool not found: %s", toolName)
-	}
-
-	// re‑substitute any provider vars before call
-	*prov = c.substituteProviderVariables(*prov)
-
-	tr, ok := c.transports[string((*prov).Type())]
-	if !ok {
-		return nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
-	}
-
-	// Determine remote method name for MCP transport
-	callName := toolName
-	if (*prov).Type() == ProviderMCP {
-		// Strip provider prefix for MCP transport
-		callName = parts[1]
-	}
-
-	return tr.CallTool(ctx, callName, args, *prov, nil)
+	return tr.CallTool(ctx, callName, args, prov, nil)
 }
 
 func (c *UtcpClient) SearchTools(query string, limit int) ([]Tool, error) {
@@ -588,49 +644,91 @@ func (c *UtcpClient) CallToolStream(
 	toolName string,
 	args map[string]any,
 ) (transports.StreamResult, error) {
-	parts := strings.SplitN(toolName, ".", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid tool name: %s", toolName)
-	}
-	providerName := parts[0]
-
-	prov, err := c.toolRepository.GetProvider(ctx, providerName)
+	prov, tr, callName, _, err := c.resolveTool(ctx, toolName)
 	if err != nil {
 		return nil, err
 	}
+	return tr.CallToolStream(ctx, callName, args, prov)
+}
+
+// helper to resolve provider, transport, callName, and tool
+func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider, ClientTransport, string, *Tool, error) {
+	// Cache lookup
+	c.toolResolutionCacheMu.RLock()
+	if res, ok := c.toolResolutionCache[toolName]; ok {
+		// Re-substitute any provider vars before call
+		*&res.provider = c.substituteProviderVariables(res.provider)
+		c.toolResolutionCacheMu.RUnlock()
+		// Ensure transport is up-to-date from current transports map
+		tr, ok := c.transports[string(res.provider.Type())]
+		if !ok {
+			return nil, nil, "", nil, fmt.Errorf("no transport for provider type %s", res.provider.Type())
+		}
+		return res.provider, tr, res.callName, res.tool, nil
+	}
+	c.toolResolutionCacheMu.RUnlock()
+
+	providerName, suffix, ok := strings.Cut(toolName, ".")
+	if !ok {
+		return nil, nil, "", nil, fmt.Errorf("invalid tool name: %s", toolName)
+	}
+
+	prov, err := c.toolRepository.GetProvider(ctx, providerName)
+	if err != nil {
+		return nil, nil, "", nil, err
+	}
 	if prov == nil {
-		return nil, fmt.Errorf("provider not found: %s", providerName)
+		return nil, nil, "", nil, fmt.Errorf("provider not found: %s", providerName)
 	}
 
 	tools, err := c.toolRepository.GetToolsByProvider(ctx, providerName)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", nil, err
 	}
+
 	var selectedTool *Tool
-	for _, t := range tools {
-		if t.Name == toolName {
-			selectedTool = &t
+	for i := range tools {
+		if tools[i].Name == toolName {
+			selectedTool = &tools[i]
 			break
 		}
 	}
 	if selectedTool == nil {
-		return nil, fmt.Errorf("tool not found: %s", toolName)
+		return nil, nil, "", nil, fmt.Errorf("tool not found: %s", toolName)
 	}
 
-	// re‑substitute any provider vars before call
+	// re-substitute any provider vars before call
 	*prov = c.substituteProviderVariables(*prov)
 
 	tr, ok := c.transports[string((*prov).Type())]
 	if !ok {
-		return nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
+		return nil, nil, "", nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
 	}
 
-	// Determine remote method name for MCP transport
 	callName := toolName
 	if (*prov).Type() == ProviderMCP {
 		// Strip provider prefix for MCP transport
-		callName = parts[1]
+		callName = suffix
 	}
 
-	return tr.CallToolStream(ctx, callName, args, *prov)
+	// Cache the resolution
+	c.toolResolutionCacheMu.Lock()
+	c.toolResolutionCache[toolName] = &resolvedTool{
+		provider:  *prov,
+		transport: tr,
+		callName:  callName,
+		tool:      selectedTool,
+	}
+	c.toolResolutionCacheMu.Unlock()
+
+	return *prov, tr, callName, selectedTool, nil
+}
+
+func (c *UtcpClient) ensureCaches() {
+	if c.providerToolsCache == nil {
+		c.providerToolsCache = make(map[string][]Tool)
+	}
+	if c.toolResolutionCache == nil {
+		c.toolResolutionCache = make(map[string]*resolvedTool)
+	}
 }
