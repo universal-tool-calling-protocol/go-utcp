@@ -692,16 +692,16 @@ func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider
 		return nil, nil, "", nil, fmt.Errorf("tool not found: %s", toolName)
 	}
 
-	// re-substitute any provider vars before call (mutate local copy)
-	*prov = c.substituteProviderVariables(*prov)
+	// substitute provider vars without mutating repository entry
+	substituted := c.substituteProviderVariables(*prov)
 
-	tr, ok := c.transports[string((*prov).Type())]
+	tr, ok := c.transports[string(substituted.Type())]
 	if !ok {
-		return nil, nil, "", nil, fmt.Errorf("no transport for provider type %s", (*prov).Type())
+		return nil, nil, "", nil, fmt.Errorf("no transport for provider type %s", substituted.Type())
 	}
 
 	callName := toolName
-	if (*prov).Type() == ProviderMCP {
+	if substituted.Type() == ProviderMCP {
 		// Strip provider prefix for MCP transport
 		callName = suffix
 	}
@@ -709,14 +709,14 @@ func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider
 	// Cache the resolution (provider already has variables substituted)
 	c.toolResolutionCacheMu.Lock()
 	c.toolResolutionCache[toolName] = &resolvedTool{
-		provider:  *prov,
+		provider:  substituted,
 		transport: tr,
 		callName:  callName,
 		tool:      selectedTool,
 	}
 	c.toolResolutionCacheMu.Unlock()
 
-	return *prov, tr, callName, selectedTool, nil
+	return substituted, tr, callName, selectedTool, nil
 }
 
 func (c *UtcpClient) ensureCaches() {
