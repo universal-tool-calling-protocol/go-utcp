@@ -294,19 +294,18 @@ func (c *UtcpClient) RegisterToolProvider(
 		tr, _ := c.transports[string(prov.Type())]
 		c.toolResolutionCacheMu.Lock()
 		for i := range tools {
-			tool := tools[i] // new variable per iteration so &tool is stable
-			if _, exists := c.toolResolutionCache[tool.Name]; !exists {
-				callName := tool.Name
+			if _, exists := c.toolResolutionCache[tools[i].Name]; !exists {
+				callName := tools[i].Name
 				if prov.Type() == ProviderMCP {
-					if _, suffix, ok := strings.Cut(tool.Name, "."); ok {
+					if _, suffix, ok := strings.Cut(tools[i].Name, "."); ok {
 						callName = suffix
 					}
 				}
-				c.toolResolutionCache[tool.Name] = &resolvedTool{
+				c.toolResolutionCache[tools[i].Name] = &resolvedTool{
 					provider:  prov,
 					transport: tr,
 					callName:  callName,
-					tool:      &tool,
+					tool:      &tools[i],
 				}
 			}
 		}
@@ -344,18 +343,17 @@ func (c *UtcpClient) RegisterToolProvider(
 	// Also prime resolution cache for each tool
 	c.toolResolutionCacheMu.Lock()
 	for i := range tools {
-		tool := tools[i]
-		callName := tool.Name
+		callName := tools[i].Name
 		if prov.Type() == ProviderMCP {
-			if _, suffix, ok := strings.Cut(tool.Name, "."); ok {
+			if _, suffix, ok := strings.Cut(tools[i].Name, "."); ok {
 				callName = suffix
 			}
 		}
-		c.toolResolutionCache[tool.Name] = &resolvedTool{
+		c.toolResolutionCache[tools[i].Name] = &resolvedTool{
 			provider:  prov,
 			transport: tr,
 			callName:  callName,
-			tool:      &tool,
+			tool:      &tools[i],
 		}
 	}
 	c.toolResolutionCacheMu.Unlock()
@@ -444,8 +442,19 @@ func (c *UtcpClient) substituteProviderVariables(p Provider) Provider {
 	newProv := c.createProviderOfType(p.Type())
 
 	// Marshal and unmarshal to populate the new provider
-	blob, _ := json.Marshal(out)
-	_ = json.Unmarshal(blob, newProv)
+	if blob, err := json.Marshal(out); err == nil {
+		_ = json.Unmarshal(blob, newProv)
+	}
+	return newProv
+}
+
+// cloneProvider deep-copies a provider without variable substitution.
+func (c *UtcpClient) cloneProvider(p Provider) Provider {
+	raw := c.providerToMap(p)
+	newProv := c.createProviderOfType(p.Type())
+	if blob, err := json.Marshal(raw); err == nil {
+		_ = json.Unmarshal(blob, newProv)
+	}
 	return newProv
 }
 
@@ -692,16 +701,16 @@ func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider
 		return nil, nil, "", nil, fmt.Errorf("tool not found: %s", toolName)
 	}
 
-	// substitute provider vars without mutating repository entry
-	substituted := c.substituteProviderVariables(*prov)
+	// clone provider to avoid mutating repository entry
+	cloned := c.cloneProvider(*prov)
 
-	tr, ok := c.transports[string(substituted.Type())]
+	tr, ok := c.transports[string(cloned.Type())]
 	if !ok {
-		return nil, nil, "", nil, fmt.Errorf("no transport for provider type %s", substituted.Type())
+		return nil, nil, "", nil, fmt.Errorf("no transport for provider type %s", cloned.Type())
 	}
 
 	callName := toolName
-	if substituted.Type() == ProviderMCP {
+	if cloned.Type() == ProviderMCP {
 		// Strip provider prefix for MCP transport
 		callName = suffix
 	}
@@ -709,14 +718,14 @@ func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider
 	// Cache the resolution (provider already has variables substituted)
 	c.toolResolutionCacheMu.Lock()
 	c.toolResolutionCache[toolName] = &resolvedTool{
-		provider:  substituted,
+		provider:  cloned,
 		transport: tr,
 		callName:  callName,
 		tool:      selectedTool,
 	}
 	c.toolResolutionCacheMu.Unlock()
 
-	return substituted, tr, callName, selectedTool, nil
+	return cloned, tr, callName, selectedTool, nil
 }
 
 func (c *UtcpClient) ensureCaches() {
