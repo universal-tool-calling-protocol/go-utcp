@@ -409,6 +409,18 @@ func (c *UtcpClient) CallTool(
 	toolName string,
 	args map[string]any,
 ) (any, error) {
+	// Fast‑path: check the resolution cache first to avoid extra work
+	c.toolResolutionCacheMu.RLock()
+	if res, ok := c.toolResolutionCache[toolName]; ok {
+		prov := res.provider
+		tr := res.transport
+		callName := res.callName
+		c.toolResolutionCacheMu.RUnlock()
+		return tr.CallTool(ctx, callName, args, prov, nil)
+	}
+	c.toolResolutionCacheMu.RUnlock()
+
+	// Cache miss – resolve via repository and update the cache
 	prov, tr, callName, _, err := c.resolveTool(ctx, toolName)
 	if err != nil {
 		return nil, err
@@ -653,6 +665,18 @@ func (c *UtcpClient) CallToolStream(
 	toolName string,
 	args map[string]any,
 ) (transports.StreamResult, error) {
+	// Fast‑path: attempt to use the cached resolution
+	c.toolResolutionCacheMu.RLock()
+	if res, ok := c.toolResolutionCache[toolName]; ok {
+		prov := res.provider
+		tr := res.transport
+		callName := res.callName
+		c.toolResolutionCacheMu.RUnlock()
+		return tr.CallToolStream(ctx, callName, args, prov)
+	}
+	c.toolResolutionCacheMu.RUnlock()
+
+	// Cache miss – resolve and then perform the call
 	prov, tr, callName, _, err := c.resolveTool(ctx, toolName)
 	if err != nil {
 		return nil, err
