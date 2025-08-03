@@ -31,7 +31,7 @@ In contrast to other protocols like MCP, UTCP places a strong emphasis on:
 
 ### Examples
 
-Each subdirectory under `examples/` is a standalone Go module. When
+Each subdirectory under `examples/` is a standalone Go module demonstrating a client or transport. For an overview of available examples and usage instructions, see [examples/README.md](examples/README.md). When
 building or running an example from this repository, disable the
 workspace to ensure Go uses the module's own `go.mod`:
 
