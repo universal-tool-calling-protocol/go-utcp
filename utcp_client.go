@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/openapi"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/helpers"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tag"
@@ -276,6 +277,7 @@ func (c *UtcpClient) setProviderName(prov Provider, name string) {
 }
 
 // RegisterToolProvider applies variable substitution, picks the right transport, and registers tools.
+// RegisterToolProvider applies variable substitution, picks the right transport, and registers tools.
 func (c *UtcpClient) RegisterToolProvider(
 	ctx context.Context,
 	prov Provider,
@@ -320,10 +322,48 @@ func (c *UtcpClient) RegisterToolProvider(
 		return nil, fmt.Errorf("unsupported provider type: %s", prov.Type())
 	}
 
-	tools, err := tr.RegisterToolProvider(ctx, prov)
-	if err != nil {
-		return nil, err
+	var tools []Tool
+	var err error
+
+	// Special-case: if this is an HTTP provider and its URL points to an OpenAPI spec, try using the converter.
+	if prov.Type() == ProviderHTTP {
+		if httpProv, ok := prov.(*HttpProvider); ok {
+			converter, convErr := openapi.NewConverterFromURL(httpProv.URL, "")
+			if convErr != nil {
+				fmt.Printf("OpenAPI converter instantiation error for %s: %v\n", httpProv.URL, convErr)
+				// fallback
+				tools, err = tr.RegisterToolProvider(ctx, prov)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				manual := converter.Convert()
+				fmt.Printf("Converter produced %d tools from %s\n", len(manual.Tools), httpProv.URL)
+				if len(manual.Tools) == 0 {
+					// dump some context for why zero
+
+					// fallback attempt
+					tools, err = tr.RegisterToolProvider(ctx, prov)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					tools = manual.Tools
+				}
+			}
+		} else {
+			tools, err = tr.RegisterToolProvider(ctx, prov)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		tools, err = tr.RegisterToolProvider(ctx, prov)
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	// Prefix tool names with provider name if not already prefixed
 	for i := range tools {
 		if !strings.HasPrefix(tools[i].Name, name+".") {
