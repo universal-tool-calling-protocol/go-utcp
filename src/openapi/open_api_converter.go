@@ -10,51 +10,19 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
+
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
-
-// sanitizeName converts a path into a safe identifier: strips braces, replaces slashes and invalid chars with underscores, collapses repeats.
-func sanitizeName(p string) string {
-	out := strings.ReplaceAll(p, "{", "")
-	out = strings.ReplaceAll(out, "}", "")
-	out = strings.ReplaceAll(out, "/", "_")
-	// replace any non-alphanumeric or underscore with underscore
-	valid := func(r rune) rune {
-		if (r >= 'a' && r <= 'z') ||
-			(r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') ||
-			r == '_' {
-			return r
-		}
-		return '_'
-	}
-	out = strings.Map(valid, out)
-	// collapse multiple underscores
-	out = collapseUnderscores(out)
-	out = strings.Trim(out, "_")
-	if out == "" {
-		return "root"
-	}
-	return out
-}
-
-func collapseUnderscores(s string) string {
-	for strings.Contains(s, "__") {
-		s = strings.ReplaceAll(s, "__", "_")
-	}
-	return s
-}
 
 // OpenApiConverter converts an OpenAPI JSON/YAML spec into a UtcpManual.
 type OpenApiConverter struct {
 	spec         map[string]interface{}
 	specURL      string
 	providerName string
-	nameCounts   map[string]int
 }
 
 // NewConverter creates a new converter.
@@ -84,7 +52,6 @@ func NewConverter(
 		spec:         openapiSpec,
 		specURL:      specURL,
 		providerName: providerName,
-		nameCounts:   make(map[string]int),
 	}
 }
 
@@ -177,15 +144,15 @@ func (c *OpenApiConverter) Convert() UtcpManual {
 	}
 
 	return UtcpManual{
-		Tools:       tools,
-		Provider:    c.providerName,
-		OriginalURL: c.specURL,
+		Version: Version,
+		Tools:   tools,
 	}
 }
 
+// resolveRef follows a local JSON Pointer (only "#/...").
 func (c *OpenApiConverter) resolveRef(ref string) (map[string]interface{}, error) {
 	if !strings.HasPrefix(ref, "#/") {
-		return nil, fmt.Errorf("unsupported external ref %q", ref)
+		return nil, fmt.Errorf("only local refs supported, got %q", ref)
 	}
 	parts := strings.Split(ref[2:], "/")
 	node := c.spec
@@ -256,8 +223,8 @@ func (c *OpenApiConverter) extractAuth(operation map[string]interface{}) Auth {
 // getSecuritySchemes reads either components.securitySchemes or securityDefinitions.
 func (c *OpenApiConverter) getSecuritySchemes() map[string]interface{} {
 	if comp, ok := c.spec["components"].(map[string]interface{}); ok {
-		if schemes, ok := comp["securitySchemes"].(map[string]interface{}); ok {
-			return schemes
+		if ss, ok2 := comp["securitySchemes"].(map[string]interface{}); ok2 {
+			return ss
 		}
 	}
 	if defs, ok := c.spec["securityDefinitions"].(map[string]interface{}); ok {
@@ -304,6 +271,7 @@ func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) A
 				Location: "header",
 			}
 		}
+
 	case "oauth2":
 		// OpenAPI 3.x
 		if flows, ok := scheme["flows"].(map[string]interface{}); ok {
@@ -329,7 +297,7 @@ func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) A
 				}
 			}
 		}
-		// OpenAPI 2.0 fallback
+		// OpenAPI 2.0
 		if flowType, _ := scheme["flow"].(string); flowType != "" {
 			if tokenURL, _ := scheme["tokenUrl"].(string); tokenURL != "" {
 				var scope string
@@ -350,10 +318,17 @@ func (c *OpenApiConverter) createAuthFromScheme(scheme map[string]interface{}) A
 			}
 		}
 	}
-
 	return nil
 }
 
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// createTool builds a tool.Tool from a single OpenAPI operation.
 func (c *OpenApiConverter) createTool(
 	path, method string,
 	op map[string]interface{},
@@ -361,16 +336,7 @@ func (c *OpenApiConverter) createTool(
 ) (*Tool, error) {
 	opID, _ := op["operationId"].(string)
 	if opID == "" {
-		// synthesize operation ID from method+path
-		sanitizedPath := sanitizeName(path)
-		opID = fmt.Sprintf("%s_%s", strings.ToLower(method), sanitizedPath)
-		// dedupe if we've seen it before
-		if count, exists := c.nameCounts[opID]; exists {
-			c.nameCounts[opID] = count + 1
-			opID = fmt.Sprintf("%s_%d", opID, count+1)
-		} else {
-			c.nameCounts[opID] = 1
-		}
+		return nil, nil // skip unnamed ops
 	}
 
 	desc, _ := op["summary"].(string)
@@ -380,39 +346,30 @@ func (c *OpenApiConverter) createTool(
 	var tags []string
 	if rawTags, ok := op["tags"].([]interface{}); ok {
 		for _, t := range rawTags {
-			if s, ok2 := t.(string); ok2 {
-				tags = append(tags, s)
+			if ts, ok2 := t.(string); ok2 {
+				tags = append(tags, ts)
 			}
 		}
 	}
 
-	// inputs
 	inputSchema, headers, bodyField := c.extractInputs(op)
-
-	// outputs
 	outputSchema := c.extractOutputs(op)
-
-	// auth
 	authObj := c.extractAuth(op)
-	var prov Provider
-	if authObj != nil {
-		prov = &HTTPAuthProvider{
-			Delegate: &HTTPProvider{
-				URL: fmt.Sprintf("%s%s", strings.TrimRight(baseURL, "/"), path),
-			},
-			Auth: authObj,
-		}
-	} else {
-		prov = &HTTPProvider{
-			URL: fmt.Sprintf("%s%s", strings.TrimRight(baseURL, "/"), path),
-		}
-	}
 
-	// incorporate header overrides if any
-	if len(headers) > 0 {
-		inputSchema.Properties["headers"] = map[string]interface{}{
-			"type": "object",
-		}
+	fullURL := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(path, "/")
+
+	prov := &HttpProvider{
+		BaseProvider: BaseProvider{
+			Name:         c.providerName,
+			ProviderType: ProviderHTTP,
+		},
+		HTTPMethod:   strings.ToUpper(method),
+		URL:          fullURL,
+		ContentType:  "application/json",
+		Auth:         &authObj,
+		Headers:      nil,
+		BodyField:    bodyField,
+		HeaderFields: headers,
 	}
 
 	return &Tool{
@@ -429,57 +386,52 @@ func (c *OpenApiConverter) createTool(
 func (c *OpenApiConverter) extractInputs(
 	op map[string]interface{},
 ) (ToolInputOutputSchema, []string, *string) {
-	props := map[string]ToolInputOutputSchema{}
-	required := []string{}
-	headers := []string{}
+	props := map[string]interface{}{}
+	var required []string
+	var headers []string
 	var bodyField *string
 
-	if parameters, ok := op["parameters"].([]interface{}); ok {
-		for _, rawParam := range parameters {
-			if param, ok2 := rawParam.(map[string]interface{}); ok2 {
-				in, _ := param["in"].(string)
-				name, _ := param["name"].(string)
-				schema := map[string]interface{}{}
-				if rawSchema, ok3 := param["schema"].(map[string]interface{}); ok3 {
-					schema = rawSchema
-				}
-				prop := ToolInputOutputSchema{
-					Type: "object",
-				}
-				// naive: assign underlying schema directly
-				if len(schema) > 0 {
-					prop = ToolInputOutputSchema{
-						Type:       "object",
-						Properties: map[string]any{},
-					}
-				}
-				props[name] = prop
-				if in == "header" {
-					headers = append(headers, name)
-				}
-				if req, _ := param["required"].(bool); req {
-					required = append(required, name)
-				}
+	if rawParams, ok := op["parameters"].([]interface{}); ok {
+		for _, rp := range rawParams {
+			param := c.resolveSchema(rp).(map[string]interface{})
+			name, _ := param["name"].(string)
+			loc, _ := param["in"].(string)
+			if name == "" {
+				continue
+			}
+			if loc == "header" {
+				headers = append(headers, name)
+			}
+			sch := c.resolveSchema(param["schema"]).(map[string]interface{})
+			entry := map[string]interface{}{
+				"type":        sch["type"],
+				"description": param["description"],
+			}
+			for k, v := range sch {
+				entry[k] = v
+			}
+			props[name] = entry
+			if req, _ := param["required"].(bool); req {
+				required = append(required, name)
 			}
 		}
 	}
 
-	// requestBody (OpenAPI 3)
 	if rb, ok := op["requestBody"].(map[string]interface{}); ok {
+		rb = c.resolveSchema(rb).(map[string]interface{})
 		if content, ok2 := rb["content"].(map[string]interface{}); ok2 {
-			for mediaType, raw := range content {
-				if mtObj, ok3 := raw.(map[string]interface{}); ok3 {
-					if schema, ok4 := mtObj["schema"].(map[string]interface{}); ok4 {
-						field := "body"
-						bodyField = &field
-						props[field] = ToolInputOutputSchema{
-							Type:       "object",
-							Properties: map[string]ToolInputOutputSchema{},
-						}
-						if rbReq, _ := rb["required"].(bool); rbReq {
-							required = append(required, field)
-						}
-						_ = mediaType // could use to differentiate
+			if appJSON, ok3 := content["application/json"].(map[string]interface{}); ok3 {
+				if schema, ok4 := appJSON["schema"].(map[string]interface{}); ok4 {
+					name := "body"
+					bodyField = &name
+					sch := c.resolveSchema(schema).(map[string]interface{})
+					entry := map[string]interface{}{"description": rb["description"]}
+					for k, v := range sch {
+						entry[k] = v
+					}
+					props[name] = entry
+					if req, _ := rb["required"].(bool); req {
+						required = append(required, name)
 					}
 				}
 			}
@@ -497,5 +449,98 @@ func (c *OpenApiConverter) extractInputs(
 	}, headers, bodyField
 }
 
-// extractOutputs is assumed similar to extractInputs and is defined elsewhere in the file or package.
-// (Not fully shown here; retain your original implementation.)
+// extractOutputs builds the response schema.
+func (c *OpenApiConverter) extractOutputs(
+	op map[string]interface{},
+) ToolInputOutputSchema {
+	resp := map[string]interface{}{}
+	if r200, ok := op["responses"].(map[string]interface{})["200"].(map[string]interface{}); ok {
+		resp = r200
+	} else if r201, ok := op["responses"].(map[string]interface{})["201"].(map[string]interface{}); ok {
+		resp = r201
+	} else {
+		return ToolInputOutputSchema{}
+	}
+
+	resp = c.resolveSchema(resp).(map[string]interface{})
+	if content, ok := resp["content"].(map[string]interface{}); ok {
+		if appJSON, ok2 := content["application/json"].(map[string]interface{}); ok2 {
+			if schema, ok3 := appJSON["schema"].(map[string]interface{}); ok3 {
+				sch := c.resolveSchema(schema).(map[string]interface{})
+				out := ToolInputOutputSchema{
+					Type:        castString(sch["type"], "object"),
+					Properties:  castMap(sch["properties"]),
+					Required:    castStringSlice(sch["required"]),
+					Description: castString(sch["description"], ""),
+					Title:       castString(sch["title"], ""),
+				}
+				if out.Type == "array" {
+					out.Items = castMap(sch["items"])
+				}
+				for _, attr := range []string{"enum", "minimum", "maximum", "format"} {
+					if v, ok := sch[attr]; ok {
+						switch attr {
+						case "enum":
+							out.Enum = castInterfaceSlice(v)
+						case "minimum":
+							out.Minimum = castFloat(v)
+						case "maximum":
+							out.Maximum = castFloat(v)
+						case "format":
+							out.Format = castString(v, "")
+						}
+					}
+				}
+				return out
+			}
+		}
+	}
+	return ToolInputOutputSchema{}
+}
+
+// ---- small casting src ----
+
+func castString(v interface{}, def string) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return def
+}
+
+func castMap(v interface{}) map[string]interface{} {
+	if m, ok := v.(map[string]interface{}); ok {
+		return m
+	}
+	return nil
+}
+
+func castStringSlice(v interface{}) []string {
+	if arr, ok := v.([]interface{}); ok {
+		var out []string
+		for _, e := range arr {
+			if s, ok2 := e.(string); ok2 {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func castInterfaceSlice(v interface{}) []interface{} {
+	if arr, ok := v.([]interface{}); ok {
+		return arr
+	}
+	return nil
+}
+
+func castFloat(v interface{}) *float64 {
+	switch n := v.(type) {
+	case float64:
+		return &n
+	case int:
+		f := float64(n)
+		return &f
+	}
+	return nil
+}
