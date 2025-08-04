@@ -119,6 +119,15 @@ func (c *OpenApiConverter) Convert() UtcpManual {
 				baseURL = u
 			}
 		}
+	} else if host, ok := c.spec["host"].(string); ok {
+		scheme := "https"
+		if schemes, ok := c.spec["schemes"].([]interface{}); ok && len(schemes) > 0 {
+			if s, _ := schemes[0].(string); s != "" {
+				scheme = s
+			}
+		}
+		basePath, _ := c.spec["basePath"].(string)
+		baseURL = fmt.Sprintf("%s://%s%s", scheme, host, basePath)
 	} else if c.specURL != "" {
 		if pu, err := url.Parse(c.specURL); err == nil {
 			baseURL = fmt.Sprintf("%s://%s", pu.Scheme, pu.Host)
@@ -402,6 +411,9 @@ func (c *OpenApiConverter) extractInputs(
 			if loc == "header" {
 				headers = append(headers, name)
 			}
+			if loc == "body" {
+				bodyField = &name
+			}
 			sch := c.resolveSchema(param["schema"]).(map[string]interface{})
 			entry := map[string]interface{}{
 				"type":        sch["type"],
@@ -494,6 +506,33 @@ func (c *OpenApiConverter) extractOutputs(
 				return out
 			}
 		}
+	} else if schema, ok := resp["schema"].(map[string]interface{}); ok {
+		sch := c.resolveSchema(schema).(map[string]interface{})
+		out := ToolInputOutputSchema{
+			Type:        castString(sch["type"], "object"),
+			Properties:  castMap(sch["properties"]),
+			Required:    castStringSlice(sch["required"]),
+			Description: castString(sch["description"], castString(resp["description"], "")),
+			Title:       castString(sch["title"], ""),
+		}
+		if out.Type == "array" {
+			out.Items = castMap(sch["items"])
+		}
+		for _, attr := range []string{"enum", "minimum", "maximum", "format"} {
+			if v, ok := sch[attr]; ok {
+				switch attr {
+				case "enum":
+					out.Enum = castInterfaceSlice(v)
+				case "minimum":
+					out.Minimum = castFloat(v)
+				case "maximum":
+					out.Maximum = castFloat(v)
+				case "format":
+					out.Format = castString(v, "")
+				}
+			}
+		}
+		return out
 	}
 	return ToolInputOutputSchema{}
 }
