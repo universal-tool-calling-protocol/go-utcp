@@ -1,7 +1,14 @@
 package openapi
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
@@ -9,12 +16,9 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
-
-	"net/url"
-	"strings"
 )
 
-// OpenApiConverter converts an OpenAPI JSON spec into a UtcpManual.
+// OpenApiConverter converts an OpenAPI JSON/YAML spec into a UtcpManual.
 type OpenApiConverter struct {
 	spec         map[string]interface{}
 	specURL      string
@@ -51,6 +55,58 @@ func NewConverter(
 	}
 }
 
+// NewConverterFromURL fetches the spec (YAML or JSON) from the given URL and returns a converter.
+// providerName can be empty to auto-derive from the spec.
+func NewConverterFromURL(specURL string, providerName string) (*OpenApiConverter, error) {
+	spec, finalURL, err := LoadSpecFromURL(specURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load spec from URL %s: %w", specURL, err)
+	}
+	return NewConverter(spec, finalURL, providerName), nil
+}
+
+// LoadSpecFromURL fetches the content at the URL and attempts to decode it first as JSON,
+// and if that fails, as YAML. Returns the spec as a map and the normalized URL used.
+func LoadSpecFromURL(rawURL string) (map[string]interface{}, string, error) {
+	resp, err := http.Get(rawURL)
+	if err != nil {
+		return nil, rawURL, fmt.Errorf("http GET failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, rawURL, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, rawURL, fmt.Errorf("reading body failed: %w", err)
+	}
+
+	var spec map[string]interface{}
+	// Try JSON first
+	if err := json.Unmarshal(bodyBytes, &spec); err == nil {
+		return spec, resp.Request.URL.String(), nil
+	}
+
+	// Fallback to YAML
+	var yamlRaw interface{}
+	if err := yaml.Unmarshal(bodyBytes, &yamlRaw); err != nil {
+		return nil, rawURL, fmt.Errorf("failed to parse as JSON (%v) or YAML (%v)", err, err)
+	}
+
+	// Convert YAML parsed structure into map[string]interface{} with proper types (via intermediate JSON).
+	intermediate, err := json.Marshal(yamlRaw)
+	if err != nil {
+		return nil, rawURL, fmt.Errorf("failed to re-marshal YAML content: %w", err)
+	}
+	if err := json.Unmarshal(intermediate, &spec); err != nil {
+		return nil, rawURL, fmt.Errorf("failed to unmarshal intermediate YAML->JSON: %w", err)
+	}
+
+	return spec, resp.Request.URL.String(), nil
+}
+
 // Convert parses the OpenAPI spec and builds a UtcpManual.
 func (c *OpenApiConverter) Convert() UtcpManual {
 	var tools []Tool
@@ -63,6 +119,15 @@ func (c *OpenApiConverter) Convert() UtcpManual {
 				baseURL = u
 			}
 		}
+	} else if host, ok := c.spec["host"].(string); ok {
+		scheme := "https"
+		if schemes, ok := c.spec["schemes"].([]interface{}); ok && len(schemes) > 0 {
+			if s, _ := schemes[0].(string); s != "" {
+				scheme = s
+			}
+		}
+		basePath, _ := c.spec["basePath"].(string)
+		baseURL = fmt.Sprintf("%s://%s%s", scheme, host, basePath)
 	} else if c.specURL != "" {
 		if pu, err := url.Parse(c.specURL); err == nil {
 			baseURL = fmt.Sprintf("%s://%s", pu.Scheme, pu.Host)
@@ -280,7 +345,9 @@ func (c *OpenApiConverter) createTool(
 ) (*Tool, error) {
 	opID, _ := op["operationId"].(string)
 	if opID == "" {
-		return nil, nil // skip unnamed ops
+		// fallback: derive from method and path, e.g., POST /request -> post_request
+		sanitizedPath := strings.ReplaceAll(strings.Trim(path, "/"), "/", "_")
+		opID = fmt.Sprintf("%s_%s", strings.ToLower(method), sanitizedPath)
 	}
 
 	desc, _ := op["summary"].(string)
@@ -345,6 +412,9 @@ func (c *OpenApiConverter) extractInputs(
 			}
 			if loc == "header" {
 				headers = append(headers, name)
+			}
+			if loc == "body" {
+				bodyField = &name
 			}
 			sch := c.resolveSchema(param["schema"]).(map[string]interface{})
 			entry := map[string]interface{}{
@@ -438,6 +508,33 @@ func (c *OpenApiConverter) extractOutputs(
 				return out
 			}
 		}
+	} else if schema, ok := resp["schema"].(map[string]interface{}); ok {
+		sch := c.resolveSchema(schema).(map[string]interface{})
+		out := ToolInputOutputSchema{
+			Type:        castString(sch["type"], "object"),
+			Properties:  castMap(sch["properties"]),
+			Required:    castStringSlice(sch["required"]),
+			Description: castString(sch["description"], castString(resp["description"], "")),
+			Title:       castString(sch["title"], ""),
+		}
+		if out.Type == "array" {
+			out.Items = castMap(sch["items"])
+		}
+		for _, attr := range []string{"enum", "minimum", "maximum", "format"} {
+			if v, ok := sch[attr]; ok {
+				switch attr {
+				case "enum":
+					out.Enum = castInterfaceSlice(v)
+				case "minimum":
+					out.Minimum = castFloat(v)
+				case "maximum":
+					out.Maximum = castFloat(v)
+				case "format":
+					out.Format = castString(v, "")
+				}
+			}
+		}
+		return out
 	}
 	return ToolInputOutputSchema{}
 }
