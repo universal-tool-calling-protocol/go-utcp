@@ -345,7 +345,9 @@ func (c *OpenApiConverter) createTool(
 ) (*Tool, error) {
 	opID, _ := op["operationId"].(string)
 	if opID == "" {
-		return nil, nil // skip unnamed ops
+		// fallback: derive from method and path, e.g., POST /request -> post_request
+		sanitizedPath := strings.ReplaceAll(strings.Trim(path, "/"), "/", "_")
+		opID = fmt.Sprintf("%s_%s", strings.ToLower(method), sanitizedPath)
 	}
 
 	desc, _ := op["summary"].(string)
