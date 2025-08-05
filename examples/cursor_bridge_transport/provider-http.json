@@ -1,0 +1,10 @@
+{
+  "name": "http-provider",
+  "description": "HTTP-based UTCP provider example",
+  "type": "http",
+  "url": "http://localhost:8000",
+  "auth": {
+    "type": "none"
+  },
+  "timeout": 30
+}
