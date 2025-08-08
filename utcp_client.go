@@ -3,13 +3,11 @@ package utcp
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	jsoniter "github.com/json-iterator/go"
 
@@ -51,10 +49,14 @@ import (
 // NOTE: jsoniter is already used project-wide
 var json = jsoniter.ConfigFastest
 
+// Precompiled var substitution regex (avoids recompiling per call)
+var varRe = regexp.MustCompile(`\${(\w+)}|\$(\w+)`)
+
 // --- FAST PATH PRIMITIVES ---
-// We introduce a lock-free, read-optimized cache for tool resolution and an
-// inlined fast-caller closure to remove per-call map lookups/allocs.
+// We keep a read-optimized cache for tool resolution and inlined fast-callers to
+// remove per-call map lookups/allocs.
 type fastCaller func(ctx context.Context, args map[string]any) (any, error)
+type fastStreamCaller func(ctx context.Context, args map[string]any) (transports.StreamResult, error)
 
 // UtcpClientInterface defines the public API.
 type UtcpClientInterface interface {
@@ -80,20 +82,21 @@ type UtcpClient struct {
 	toolRepository ToolRepository
 	searchStrategy ToolSearchStrategy
 
-	// caches (legacy, retained for compatibility with invalidation code)
+	// Legacy caches (used for invalidation + scans)
 	providerToolsCache    map[string][]Tool
 	providerToolsCacheMu  sync.RWMutex
 	toolResolutionCache   map[string]*resolvedTool // key is full tool name
 	toolResolutionCacheMu sync.RWMutex
 
-	// NEW: lock-free, read-optimized copies (copy-on-write via atomic.Value)
-	// Writes are serialized with atomicMu to avoid CAS on uncomparable map types.
-	atomicResolutions atomic.Value // holds map[string]*resolvedTool
-	atomicCallers     atomic.Value // holds map[string]fastCaller
-	atomicMu          sync.Mutex   // serialize writers to atomic maps
+	// NEW: read-optimized concurrent maps for hot lookups
+	// sync.Map avoids full-map copy on every insert seen with atomic.Value + copy-on-write.
+	// (Writes are rare compared to reads in CallTool.)
+	resolved sync.Map // map[string]*resolvedTool
+	callers  sync.Map // map[string]fastCaller
+	streams  sync.Map // map[string]fastStreamCaller
 }
 
-// NewUtcpClient constructs a new client, loading providers if configured.
+// NewUTCPClient constructs a new client, loading providers if configured.
 func NewUTCPClient(
 	ctx context.Context,
 	cfg *UtcpClientConfig,
@@ -119,11 +122,7 @@ func NewUTCPClient(
 		toolResolutionCache: make(map[string]*resolvedTool),
 	}
 
-	// init atomic caches with empty maps
-	client.atomicResolutions.Store(make(map[string]*resolvedTool))
-	client.atomicCallers.Store(make(map[string]fastCaller))
-
-	// if providersFilePath is set, we *used to* adjust a Text transport base path.
+	// If providersFilePath is set, we *used to* adjust a Text transport base path.
 	// Removed because there's no TextTransport in this codebase.
 	if cfg.ProvidersFilePath != "" {
 		_ = filepath.Dir(cfg.ProvidersFilePath) // keep import; may be useful later
@@ -154,6 +153,7 @@ func NewUTCPClient(
 
 // defaultTransports wires up your various transport implementations.
 func defaultTransports() map[string]ClientTransport {
+	// NOTE: If runtime logging overhead shows up in profiles, consider passing no-op loggers here.
 	return map[string]ClientTransport{
 		"http": NewHttpClientTransport(
 			func(format string, args ...interface{}) {
@@ -203,7 +203,7 @@ func defaultTransports() map[string]ClientTransport {
 
 // Updated loadProviders method using the new parser
 func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("could not read providers file %q: %w", path, err)
 	}
@@ -220,12 +220,11 @@ func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 			errors = append(errors, fmt.Sprintf("provider %d: %v", i, err))
 			continue
 		}
-		successCount++
+		successCount++;
 	}
 	if len(errors) > 0 {
-		fmt.Fprintf(os.Stderr, "Warning: %d providers failed to load:\n", len(errors))
 		for _, errMsg := range errors {
-			fmt.Fprintf(os.Stderr, "  - %s\n", errMsg)
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", errMsg)
 		}
 	}
 
@@ -320,10 +319,9 @@ func (c *UtcpClient) RegisterToolProvider(
 				}
 				res := &resolvedTool{provider: prov, transport: tr, callName: callName, tool: &tools[i]}
 				c.toolResolutionCache[tools[i].Name] = res
-				c.setResolvedAtomic(tools[i].Name, res)
-				c.setFastCallerAtomic(tools[i].Name, func(ctx context.Context, args map[string]any) (any, error) {
-					return tr.CallTool(ctx, callName, args, prov, nil)
-				})
+				c.setResolvedSync(tools[i].Name, res)
+				c.setFastCallerSync(tools[i].Name, newFastCaller(prov, tr, callName))
+				c.setFastStreamCallerSync(tools[i].Name, newFastStreamCaller(prov, tr, callName))
 			}
 		}
 		c.toolResolutionCacheMu.Unlock()
@@ -403,12 +401,10 @@ func (c *UtcpClient) RegisterToolProvider(
 		}
 		res := &resolvedTool{provider: prov, transport: tr, callName: callName, tool: &tools[i]}
 		c.toolResolutionCache[tools[i].Name] = res
-		c.setResolvedAtomic(tools[i].Name, res)
-		c.setFastCallerAtomic(tools[i].Name, func(ctx context.Context, args map[string]any) (any, error) {
-			return tr.CallTool(ctx, callName, args, prov, nil)
-		})
+		c.setResolvedSync(tools[i].Name, res)
+		c.setFastCallerSync(tools[i].Name, newFastCaller(prov, tr, callName))
+		c.setFastStreamCallerSync(tools[i].Name, newFastStreamCaller(prov, tr, callName))
 	}
-	c.rebuildAtomicCachesLocked()
 	c.toolResolutionCacheMu.Unlock()
 
 	return tools, nil
@@ -445,15 +441,15 @@ func (c *UtcpClient) DeregisterToolProvider(ctx context.Context, providerName st
 		// Assuming tool.Name has prefix providerName.
 		if strings.HasPrefix(k, providerName+".") {
 			delete(c.toolResolutionCache, k)
+			c.deleteFastCaches(k)
 		} else if res.provider != nil {
 			// Fallback check: if provider name matches
 			if c.getProviderName(res.provider) == providerName {
 				delete(c.toolResolutionCache, k)
+				c.deleteFastCaches(k)
 			}
 		}
 	}
-	// After mutating the legacy map, rebuild the atomic copies
-	c.rebuildAtomicCachesLocked()
 	c.toolResolutionCacheMu.Unlock()
 
 	return nil
@@ -465,8 +461,8 @@ func (c *UtcpClient) CallTool(
 	toolName string,
 	args map[string]any,
 ) (any, error) {
-	// 1) Lock-free, branch-predictable fast path via atomic fast-caller
-	if fn, ok := c.getFastCallerAtomic(toolName); ok {
+	// 1) Lock-free, branch-predictable fast path via fast-caller
+	if fn, ok := c.getFastCaller(toolName); ok {
 		return fn(ctx, args)
 	}
 
@@ -475,10 +471,8 @@ func (c *UtcpClient) CallTool(
 	if err != nil {
 		return nil, err
 	}
-	fn := func(ctx context.Context, a map[string]any) (any, error) {
-		return tr.CallTool(ctx, callName, a, prov, nil)
-	}
-	c.setFastCallerAtomic(toolName, fn)
+	fn := newFastCaller(prov, tr, callName)
+	c.setFastCallerSync(toolName, fn)
 	return fn(ctx, args)
 }
 
@@ -488,10 +482,18 @@ func (c *UtcpClient) SearchTools(query string, limit int) ([]Tool, error) {
 		return nil, err
 	}
 
-	// Convert []*Tool to []Tool
+	// Convert []*Tool to []Tool if needed
 	result := make([]Tool, len(tools))
 	for i, tool := range tools {
-		result[i] = tool
+		switch t := any(tool).(type) {
+		case Tool:
+			result[i] = t
+		case *Tool:
+			result[i] = *t
+		default:
+			// fallback (shouldn't happen)
+			result[i] = Tool{}
+		}
 	}
 	return result, nil
 }
@@ -560,7 +562,7 @@ func (c *UtcpClient) cloneProvider(p Provider) Provider {
 func (c *UtcpClient) providerToMap(p Provider) map[string]any {
 	blob, _ := json.Marshal(p)
 	var result map[string]any
-	json.Unmarshal(blob, &result)
+	_ = json.Unmarshal(blob, &result)
 	return result
 }
 
@@ -598,9 +600,8 @@ func (c *UtcpClient) createProviderOfType(ptype ProviderType) Provider {
 func (c *UtcpClient) replaceVarsInAny(x any, cfg *UtcpClientConfig) any {
 	switch v := x.(type) {
 	case string:
-		re := regexp.MustCompile(`\${(\w+)}|\$(\w+)`)
-		return re.ReplaceAllStringFunc(v, func(match string) string {
-			g := re.FindStringSubmatch(match)
+		return varRe.ReplaceAllStringFunc(v, func(match string) string {
+			g := varRe.FindStringSubmatch(match)
 			name := g[1]
 			if name == "" {
 				name = g[2]
@@ -751,17 +752,24 @@ func (c *UtcpClient) CallToolStream(
 	toolName string,
 	args map[string]any,
 ) (transports.StreamResult, error) {
+	// fast path
+	if fn, ok := c.getFastStreamCaller(toolName); ok {
+		return fn(ctx, args)
+	}
+
 	prov, tr, callName, _, err := c.resolveTool(ctx, toolName)
 	if err != nil {
 		return nil, err
 	}
-	return tr.CallToolStream(ctx, callName, args, prov)
+	fn := newFastStreamCaller(prov, tr, callName)
+	c.setFastStreamCallerSync(toolName, fn)
+	return fn(ctx, args)
 }
 
 // helper to resolve provider, transport, callName, and tool
 func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider, ClientTransport, string, *Tool, error) {
 	// Lock-free cache lookup first
-	if res, ok := c.getResolvedAtomic(toolName); ok {
+	if res, ok := c.getResolved(toolName); ok {
 		return res.provider, res.transport, res.callName, res.tool, nil
 	}
 
@@ -813,71 +821,68 @@ func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider
 	res := &resolvedTool{provider: cloned, transport: tr, callName: callName, tool: selectedTool}
 	c.toolResolutionCacheMu.Lock()
 	c.toolResolutionCache[toolName] = res
-	c.rebuildAtomicCachesLocked() // keep atomic maps in sync
 	c.toolResolutionCacheMu.Unlock()
+
+	c.setResolvedSync(toolName, res)
+	c.setFastCallerSync(toolName, newFastCaller(cloned, tr, callName))
+	c.setFastStreamCallerSync(toolName, newFastStreamCaller(cloned, tr, callName))
 
 	return cloned, tr, callName, selectedTool, nil
 }
 
-// --- Atomic cache helpers ---
-func (c *UtcpClient) getFastCallerAtomic(name string) (fastCaller, bool) {
-	m, _ := c.atomicCallers.Load().(map[string]fastCaller)
-	fn, ok := m[name]
-	return fn, ok
+// --- Fast-caller helpers (sync.Map backed) ---
+func (c *UtcpClient) getFastCaller(name string) (fastCaller, bool) {
+	if v, ok := c.callers.Load(name); ok {
+		return v.(fastCaller), true
+	}
+	return nil, false
+}
+func (c *UtcpClient) setFastCallerSync(name string, fn fastCaller) {
+	c.callers.Store(name, fn)
 }
 
-func (c *UtcpClient) setFastCallerAtomic(name string, fn fastCaller) {
-	c.atomicMu.Lock()
-	defer c.atomicMu.Unlock()
-	old := map[string]fastCaller{}
-	if oldV := c.atomicCallers.Load(); oldV != nil {
-		old = oldV.(map[string]fastCaller)
+func (c *UtcpClient) getFastStreamCaller(name string) (fastStreamCaller, bool) {
+	if v, ok := c.streams.Load(name); ok {
+		return v.(fastStreamCaller), true
 	}
-	neu := make(map[string]fastCaller, len(old)+1)
-	for k, v := range old {
-		neu[k] = v
-	}
-	neu[name] = fn
-	c.atomicCallers.Store(neu)
+	return nil, false
+}
+func (c *UtcpClient) setFastStreamCallerSync(name string, fn fastStreamCaller) {
+	c.streams.Store(name, fn)
 }
 
-func (c *UtcpClient) getResolvedAtomic(name string) (*resolvedTool, bool) {
-	m, _ := c.atomicResolutions.Load().(map[string]*resolvedTool)
-	res, ok := m[name]
-	return res, ok
+func (c *UtcpClient) getResolved(name string) (*resolvedTool, bool) {
+	if v, ok := c.resolved.Load(name); ok {
+		return v.(*resolvedTool), true
+	}
+	return nil, false
+}
+func (c *UtcpClient) setResolvedSync(name string, res *resolvedTool) {
+	c.resolved.Store(name, res)
 }
 
-func (c *UtcpClient) setResolvedAtomic(name string, res *resolvedTool) {
-	c.atomicMu.Lock()
-	defer c.atomicMu.Unlock()
-	old := map[string]*resolvedTool{}
-	if oldV := c.atomicResolutions.Load(); oldV != nil {
-		old = oldV.(map[string]*resolvedTool)
-	}
-	neu := make(map[string]*resolvedTool, len(old)+1)
-	for k, v := range old {
-		neu[k] = v
-	}
-	neu[name] = res
-	c.atomicResolutions.Store(neu)
+func (c *UtcpClient) deleteFastCaches(name string) {
+	c.resolved.Delete(name)
+	c.callers.Delete(name)
+	c.streams.Delete(name)
 }
 
-// rebuildAtomicCachesLocked must be called while holding toolResolutionCacheMu (read or write).
-func (c *UtcpClient) rebuildAtomicCachesLocked() {
-	// Build fresh resolution map
-	resMap := make(map[string]*resolvedTool, len(c.toolResolutionCache))
-	fastMap := make(map[string]fastCaller, len(c.toolResolutionCache))
-	for k, v := range c.toolResolutionCache {
-		resMap[k] = v
-		prov := v.provider
-		tr := v.transport
-		call := v.callName
-		fastMap[k] = func(ctx context.Context, args map[string]any) (any, error) {
-			return tr.CallTool(ctx, call, args, prov, nil)
-		}
+func newFastCaller(prov Provider, tr ClientTransport, call string) fastCaller {
+	// Capture values into locals to avoid closure-capture bugs across loop iterations.
+	p := prov
+	t := tr
+	cn := call
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		return t.CallTool(ctx, cn, args, p, nil)
 	}
-	c.atomicResolutions.Store(resMap)
-	c.atomicCallers.Store(fastMap)
+}
+func newFastStreamCaller(prov Provider, tr ClientTransport, call string) fastStreamCaller {
+	p := prov
+	t := tr
+	cn := call
+	return func(ctx context.Context, args map[string]any) (transports.StreamResult, error) {
+		return t.CallToolStream(ctx, cn, args, p)
+	}
 }
 
 func (c *UtcpClient) ensureCaches() {
@@ -886,11 +891,5 @@ func (c *UtcpClient) ensureCaches() {
 	}
 	if c.toolResolutionCache == nil {
 		c.toolResolutionCache = make(map[string]*resolvedTool)
-	}
-	if c.atomicResolutions.Load() == nil {
-		c.atomicResolutions.Store(make(map[string]*resolvedTool))
-	}
-	if c.atomicCallers.Load() == nil {
-		c.atomicCallers.Store(make(map[string]fastCaller))
 	}
 }
