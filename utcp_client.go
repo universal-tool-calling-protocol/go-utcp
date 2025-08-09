@@ -88,9 +88,7 @@ type UtcpClient struct {
 	toolResolutionCache   map[string]*resolvedTool // key is full tool name
 	toolResolutionCacheMu sync.RWMutex
 
-	// NEW: read-optimized concurrent maps for hot lookups
-	// sync.Map avoids full-map copy on every insert seen with atomic.Value + copy-on-write.
-	// (Writes are rare compared to reads in CallTool.)
+	// New caches
 	resolved sync.Map // map[string]*resolvedTool
 	callers  sync.Map // map[string]fastCaller
 	streams  sync.Map // map[string]fastStreamCaller
@@ -220,7 +218,7 @@ func (c *UtcpClient) loadProviders(ctx context.Context, path string) error {
 			errors = append(errors, fmt.Sprintf("provider %d: %v", i, err))
 			continue
 		}
-		successCount++;
+		successCount++
 	}
 	if len(errors) > 0 {
 		for _, errMsg := range errors {
@@ -461,18 +459,23 @@ func (c *UtcpClient) CallTool(
 	toolName string,
 	args map[string]any,
 ) (any, error) {
-	// 1) Lock-free, branch-predictable fast path via fast-caller
+	// 1) Lock-free fast path: Try to fetch the fast-caller immediately
 	if fn, ok := c.getFastCaller(toolName); ok {
 		return fn(ctx, args)
 	}
 
-	// 2) Slow path: resolve once, then publish to the fast path
+	// 2) Slow path: Resolve tool details and cache them for future use
 	prov, tr, callName, _, err := c.resolveTool(ctx, toolName)
 	if err != nil {
 		return nil, err
 	}
-	fn := newFastCaller(prov, tr, callName)
-	c.setFastCallerSync(toolName, fn)
+
+	// Use conditional locking or improved cache handling
+	var fn fastCaller
+	if fn, err = c.getOrCreateFastCaller(toolName, prov, tr, callName); err != nil {
+		return nil, err
+	}
+
 	return fn(ctx, args)
 }
 
@@ -830,13 +833,15 @@ func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider
 	return cloned, tr, callName, selectedTool, nil
 }
 
-// --- Fast-caller helpers (sync.Map backed) ---
+// getFastCaller retrieves a fastCaller for a tool from the cache (sync.Map)
 func (c *UtcpClient) getFastCaller(name string) (fastCaller, bool) {
 	if v, ok := c.callers.Load(name); ok {
 		return v.(fastCaller), true
 	}
 	return nil, false
 }
+
+// setFastCallerSync safely stores the fast-caller in the cache.
 func (c *UtcpClient) setFastCallerSync(name string, fn fastCaller) {
 	c.callers.Store(name, fn)
 }
@@ -867,8 +872,8 @@ func (c *UtcpClient) deleteFastCaches(name string) {
 	c.streams.Delete(name)
 }
 
+// newFastCaller creates a fastCaller function based on the provider, transport, and call name
 func newFastCaller(prov Provider, tr ClientTransport, call string) fastCaller {
-	// Capture values into locals to avoid closure-capture bugs across loop iterations.
 	p := prov
 	t := tr
 	cn := call
@@ -892,4 +897,18 @@ func (c *UtcpClient) ensureCaches() {
 	if c.toolResolutionCache == nil {
 		c.toolResolutionCache = make(map[string]*resolvedTool)
 	}
+}
+
+// getOrCreateFastCaller tries to retrieve the fastCaller from cache, or creates and caches a new one.
+func (c *UtcpClient) getOrCreateFastCaller(toolName string, prov Provider, tr ClientTransport, callName string) (fastCaller, error) {
+	// Check cache first
+	if fn, ok := c.getFastCaller(toolName); ok {
+		return fn, nil
+	}
+
+	// Resolve and cache the fast-caller
+	fn := newFastCaller(prov, tr, callName)
+	c.setFastCallerSync(toolName, fn)
+
+	return fn, nil
 }
