@@ -2,9 +2,9 @@ package grpc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

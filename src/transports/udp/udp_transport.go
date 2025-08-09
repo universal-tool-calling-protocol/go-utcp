@@ -2,9 +2,9 @@ package udp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"net"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"

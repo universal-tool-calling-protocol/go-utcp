@@ -2,7 +2,7 @@ package tcp
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"net"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"

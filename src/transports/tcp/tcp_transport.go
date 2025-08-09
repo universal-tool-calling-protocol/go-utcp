@@ -3,9 +3,9 @@ package tcp
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"io"
 	"net"
 	"time"
