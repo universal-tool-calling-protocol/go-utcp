@@ -6,7 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
-	github.com/json-iterator/go v1.1.12
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/machinebox/graphql v0.2.2
 	github.com/mark3labs/mcp-go v0.34.0
 	github.com/pion/webrtc/v3 v3.3.5
