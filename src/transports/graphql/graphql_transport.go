@@ -3,9 +3,9 @@ package graphql
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"io"
 	"io/ioutil"
 	"net/http"

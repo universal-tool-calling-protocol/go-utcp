@@ -3,8 +3,8 @@ package websocket
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"net/http"
 	"strings"
 

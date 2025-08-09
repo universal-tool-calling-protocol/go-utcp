@@ -2,7 +2,7 @@ package graphql
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
