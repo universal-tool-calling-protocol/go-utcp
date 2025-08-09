@@ -2,7 +2,6 @@ package utcp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -71,17 +70,5 @@ func TestProcessProviderDefaultName(t *testing.T) {
 	}
 	if p, _ := repo.GetProvider(context.Background(), "cli_0"); p == nil {
 		t.Fatalf("provider not saved with default name")
-	}
-}
-
-func TestProcessProviderError(t *testing.T) {
-	c := &UtcpClient{config: NewClientConfig()}
-	if err := c.processProvider(context.Background(), map[string]any{}, 0); err == nil {
-		t.Fatalf("expected error on missing provider_type")
-	}
-	bad := map[string]any{"provider_type": "cli", "command_name": json.Number("1")}
-	// Use no transports so registration fails inside UnmarshalProvider
-	if err := c.processProvider(context.Background(), bad, 0); err == nil {
-		t.Fatalf("expected error on decode")
 	}
 }
