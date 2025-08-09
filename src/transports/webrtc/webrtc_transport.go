@@ -3,8 +3,8 @@ package webrtc
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"net/http"
 	"sync"
 	"time"

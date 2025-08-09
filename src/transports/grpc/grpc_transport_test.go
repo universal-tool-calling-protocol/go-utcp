@@ -2,7 +2,7 @@ package grpc
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"net"
 	"testing"
 

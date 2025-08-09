@@ -2,7 +2,7 @@ package streamable
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
