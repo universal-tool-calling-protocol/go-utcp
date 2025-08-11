@@ -3,6 +3,8 @@ package utcp
 import (
 	"context"
 	"fmt"
+	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -198,57 +200,149 @@ func BenchmarkPayloadComparison(b *testing.B) {
 	}
 }
 
-// BenchmarkConcurrentComparison - Concurrent load comparison
-func BenchmarkConcurrentComparison(b *testing.B) {
-	b.Run("UTCP_Concurrent", func(b *testing.B) {
-		httpSrv := startEnhancedBenchServer(":8220")
-		defer httpSrv.Shutdown(context.Background())
+// waitForPort pings 127.0.0.1:<port> until the listener is up (or times out).
+func waitForPort(port string, timeout time.Duration) error {
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
+	addr := "127.0.0.1" + port
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for %s", addr)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
-		ctx := context.Background()
-		client, _ := NewUTCPClient(ctx, NewClientConfig(), nil, nil)
-		prov := &providers.MCPProvider{Name: "demo", URL: "http://localhost:8220/mcp"}
-		client.RegisterToolProvider(ctx, prov)
-		defer client.DeregisterToolProvider(ctx, "demo")
+// callFn is the per-iteration operation executed by each worker.
+type callFn func(context.Context) error
 
+// runConcurrent runs a single (name, parallelism) sub-benchmark for the given call function.
+func runConcurrent(b *testing.B, name string, parallelism int, call callFn) {
+	b.Run(fmt.Sprintf("%s/P%d", name, parallelism), func(b *testing.B) {
+		// Match workers to cores * parallelism multiplier.
+		b.SetParallelism(parallelism)
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
+			ctx := context.Background()
 			for pb.Next() {
-				if _, err := client.CallTool(ctx, "demo.hello", map[string]any{"name": "parallel"}); err != nil {
-					b.Fatal(err)
+				if err := call(ctx); err != nil {
+					b.Fatalf("%s call failed: %v", name, err)
 				}
 			}
 		})
 	})
+}
 
-	b.Run("MCP_Concurrent", func(b *testing.B) {
+func BenchmarkConcurrentComparison(b *testing.B) {
+	b.ReportAllocs()
+
+	parallelisms := []int{1, 2, 4, 8, 16, 32}
+	_ = parallelisms
+	_ = runtime.GOMAXPROCS(0) // ensures tests respect -cpu, but we can read it if needed
+
+	// -------------------------
+	// UTCP (shared client)
+	// -------------------------
+	b.Run("UTCP", func(b *testing.B) {
+		httpSrv := startEnhancedBenchServer(":8220")
+		b.Cleanup(func() { _ = httpSrv.Shutdown(context.Background()) })
+
+		if err := waitForPort(":8220", 3*time.Second); err != nil {
+			b.Fatalf("UTCP server not ready: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		b.Cleanup(cancel)
+
+		client, err := NewUTCPClient(ctx, NewClientConfig(), nil, nil)
+		if err != nil {
+			b.Fatalf("NewUTCPClient: %v", err)
+		}
+		prov := &providers.MCPProvider{Name: "demo", URL: "http://127.0.0.1:8220/mcp"}
+		if _, err := client.RegisterToolProvider(ctx, prov); err != nil {
+			b.Fatalf("RegisterToolProvider: %v", err)
+		}
+		b.Cleanup(func() { _ = client.DeregisterToolProvider(ctx, "demo") })
+
+		// Immutable, reusable args (avoid per-iteration allocations if client doesn't mutate).
+		utcpArgs := map[string]any{"name": "parallel"}
+
+		call := func(ctx context.Context) error {
+			_, err := client.CallTool(ctx, "demo.hello", utcpArgs)
+			return err
+		}
+
+		// Warm-up (fills pools, JITs nothing but helps server cold paths).
+		for i := 0; i < runtime.GOMAXPROCS(0)*4; i++ {
+			if err := call(ctx); err != nil {
+				b.Fatalf("UTCP warm-up failed: %v", err)
+			}
+		}
+
+		for _, p := range parallelisms {
+			runConcurrent(b, "UTCP_Concurrent", p, call)
+		}
+	})
+
+	// -------------------------
+	// MCP (shared client)
+	// -------------------------
+	b.Run("MCP", func(b *testing.B) {
 		httpSrv := startEnhancedBenchServer(":8221")
-		defer httpSrv.Shutdown(context.Background())
+		b.Cleanup(func() { _ = httpSrv.Shutdown(context.Background()) })
 
-		ctx := context.Background()
-		client, _ := mcpclient.NewStreamableHttpClient("http://localhost:8221/mcp")
-		defer client.Close()
+		if err := waitForPort(":8221", 3*time.Second); err != nil {
+			b.Fatalf("MCP server not ready: %v", err)
+		}
 
-		client.Start(ctx)
+		ctx, cancel := context.WithCancel(context.Background())
+		b.Cleanup(cancel)
+
+		mc, err := mcpclient.NewStreamableHttpClient("http://127.0.0.1:8221/mcp")
+		if err != nil {
+			b.Fatalf("NewStreamableHttpClient: %v", err)
+		}
+		b.Cleanup(func() { _ = mc.Close() })
+
+		if err := mc.Start(ctx); err != nil {
+			b.Fatalf("mcp.Start: %v", err)
+		}
 		initReq := mcp.InitializeRequest{
 			Params: mcp.InitializeParams{
 				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
 				ClientInfo:      mcp.Implementation{Name: "bench", Version: "1.0"},
 			},
 		}
-		client.Initialize(ctx, initReq)
+		if _, err := mc.Initialize(ctx, initReq); err != nil {
+			b.Fatalf("mcp.Initialize: %v", err)
+		}
 
+		// Reusable request object (assuming the client copies/marshals internally).
 		req := mcp.CallToolRequest{}
 		req.Params.Name = "hello"
 		req.Params.Arguments = map[string]any{"name": "parallel"}
 
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				if _, err := client.CallTool(ctx, req); err != nil {
-					b.Fatal(err)
-				}
+		call := func(ctx context.Context) error {
+			_, err := mc.CallTool(ctx, req)
+			return err
+		}
+
+		for i := 0; i < runtime.GOMAXPROCS(0)*4; i++ {
+			if err := call(ctx); err != nil {
+				b.Fatalf("MCP warm-up failed: %v", err)
 			}
-		})
+		}
+
+		for _, p := range parallelisms {
+			runConcurrent(b, "MCP_Concurrent", p, call)
+		}
 	})
 }
 
