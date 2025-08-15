@@ -1,0 +1,14 @@
+{
+  "name": "test-provider",
+  "description": "Test UTCP provider for unit tests",
+  "type": "http",
+  "url": "http://localhost:19999",
+  "auth": {
+    "type": "none"
+  },
+  "timeout": 5,
+  "retry": {
+    "attempts": 3,
+    "delay": 100
+  }
+}

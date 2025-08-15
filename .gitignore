@@ -1,1 +1,3 @@
 
+examples/cursor_bridge_client/cursor-utcp
+examples/cursor_bridge_transport/cursor-bridge-server

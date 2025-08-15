@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1300" height="850" xmlns="http://www.w3.org/2000/svg">
+  <!-- Light background -->
+  <rect x="0" y="0" width="1300" height="850" fill="#f8f9fa"/>
+  
+  <defs>
+    <style>
+      .client-box { fill: #e1f5fe; stroke: #01579b; stroke-width: 2; }
+      .server-box { fill: #fff3e0; stroke: #e65100; stroke-width: 2; }
+      .provider-box { fill: #f3e5f5; stroke: #4a148c; stroke-width: 2; }
+      .process-box { fill: #e8f5e9; stroke: #1b5e20; stroke-width: 2; }
+      .group-box { fill: rgba(255,255,255,0.7); stroke: #666; stroke-width: 2; stroke-dasharray: 5,5; }
+      .arrow { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+      .dashed-arrow { fill: none; stroke: #666; stroke-width: 2; stroke-dasharray: 5,5; marker-end: url(#arrowhead); }
+      .text { font-family: Arial, sans-serif; font-size: 14px; text-anchor: middle; font-weight: 500; }
+      .title { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; text-anchor: middle; }
+      .small-text { font-family: Arial, sans-serif; font-size: 12px; text-anchor: middle; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="650" y="35" class="title" font-size="22" fill="#1a1a1a">Cursor UTCP Bridge Architecture</text>
+
+  <!-- Cursor Integration Layer Group -->
+  <rect x="50" y="60" width="320" height="200" class="group-box" rx="5"/>
+  <text x="210" y="85" class="title" fill="#01579b">Cursor Integration Layer</text>
+  
+  <!-- Cursor Editor -->
+  <rect x="70" y="110" width="130" height="60" class="client-box" rx="5"/>
+  <text x="135" y="145" class="text">Cursor Editor</text>
+  
+  <!-- CLI Client -->
+  <rect x="70" y="185" width="130" height="60" class="client-box" rx="5"/>
+  <text x="135" y="210" class="text">cursor-utcp CLI</text>
+  <text x="135" y="228" class="small-text">Client</text>
+  
+  <!-- Shell Wrapper -->
+  <rect x="220" y="185" width="130" height="60" class="client-box" rx="5"/>
+  <text x="285" y="210" class="text">cursor-utcp.sh</text>
+  <text x="285" y="228" class="small-text">Shell Wrapper</text>
+
+  <!-- Bridge Transport Server Group -->
+  <rect x="410" y="60" width="380" height="330" class="group-box" rx="5"/>
+  <text x="600" y="85" class="title" fill="#e65100">Bridge Transport Server</text>
+  
+  <!-- REST API -->
+  <rect x="430" y="110" width="150" height="60" class="server-box" rx="5"/>
+  <text x="505" y="135" class="text">REST API</text>
+  <text x="505" y="155" class="small-text">Gin Framework</text>
+  
+  <!-- Tool Registry -->
+  <rect x="430" y="190" width="150" height="60" class="server-box" rx="5"/>
+  <text x="505" y="215" class="text">Tool Registry</text>
+  <text x="505" y="235" class="small-text">+ Namespacing</text>
+  
+  <!-- Cache -->
+  <rect x="610" y="190" width="160" height="60" class="server-box" rx="5"/>
+  <text x="690" y="215" class="text">In-Memory Cache</text>
+  <text x="690" y="235" class="small-text">5min TTL</text>
+  
+  <!-- Discovery Service -->
+  <rect x="430" y="310" width="150" height="60" class="server-box" rx="5"/>
+  <text x="505" y="335" class="text">Discovery Service</text>
+  <text x="505" y="355" class="small-text">Auto-refresh</text>
+
+  <!-- UTCP Client Layer Group -->
+  <rect x="410" y="420" width="380" height="140" class="group-box" rx="5"/>
+  <text x="600" y="445" class="title" fill="#1b5e20">UTCP Client Layer</text>
+  
+  <!-- UTCP Client -->
+  <rect x="430" y="470" width="150" height="70" class="process-box" rx="5"/>
+  <text x="505" y="500" class="text">go-utcp Client</text>
+  <text x="505" y="520" class="small-text">Wrapper</text>
+  
+  <!-- Retry Logic -->
+  <rect x="610" y="470" width="160" height="70" class="process-box" rx="5"/>
+  <text x="690" y="500" class="text">Retry Logic</text>
+  <text x="690" y="520" class="small-text">+ Timeouts</text>
+
+  <!-- UTCP Providers Group -->
+  <rect x="830" y="60" width="420" height="500" class="group-box" rx="5"/>
+  <text x="1040" y="85" class="title" fill="#4a148c">UTCP Providers</text>
+  
+  <!-- HTTP Provider -->
+  <rect x="860" y="150" width="180" height="70" class="provider-box" rx="5"/>
+  <text x="950" y="180" class="text">HTTP Provider</text>
+  <text x="950" y="205" class="small-text">http://localhost:8000</text>
+  
+  <!-- CLI Provider -->
+  <rect x="860" y="270" width="180" height="70" class="provider-box" rx="5"/>
+  <text x="950" y="300" class="text">CLI Provider</text>
+  <text x="950" y="325" class="small-text">Local Commands</text>
+  
+  <!-- MCP Provider -->
+  <rect x="860" y="390" width="180" height="70" class="provider-box" rx="5"/>
+  <text x="950" y="420" class="text">MCP Provider</text>
+  <text x="950" y="445" class="small-text">http://localhost:3000</text>
+
+  <!-- Arrows/Connections -->
+  
+  <!-- Cursor to CLI (dashed) -->
+  <path d="M 200 140 L 260 140 L 260 215 L 220 215" class="dashed-arrow"/>
+  <text x="230" y="175" class="small-text" fill="#666">Terminal</text>
+  
+  <!-- Cursor to API (dashed) -->
+  <path d="M 200 140 L 380 140 L 380 140 L 430 140" class="dashed-arrow"/>
+  <text x="315" y="130" class="small-text" fill="#666">Tasks/Extensions</text>
+  
+  <!-- Shell to CLI -->
+  <path d="M 220 215 L 200 215" class="arrow"/>
+  
+  <!-- CLI to API -->
+  <path d="M 200 215 L 380 215 L 380 140 L 430 140" class="arrow"/>
+  
+  <!-- API to Registry -->
+  <path d="M 505 170 L 505 190" class="arrow"/>
+  
+  <!-- Registry to Cache -->
+  <path d="M 580 220 L 610 220" class="arrow"/>
+  
+  <!-- Discovery to Registry -->
+  <path d="M 505 310 L 505 250" class="arrow"/>
+  
+  <!-- Registry to UTCP Client -->
+  <path d="M 505 250 L 505 470" class="arrow"/>
+  
+  <!-- UTCP Client to Retry -->
+  <path d="M 580 505 L 610 505" class="arrow"/>
+  
+  <!-- Retry to Providers -->
+  <path d="M 770 505 L 810 505 L 810 185 L 860 185" class="arrow"/>
+  <path d="M 770 505 L 810 505 L 810 305 L 860 305" class="arrow"/>
+  <path d="M 770 505 L 810 505 L 810 425 L 860 425" class="arrow"/>
+  
+  <!-- Discovery background refresh (dashed) -->
+  <path d="M 430 340 L 390 340 L 390 505 L 430 505" class="dashed-arrow"/>
+  <text x="360" y="420" class="small-text" transform="rotate(-90 360 420)" fill="#666">5min interval</text>
+
+  <!-- API Endpoint Labels -->
+  <text x="650" y="130" class="small-text" text-anchor="start" fill="#333">GET /health</text>
+  <text x="650" y="146" class="small-text" text-anchor="start" fill="#333">GET /api/v1/tools</text>
+  <text x="650" y="162" class="small-text" text-anchor="start" fill="#333">POST /api/v1/tools/call</text>
+  <text x="590" y="295" class="small-text" fill="#333">POST /api/v1/tools/refresh</text>
+
+  <!-- Legend -->
+  <rect x="50" y="590" width="1200" height="230" class="group-box" rx="5"/>
+  <text x="650" y="615" class="title" fill="#1a1a1a">Legend</text>
+  
+  <rect x="100" y="640" width="100" height="50" class="client-box" rx="5"/>
+  <text x="150" y="670" class="text">Client</text>
+  <text x="320" y="670" class="small-text" text-anchor="start" fill="#333">Cursor integration components</text>
+  
+  <rect x="100" y="700" width="100" height="50" class="server-box" rx="5"/>
+  <text x="150" y="730" class="text">Server</text>
+  <text x="310" y="730" class="small-text" text-anchor="start" fill="#333">Bridge server components</text>
+  
+  <rect x="550" y="640" width="100" height="50" class="process-box" rx="5"/>
+  <text x="600" y="670" class="text">Process</text>
+  <text x="750" y="670" class="small-text" text-anchor="start" fill="#333">Processing components</text>
+  
+  <rect x="550" y="700" width="100" height="50" class="provider-box" rx="5"/>
+  <text x="600" y="730" class="text">Provider</text>
+  <text x="750" y="730" class="small-text" text-anchor="start" fill="#333">UTCP provider endpoints</text>
+  
+  <path d="M 100 770 L 200 770" class="arrow"/>
+  <text x="285" y="775" class="small-text" text-anchor="start" fill="#333">Direct connection</text>
+  
+  <path d="M 550 770 L 650 770" class="dashed-arrow"/>
+  <text x="768" y="775" class="small-text" text-anchor="start" fill="#333">Optional/background connection</text>
+</svg>

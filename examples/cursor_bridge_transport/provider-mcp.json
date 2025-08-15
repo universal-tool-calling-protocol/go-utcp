@@ -1,0 +1,10 @@
+{
+  "name": "mcp-provider",
+  "description": "Model Context Protocol provider example",
+  "type": "mcp",
+  "url": "http://localhost:3000",
+  "transport": "http",
+  "auth": {
+    "type": "none"
+  }
+}
