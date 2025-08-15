@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"time"
@@ -59,6 +60,11 @@ func main() {
 	client, err := utcp.NewUTCPClient(ctx, cfg, repo, nil)
 	if err != nil {
 		log.Fatalf("client error: %v", err)
+	}
+	tools, err := client.SearchTools("", 10)
+	fmt.Println("Tools:")
+	for _, tool := range tools {
+		fmt.Println(tool.Name)
 	}
 
 	stream, err := client.CallToolStream(ctx, "gnmi.gnmi_subscribe", map[string]any{
