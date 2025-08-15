@@ -17,8 +17,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "client error: %v\n", err)
 		os.Exit(1)
 	}
+	tools, err := client.SearchTools("", 10)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "client error %v\n", err)
+	}
+
 	time.Sleep(100 * time.Millisecond)
-	res, err := client.CallTool(ctx, "greetings.hello", map[string]any{"name": "World"})
+	res, err := client.CallTool(ctx, tools[0].Name, map[string]any{"name": "World"})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "call error: %v\n", err)
 		os.Exit(1)
