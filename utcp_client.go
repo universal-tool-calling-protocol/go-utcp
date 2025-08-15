@@ -27,6 +27,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/tcp"
+	texttransport "github.com/universal-tool-calling-protocol/go-utcp/src/transports/text"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/udp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/websocket"
@@ -39,6 +40,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/text"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
@@ -196,6 +198,9 @@ func defaultTransports() map[string]ClientTransport {
 		"webrtc": NewWebRTCClientTransport(func(format string, args ...interface{}) {
 			fmt.Printf("WebRTC Transport: "+format+"\n", args...)
 		}),
+		"text": texttransport.NewTextTransport(func(format string, args ...interface{}) {
+			fmt.Printf("Text Transport: "+format+"\n", args...)
+		}),
 	}
 }
 
@@ -255,6 +260,8 @@ func (c *UtcpClient) getProviderName(prov Provider) string {
 		return p.Name
 	case *MCPProvider:
 		return p.Name
+	case *TextProvider:
+		return p.Name
 	default:
 		return "unknown"
 	}
@@ -284,6 +291,8 @@ func (c *UtcpClient) setProviderName(prov Provider, name string) {
 	case *WebRTCProvider:
 		p.Name = name
 	case *MCPProvider:
+		p.Name = name
+	case *TextProvider:
 		p.Name = name
 	}
 }

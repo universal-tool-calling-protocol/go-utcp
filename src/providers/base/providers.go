@@ -14,6 +14,7 @@ const (
 	ProviderUDP        ProviderType = "udp"
 	ProviderWebRTC     ProviderType = "webrtc"
 	ProviderMCP        ProviderType = "mcp"
+	ProviderText       ProviderType = "text"
 )
 
 // Provider is implemented by all concrete provider types.

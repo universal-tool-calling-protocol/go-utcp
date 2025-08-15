@@ -17,6 +17,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/text"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
@@ -121,6 +122,8 @@ func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, prov
 	case *WebRTCProvider:
 		providerName = p.Name
 	case *MCPProvider:
+		providerName = p.Name
+	case *TextProvider:
 		providerName = p.Name
 	default:
 		return fmt.Errorf("unsupported provider type for saving: %T", provider)
