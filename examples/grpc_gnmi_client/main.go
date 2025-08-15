@@ -24,18 +24,105 @@ func (s *dummyGNMIServer) Capabilities(ctx context.Context, req *gnmi.Capability
 }
 
 func (s *dummyGNMIServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
-	if _, err := stream.Recv(); err != nil {
-		return err
+	ctx := stream.Context()
+
+	// Single-sender to keep gRPC Send safe.
+	out := make(chan *gnmi.SubscribeResponse, 32)
+	defer close(out)
+
+	sendDone := make(chan error, 1)
+	go func() {
+		for msg := range out {
+			if err := stream.Send(msg); err != nil {
+				sendDone <- err
+				return
+			}
+		}
+		sendDone <- nil
+	}()
+
+	// Helper to push a synthetic update.
+	sendInterface := func(state string) {
+		out <- &gnmi.SubscribeResponse{
+			Response: &gnmi.SubscribeResponse_Update{
+				Update: &gnmi.Notification{
+					Timestamp: time.Now().UnixNano(),
+					Update: []*gnmi.Update{{
+						Path: &gnmi.Path{Element: []string{"interfaces", "interface", "eth0"}},
+						Val:  &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: state}},
+					}},
+				},
+			},
+		}
 	}
-	resp := &gnmi.SubscribeResponse{
-		Response: &gnmi.SubscribeResponse_Update{
-			Update: &gnmi.Notification{Update: []*gnmi.Update{{
-				Path: &gnmi.Path{Element: []string{"interfaces", "interface", "eth0"}},
-				Val:  &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: "UP"}},
-			}}},
-		},
+
+	mode := gnmi.SubscriptionList_STREAM // now actually used below
+
+	var ticker *time.Ticker
+	stopTicker := func() {
+		if ticker != nil {
+			ticker.Stop()
+			ticker = nil
+		}
 	}
-	return stream.Send(resp)
+
+	for {
+		select {
+		case <-ctx.Done():
+			stopTicker()
+			return ctx.Err()
+		case err := <-sendDone:
+			stopTicker()
+			return err
+		default:
+		}
+
+		req, err := stream.Recv()
+		if err != nil {
+			stopTicker()
+			return err
+		}
+
+		switch r := req.Request.(type) {
+		case *gnmi.SubscribeRequest_Subscribe:
+			// Set mode from the request (prevents "unused" and implements behavior).
+			if r.Subscribe != nil {
+				mode = r.Subscribe.Mode
+			}
+
+			// STREAM: periodic pushes; POLL: no ticker.
+			if mode == gnmi.SubscriptionList_STREAM {
+				if ticker == nil {
+					ticker = time.NewTicker(500 * time.Millisecond)
+					go func() {
+						for {
+							select {
+							case <-ctx.Done():
+								return
+							case <-ticker.C:
+								sendInterface("UP")
+							}
+						}
+					}()
+				}
+			} else {
+				// ONCE or POLL
+				stopTicker()
+			}
+
+			// Acknowledge (re)subscription with an immediate update.
+			sendInterface("UP")
+
+		case *gnmi.SubscribeRequest_Poll:
+			// POLL: send one update per poll.
+			if mode == gnmi.SubscriptionList_POLL {
+				sendInterface("UP")
+			}
+
+		default:
+			// Ignore other request kinds for this demo.
+		}
+	}
 }
 
 func startGNMIServer(addr string) *grpc.Server {

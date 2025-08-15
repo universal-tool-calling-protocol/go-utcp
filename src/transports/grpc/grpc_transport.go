@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"io"
 	"strings"
+	"time"
+
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 
 	gnmi "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc"
@@ -121,6 +123,9 @@ func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, arg
 // Close cleans up (no-op).
 func (t *GRPCClientTransport) Close() error { return nil }
 
+// in: src/transports/grpc/grpc_transport.go
+// func (t *GRPCClientTransport) CallToolStream(...) (transports.StreamResult, error) { ... }
+
 func (t *GRPCClientTransport) CallToolStream(
 	ctx context.Context,
 	toolName string,
@@ -141,6 +146,7 @@ func (t *GRPCClientTransport) CallToolStream(
 		cancel()
 		return nil, err
 	}
+
 	client := gnmi.NewGNMIClient(conn)
 	stream, err := client.Subscribe(ctx)
 	if err != nil {
@@ -149,9 +155,10 @@ func (t *GRPCClientTransport) CallToolStream(
 		return nil, err
 	}
 
-	// Build SubscribeRequest from args
+	// --- Build SubscribeRequest from args ---
 	pathStr, _ := args["path"].(string)
 	modeStr, _ := args["mode"].(string)
+
 	subMode := gnmi.SubscriptionList_STREAM
 	switch strings.ToUpper(modeStr) {
 	case "ONCE":
@@ -159,6 +166,7 @@ func (t *GRPCClientTransport) CallToolStream(
 	case "POLL":
 		subMode = gnmi.SubscriptionList_POLL
 	}
+
 	path := parseGNMIPath(pathStr)
 	subReq := &gnmi.SubscribeRequest{
 		Request: &gnmi.SubscribeRequest_Subscribe{
@@ -171,17 +179,65 @@ func (t *GRPCClientTransport) CallToolStream(
 	if gp.Target != "" {
 		subReq.GetSubscribe().Prefix = &gnmi.Path{Target: gp.Target}
 	}
+
+	// Send initial Subscribe request
 	if err := stream.Send(subReq); err != nil {
 		cancel()
 		conn.Close()
 		return nil, err
 	}
-	// Channel to collect responses
-	ch := make(chan any, 10)
+
+	// Channel of decoded updates/errors for the UTCP client
+	ch := make(chan any, 16)
+
+	// --- NEW: optional client->server POLL pump for true duplex ---
+	var pollStop chan struct{}
+	if subMode == gnmi.SubscriptionList_POLL {
+		pollEveryMs := int64(0)
+		switch v := args["poll_every_ms"].(type) {
+		case int:
+			pollEveryMs = int64(v)
+		case int64:
+			pollEveryMs = v
+		case float64:
+			pollEveryMs = int64(v)
+		}
+		if pollEveryMs > 0 {
+			pollStop = make(chan struct{})
+			go func() {
+				ticker := time.NewTicker(time.Duration(pollEveryMs) * time.Millisecond)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-pollStop:
+						return
+					case <-ticker.C:
+						// Actively send a Poll request (client -> server)
+						if err := stream.Send(&gnmi.SubscribeRequest{
+							Request: &gnmi.SubscribeRequest_Poll{Poll: &gnmi.Poll{}},
+						}); err != nil {
+							// Surface send errors to consumer and stop polling
+							ch <- err
+							return
+						}
+					}
+				}
+			}()
+		}
+	}
+
+	// --- Receive loop (server -> client) ---
 	go func() {
-		defer close(ch)
-		defer cancel()
-		defer conn.Close()
+		defer func() {
+			if pollStop != nil {
+				close(pollStop)
+			}
+			close(ch)
+			cancel()
+			conn.Close()
+		}()
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
@@ -190,6 +246,7 @@ func (t *GRPCClientTransport) CallToolStream(
 				}
 				return
 			}
+			// Convert protobuf to generic JSON object
 			b, err := protojson.Marshal(resp)
 			if err != nil {
 				ch <- err
@@ -203,8 +260,10 @@ func (t *GRPCClientTransport) CallToolStream(
 			ch <- obj
 		}
 	}()
+
 	return transports.NewChannelStreamResult(ch, func() error {
 		cancel()
+		// conn is closed by receive goroutine
 		return nil
 	}), nil
 }
