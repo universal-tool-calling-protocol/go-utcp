@@ -1,0 +1,9 @@
+[
+  {
+    "provider_type": "text",
+    "name": "greetings",
+    "templates": {
+      "hello": "Hello, {{.name}}!"
+    }
+  }
+]

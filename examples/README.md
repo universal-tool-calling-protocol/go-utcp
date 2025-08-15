@@ -26,6 +26,7 @@ Replace `cli_transport` with the directory of the example you want to run.
 - `udp_client`: Sends requests over UDP.
 - `websocket_client`: Uses a WebSocket connection.
 - `webrtc_client`: Connects via WebRTC.
+- `text_client`: Renders text templates locally.
 
 ## Transport examples
 
@@ -41,4 +42,5 @@ Replace `cli_transport` with the directory of the example you want to run.
 - `udp_transport`: Provides tools over UDP.
 - `websocket_transport`: Hosts tools on a WebSocket server.
 - `webrtc_transport`: Serves tools using WebRTC.
+- `text_transport`: Provides tools based on text templates.
 
