@@ -6,6 +6,7 @@ import (
 	"net"
 	"testing"
 
+	gnmi "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
@@ -73,5 +74,73 @@ func TestGRPCTransport_Errors(t *testing.T) {
 	}
 	if _, err := tr.CallTool(context.Background(), "ping", nil, &HttpProvider{}, nil); err == nil {
 		t.Fatal("expected type error")
+	}
+}
+
+type dummyGNMIServer struct {
+	gnmi.UnimplementedGNMIServer
+}
+
+func (s *dummyGNMIServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
+	return &gnmi.CapabilityResponse{}, nil
+}
+
+func (s *dummyGNMIServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	resp := &gnmi.SubscribeResponse{
+		Response: &gnmi.SubscribeResponse_Update{
+			Update: &gnmi.Notification{Update: []*gnmi.Update{{
+				Path: &gnmi.Path{Element: []string{"interfaces", "interface", "eth0"}},
+				Val:  &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: "UP"}},
+			}}},
+		},
+	}
+	if err := stream.Send(resp); err != nil {
+		return err
+	}
+	return nil
+}
+
+func startDummyGNMI(t *testing.T) (*grpc.Server, *GRPCProvider) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpc.NewServer()
+	gnmi.RegisterGNMIServer(srv, &dummyGNMIServer{})
+	go srv.Serve(lis)
+	prov := &GRPCProvider{BaseProvider: BaseProvider{Name: "g", ProviderType: ProviderGRPC}, Host: "127.0.0.1", Port: lis.Addr().(*net.TCPAddr).Port, ServiceName: "gnmi.gNMI", MethodName: "Subscribe"}
+	return srv, prov
+}
+
+func TestGRPCTransport_GNMISubscribe(t *testing.T) {
+	srv, prov := startDummyGNMI(t)
+	defer srv.Stop()
+	tr := NewGRPCClientTransport(nil)
+	ctx := context.Background()
+	tools, err := tr.RegisterToolProvider(ctx, prov)
+	if err != nil {
+		t.Fatalf("register error: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("expected no tools, got %v", tools)
+	}
+	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{"path": "/interfaces/interface/eth0", "mode": "STREAM"}, prov)
+	if err != nil {
+		t.Fatalf("call stream error: %v", err)
+	}
+	defer stream.Close()
+	item, err := stream.Next()
+	if err != nil {
+		t.Fatalf("next error: %v", err)
+	}
+	m, ok := item.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected type: %T", item)
+	}
+	if _, ok := m["update"]; !ok {
+		t.Fatalf("expected update field in response: %#v", m)
 	}
 }

@@ -5,9 +5,13 @@ import (
 	"errors"
 	"fmt"
 	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
+	"io"
+	"strings"
 
+	gnmi "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
@@ -55,6 +59,16 @@ func (t *GRPCClientTransport) RegisterToolProvider(ctx context.Context, prov Pro
 		return nil, err
 	}
 	defer conn.Close()
+
+	// Handle gNMI providers by issuing a Capabilities request.
+	if gp.ServiceName == "gnmi.gNMI" {
+		client := gnmi.NewGNMIClient(conn)
+		if _, err := client.Capabilities(ctx, &gnmi.CapabilityRequest{}); err != nil {
+			return nil, err
+		}
+		return []Tool{}, nil
+	}
+
 	client := grpcpb.NewUTCPServiceClient(conn)
 	resp, err := client.GetManual(ctx, &grpcpb.Empty{})
 	if err != nil {
@@ -111,5 +125,93 @@ func (t *GRPCClientTransport) CallToolStream(
 	args map[string]any,
 	p Provider,
 ) (transports.StreamResult, error) {
-	return nil, errors.New("streaming not supported by GRPCClientTransport")
+	gp, ok := p.(*GRPCProvider)
+	if !ok {
+		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
+	}
+	if gp.ServiceName != "gnmi.gNMI" || gp.MethodName != "Subscribe" {
+		return nil, errors.New("streaming not supported by GRPCClientTransport")
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	conn, err := t.dial(ctx, gp)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	client := gnmi.NewGNMIClient(conn)
+	stream, err := client.Subscribe(ctx)
+	if err != nil {
+		cancel()
+		conn.Close()
+		return nil, err
+	}
+
+	// Build SubscribeRequest from args
+	pathStr, _ := args["path"].(string)
+	modeStr, _ := args["mode"].(string)
+	subMode := gnmi.SubscriptionList_STREAM
+	switch strings.ToUpper(modeStr) {
+	case "ONCE":
+		subMode = gnmi.SubscriptionList_ONCE
+	case "POLL":
+		subMode = gnmi.SubscriptionList_POLL
+	}
+	path := parseGNMIPath(pathStr)
+	subReq := &gnmi.SubscribeRequest{
+		Request: &gnmi.SubscribeRequest_Subscribe{
+			Subscribe: &gnmi.SubscriptionList{
+				Mode:         subMode,
+				Subscription: []*gnmi.Subscription{{Path: path}},
+			},
+		},
+	}
+	if gp.Target != "" {
+		subReq.GetSubscribe().Prefix = &gnmi.Path{Target: gp.Target}
+	}
+	if err := stream.Send(subReq); err != nil {
+		cancel()
+		conn.Close()
+		return nil, err
+	}
+	// Channel to collect responses
+	ch := make(chan any, 10)
+	go func() {
+		defer close(ch)
+		defer cancel()
+		defer conn.Close()
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				if err != io.EOF {
+					ch <- err
+				}
+				return
+			}
+			b, err := protojson.Marshal(resp)
+			if err != nil {
+				ch <- err
+				return
+			}
+			var obj any
+			if err := json.Unmarshal(b, &obj); err != nil {
+				ch <- err
+				return
+			}
+			ch <- obj
+		}
+	}()
+	return transports.NewChannelStreamResult(ch, func() error {
+		cancel()
+		return nil
+	}), nil
+}
+
+func parseGNMIPath(p string) *gnmi.Path {
+	p = strings.TrimPrefix(p, "/")
+	if p == "" {
+		return &gnmi.Path{}
+	}
+	elems := strings.Split(p, "/")
+	return &gnmi.Path{Element: elems}
 }
