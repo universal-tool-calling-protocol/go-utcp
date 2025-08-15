@@ -13,6 +13,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/text"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
@@ -70,6 +71,8 @@ func UnmarshalProvider(data []byte) (Provider, error) {
 			return nil, err
 		}
 		return p, nil
+	case ProviderText:
+		return UnmarshalTextProvider(data)
 	default:
 		return nil, fmt.Errorf("unsupported provider_type %q", base.ProviderType)
 	}

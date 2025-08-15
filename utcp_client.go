@@ -27,6 +27,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/tcp"
+	texttransport "github.com/universal-tool-calling-protocol/go-utcp/src/transports/text"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/udp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/transports/websocket"
@@ -39,6 +40,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/text"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
@@ -196,6 +198,9 @@ func defaultTransports() map[string]ClientTransport {
 		"webrtc": NewWebRTCClientTransport(func(format string, args ...interface{}) {
 			fmt.Printf("WebRTC Transport: "+format+"\n", args...)
 		}),
+		"text": texttransport.NewTextTransport(func(format string, args ...interface{}) {
+			fmt.Printf("Text Transport: "+format+"\n", args...)
+		}),
 	}
 }
 
@@ -255,6 +260,8 @@ func (c *UtcpClient) getProviderName(prov Provider) string {
 		return p.Name
 	case *MCPProvider:
 		return p.Name
+	case *TextProvider:
+		return p.Name
 	default:
 		return "unknown"
 	}
@@ -285,6 +292,8 @@ func (c *UtcpClient) setProviderName(prov Provider, name string) {
 		p.Name = name
 	case *MCPProvider:
 		p.Name = name
+	case *TextProvider:
+		p.Name = name
 	}
 }
 
@@ -310,7 +319,7 @@ func (c *UtcpClient) RegisterToolProvider(
 		for i := range tools {
 			if _, exists := c.toolResolutionCache[tools[i].Name]; !exists {
 				callName := tools[i].Name
-				if prov.Type() == ProviderMCP {
+				if prov.Type() == ProviderMCP || prov.Type() == ProviderText {
 					if _, suffix, ok := strings.Cut(tools[i].Name, "."); ok {
 						callName = suffix
 					}
@@ -392,7 +401,7 @@ func (c *UtcpClient) RegisterToolProvider(
 	c.toolResolutionCacheMu.Lock()
 	for i := range tools {
 		callName := tools[i].Name
-		if prov.Type() == ProviderMCP {
+		if prov.Type() == ProviderMCP || prov.Type() == ProviderText {
 			if _, suffix, ok := strings.Cut(tools[i].Name, "."); ok {
 				callName = suffix
 			}
@@ -555,6 +564,9 @@ func (c *UtcpClient) cloneProvider(p Provider) Provider {
 	case *MCPProvider:
 		cp := *v
 		return &cp
+	case *TextProvider:
+		cp := *v
+		return &cp
 	default:
 		// Worst case, skip cloning; treat providers as read-only.
 		return p
@@ -594,6 +606,8 @@ func (c *UtcpClient) createProviderOfType(ptype ProviderType) Provider {
 		return &WebRTCProvider{}
 	case ProviderMCP:
 		return &MCPProvider{}
+	case ProviderText:
+		return &TextProvider{}
 	default:
 		return &HttpProvider{} // fallback
 	}
@@ -815,8 +829,8 @@ func (c *UtcpClient) resolveTool(ctx context.Context, toolName string) (Provider
 	}
 
 	callName := toolName
-	if cloned.Type() == ProviderMCP {
-		// Strip provider prefix for MCP transport
+	if cloned.Type() == ProviderMCP || cloned.Type() == ProviderText {
+		// Strip provider prefix for transports that expect unprefixed names
 		callName = suffix
 	}
 
