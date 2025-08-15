@@ -124,8 +124,8 @@ func TestGRPCTransport_GNMISubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register error: %v", err)
 	}
-	if len(tools) != 0 {
-		t.Fatalf("expected no tools, got %v", tools)
+	if len(tools) != 1 || tools[0].Name != "gnmi_subscribe" {
+		t.Fatalf("expected gnmi_subscribe tool, got %v", tools)
 	}
 	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{"path": "/interfaces/interface/eth0", "mode": "STREAM"}, prov)
 	if err != nil {

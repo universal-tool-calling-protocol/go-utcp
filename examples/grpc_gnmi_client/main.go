@@ -10,7 +10,6 @@ import (
 	gnmi "github.com/openconfig/gnmi/proto/gnmi"
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/repository"
-	tools "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
 	"google.golang.org/grpc"
 )
@@ -60,17 +59,6 @@ func main() {
 	client, err := utcp.NewUTCPClient(ctx, cfg, repo, nil)
 	if err != nil {
 		log.Fatalf("client error: %v", err)
-	}
-
-	prov, err := repo.GetProvider(ctx, "gnmi")
-	if err != nil || prov == nil {
-		log.Fatalf("provider not found: %v", err)
-	}
-	if err := repo.SaveProviderWithTools(ctx, *prov, []tools.Tool{{
-		Name:        "gnmi.gnmi_subscribe",
-		Description: "gNMI Subscribe stream",
-	}}); err != nil {
-		log.Fatalf("save tools: %v", err)
 	}
 
 	stream, err := client.CallToolStream(ctx, "gnmi.gnmi_subscribe", map[string]any{

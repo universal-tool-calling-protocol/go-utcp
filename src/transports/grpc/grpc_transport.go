@@ -60,13 +60,15 @@ func (t *GRPCClientTransport) RegisterToolProvider(ctx context.Context, prov Pro
 	}
 	defer conn.Close()
 
-	// Handle gNMI providers by issuing a Capabilities request.
+	// Handle gNMI providers by issuing a Capabilities request and returning
+	// a built-in Subscribe tool so the UTCP client can resolve
+	// "gnmi.gnmi_subscribe" during CallToolStream.
 	if gp.ServiceName == "gnmi.gNMI" {
 		client := gnmi.NewGNMIClient(conn)
 		if _, err := client.Capabilities(ctx, &gnmi.CapabilityRequest{}); err != nil {
 			return nil, err
 		}
-		return []Tool{}, nil
+		return []Tool{{Name: "gnmi_subscribe", Description: "gNMI Subscribe stream"}}, nil
 	}
 
 	client := grpcpb.NewUTCPServiceClient(conn)
