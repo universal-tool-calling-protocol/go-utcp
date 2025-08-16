@@ -64,6 +64,74 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 	var args map[string]any
 	_ = json.Unmarshal([]byte(req.ArgsJson), &args)
 
+	// Special handling: emulate gNMI Subscribe semantics when tool == "gnmi_subscribe".
+	if req.Tool == "gnmi_subscribe" {
+		path, _ := args["path"].(string)
+		if path == "" {
+			path = "/interfaces/interface[name=eth0]/state/oper-status"
+		}
+		mode, _ := args["mode"].(string)
+		if mode == "" {
+			mode = "STREAM"
+		}
+
+		// Prefer poll_every_ms for POLL; otherwise fall back to interval_ms.
+		pollEvery := 0
+		if v, ok := args["poll_every_ms"].(float64); ok && v > 0 {
+			pollEvery = int(v)
+		}
+		interval := 30 * time.Millisecond
+		if pollEvery > 0 {
+			interval = time.Duration(pollEvery) * time.Millisecond
+		} else if v, ok := args["interval_ms"].(float64); ok && v > 0 {
+			interval = time.Duration(int(v)) * time.Millisecond
+		}
+
+		send := func(i int) error {
+			payload := map[string]any{
+				"seq":   i,
+				"path":  path,
+				"value": "UP",
+				"ts":    time.Now().UnixNano(),
+			}
+			b, _ := json.Marshal(payload)
+			return stream.Send(&grpcpb.ToolCallResponse{ResultJson: string(b)})
+		}
+
+		switch mode {
+		case "ONCE":
+			return send(0)
+		case "POLL":
+			// Emit periodic polled updates until client cancels (the client/transport may be pumping POLL).
+			t := time.NewTicker(interval)
+			defer t.Stop()
+			for i := 0; ; i++ {
+				if err := send(i); err != nil {
+					return err
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-t.C:
+				}
+			}
+		default: // STREAM
+			t := time.NewTicker(interval)
+			defer t.Stop()
+			for i := 0; ; i++ {
+				if err := send(i); err != nil {
+					return err
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-t.C:
+				}
+			}
+		}
+	}
+
+	// Generic fallback for other tools: ping-style JSON with seq counter.
 	mode, _ := args["mode"].(string)
 	if mode == "" {
 		mode = "STREAM"
@@ -78,15 +146,7 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 	}
 
 	send := func(i int) error {
-		payload := map[string]any{
-			"seq":  i,
-			"tool": req.Tool,
-			"ts":   time.Now().UnixNano(),
-		}
-		if req.Tool == "gnmi_subscribe" {
-			payload["path"] = "/interfaces/interface[name=eth0]/state/oper-status"
-			payload["value"] = "UP"
-		}
+		payload := map[string]any{"seq": i, "tool": req.Tool, "ts": time.Now().UnixNano()}
 		b, _ := json.Marshal(payload)
 		return stream.Send(&grpcpb.ToolCallResponse{ResultJson: string(b)})
 	}
@@ -114,12 +174,10 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 	default: // STREAM
 		t := time.NewTicker(interval)
 		defer t.Stop()
-		i := 0
-		for {
+		for i := 0; ; i++ {
 			if err := send(i); err != nil {
 				return err
 			}
-			i++
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
