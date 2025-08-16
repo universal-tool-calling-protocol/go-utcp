@@ -8,21 +8,32 @@ import (
 	"time"
 
 	gnmi "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/grpc"
 	"google.golang.org/grpc"
 )
 
-type dummyGNMIServer struct {
+type UnifiedServer struct {
 	gnmi.UnimplementedGNMIServer
+	grpcpb.UnimplementedUTCPServiceServer
 }
 
-func (s *dummyGNMIServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
+func (s *UnifiedServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
 	return &gnmi.CapabilityResponse{}, nil
 }
 
-func (s *dummyGNMIServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
+func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb.Manual, error) {
+	return &grpcpb.Manual{
+		Version: "1.2",
+		Tools: []*grpcpb.Tool{
+			{Name: "gnmi_subscribe", Description: "gNMI Subscribe stream"},
+		},
+	}, nil
+}
+
+func (s *UnifiedServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
 	if _, err := stream.Recv(); err != nil {
 		return err
 	}
@@ -43,7 +54,8 @@ func startGNMIServer(addr string) *grpc.Server {
 		log.Fatalf("listen: %v", err)
 	}
 	srv := grpc.NewServer()
-	gnmi.RegisterGNMIServer(srv, &dummyGNMIServer{})
+	gnmi.RegisterGNMIServer(srv, &UnifiedServer{})
+	grpcpb.RegisterUTCPServiceServer(srv, &UnifiedServer{})
 	go srv.Serve(lis)
 	return srv
 }
