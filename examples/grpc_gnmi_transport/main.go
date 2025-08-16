@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"time"
@@ -18,6 +19,68 @@ import (
 type UnifiedServer struct {
 	gnmi.UnimplementedGNMIServer
 	grpcpb.UnimplementedUTCPServiceServer
+}
+
+func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallRequest) (*grpcpb.ToolCallResponse, error) {
+	// Simple implementation - could be expanded based on tool name
+	return &grpcpb.ToolCallResponse{
+		ResultJson: `{"status": "not implemented for non-streaming"}`,
+	}, nil
+}
+
+func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcpb.UTCPService_CallToolStreamServer) error {
+	ctx := stream.Context()
+
+	if req.Tool == "gnmi_subscribe" {
+		// Parse args from JSON
+		var args map[string]interface{}
+		if err := json.Unmarshal([]byte(req.ArgsJson), &args); err != nil {
+			return err
+		}
+
+		// Create a mock gNMI-like streaming response
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		counter := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				counter++
+
+				// Create a mock update response
+				update := map[string]interface{}{
+					"timestamp": time.Now().UnixNano(),
+					"path":      args["path"],
+					"value":     fmt.Sprintf("mock_value_%d", counter),
+					"mode":      args["mode"],
+				}
+
+				updateJson, err := json.Marshal(update)
+				if err != nil {
+					return err
+				}
+
+				response := &grpcpb.ToolCallResponse{
+					ResultJson: string(updateJson),
+				}
+
+				if err := stream.Send(response); err != nil {
+					return err
+				}
+
+				// For demo purposes, send a few updates then stop
+				if counter >= 5 {
+					return nil
+				}
+			}
+		}
+	}
+
+	// For other tools, return an error or empty response
+	return fmt.Errorf("tool %s not supported for streaming", req.Tool)
 }
 
 func (s *UnifiedServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {

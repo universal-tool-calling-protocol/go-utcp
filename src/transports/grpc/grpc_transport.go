@@ -141,6 +141,9 @@ func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, arg
 // Close cleans up (no-op).
 func (t *GRPCClientTransport) Close() error { return nil }
 
+// CallToolStream implements streaming tool calls with two pathways:
+// A) Direct gNMI Subscribe for gNMI providers
+// B) UTCP server streaming via UTCPService.CallToolStream
 func (t *GRPCClientTransport) CallToolStream(
 	ctx context.Context,
 	toolName string,
@@ -152,8 +155,20 @@ func (t *GRPCClientTransport) CallToolStream(
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
 	}
 
-	// Add target to context if specified
-	ctx = t.addTargetToContext(ctx, gp)
+	// Route to appropriate streaming implementation
+	if gp.ServiceName == "gnmi.gNMI" && gp.MethodName == "Subscribe" {
+		return t.callGNMISubscribe(ctx, args, gp)
+	}
+
+	return t.callUTCPToolStream(ctx, toolName, args, gp)
+}
+
+// callGNMISubscribe handles direct gNMI Subscribe streaming
+func (t *GRPCClientTransport) callGNMISubscribe(
+	ctx context.Context,
+	args map[string]any,
+	gp *GRPCProvider,
+) (transports.StreamResult, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	conn, err := t.dial(ctx, gp)
@@ -162,35 +177,6 @@ func (t *GRPCClientTransport) CallToolStream(
 		return nil, err
 	}
 
-	// Route based on toolName instead of hardcoded service check
-	toolNameLower := strings.ToLower(toolName)
-	switch {
-	case strings.Contains(toolNameLower, "gnmi") || strings.Contains(toolNameLower, "subscribe"):
-		// Handle all gNMI operations - only Subscribe actually supports streaming
-		if strings.Contains(toolNameLower, "subscribe") {
-			return t.handleGNMISubscribe(ctx, cancel, conn, args, gp)
-		} else {
-			// For Get, Set, Capabilities - these are unary, not streaming
-			cancel()
-			conn.Close()
-			return nil, fmt.Errorf("gNMI tool '%s' does not support streaming - use CallTool instead (only Subscribe supports streaming)", toolName)
-		}
-	default:
-		// For other streaming tools, you could add more cases here
-		cancel()
-		conn.Close()
-		return nil, fmt.Errorf("streaming tool '%s' not supported by GRPCClientTransport", toolName)
-	}
-}
-
-// Extract the gNMI Subscribe logic into a separate method for better organization
-func (t *GRPCClientTransport) handleGNMISubscribe(
-	ctx context.Context,
-	cancel context.CancelFunc,
-	conn *grpc.ClientConn,
-	args map[string]any,
-	gp *GRPCProvider,
-) (transports.StreamResult, error) {
 	client := gnmi.NewGNMIClient(conn)
 	stream, err := client.Subscribe(ctx)
 	if err != nil {
@@ -199,7 +185,36 @@ func (t *GRPCClientTransport) handleGNMISubscribe(
 		return nil, err
 	}
 
-	// --- Build SubscribeRequest from args ---
+	// Build and send initial subscribe request
+	subReq, err := t.buildSubscribeRequest(args, gp)
+	if err != nil {
+		cancel()
+		conn.Close()
+		return nil, err
+	}
+
+	if err := stream.Send(subReq); err != nil {
+		cancel()
+		conn.Close()
+		return nil, err
+	}
+
+	ch := make(chan any, 16)
+
+	// Start polling if needed
+	pollStop := t.startPollingIfNeeded(ctx, stream, args, subReq.GetSubscribe().Mode, ch)
+
+	// Start receive loop
+	t.startGNMIReceiveLoop(ctx, stream, ch, cancel, conn, pollStop)
+
+	return transports.NewChannelStreamResult(ch, func() error {
+		cancel()
+		return nil
+	}), nil
+}
+
+// buildSubscribeRequest constructs a gNMI SubscribeRequest from arguments
+func (t *GRPCClientTransport) buildSubscribeRequest(args map[string]any, gp *GRPCProvider) (*gnmi.SubscribeRequest, error) {
 	pathStr, _ := args["path"].(string)
 	modeStr, _ := args["mode"].(string)
 
@@ -221,93 +236,72 @@ func (t *GRPCClientTransport) handleGNMISubscribe(
 		},
 	}
 
-	// Enhanced target usage: Set target in multiple places for better compatibility
 	if gp.Target != "" {
-		// 1. Set as prefix target (your existing approach)
 		subReq.GetSubscribe().Prefix = &gnmi.Path{Target: gp.Target}
-
-		// 2. Also set target in each subscription path for redundancy
-		for _, sub := range subReq.GetSubscribe().Subscription {
-			if sub.Path != nil {
-				sub.Path.Target = gp.Target
-			}
-		}
-
-		t.logger("Set gNMI target '%s' in subscribe request", gp.Target)
 	}
 
-	// Allow overriding target from args if provided
-	if targetOverride, ok := args["target"].(string); ok && targetOverride != "" {
-		if subReq.GetSubscribe().Prefix == nil {
-			subReq.GetSubscribe().Prefix = &gnmi.Path{}
-		}
-		subReq.GetSubscribe().Prefix.Target = targetOverride
+	return subReq, nil
+}
 
-		// Update subscription paths as well
-		for _, sub := range subReq.GetSubscribe().Subscription {
-			if sub.Path != nil {
-				sub.Path.Target = targetOverride
-			}
-		}
-
-		t.logger("Overrode gNMI target with '%s' from args", targetOverride)
+// startPollingIfNeeded starts a polling goroutine for POLL mode subscriptions
+func (t *GRPCClientTransport) startPollingIfNeeded(
+	ctx context.Context,
+	stream gnmi.GNMI_SubscribeClient,
+	args map[string]any,
+	mode gnmi.SubscriptionList_Mode,
+	ch chan any,
+) chan struct{} {
+	if mode != gnmi.SubscriptionList_POLL {
+		return nil
 	}
 
-	// Send initial Subscribe request
-	if err := stream.Send(subReq); err != nil {
-		cancel()
-		conn.Close()
-		return nil, err
+	var pollEveryMs int64
+	switch v := args["poll_every_ms"].(type) {
+	case int:
+		pollEveryMs = int64(v)
+	case int64:
+		pollEveryMs = v
+	case float64:
+		pollEveryMs = int64(v)
 	}
 
-	// Channel of decoded updates/errors for the UTCP client
-	ch := make(chan any, 16)
+	if pollEveryMs <= 0 {
+		return nil
+	}
 
-	// --- Optional client->server POLL pump for true duplex ---
-	var pollStop chan struct{}
-	if subMode == gnmi.SubscriptionList_POLL {
-		pollEveryMs := int64(0)
-		switch v := args["poll_every_ms"].(type) {
-		case int:
-			pollEveryMs = int64(v)
-		case int64:
-			pollEveryMs = v
-		case float64:
-			pollEveryMs = int64(v)
-		}
-		if pollEveryMs > 0 {
-			pollStop = make(chan struct{})
-			go func() {
-				ticker := time.NewTicker(time.Duration(pollEveryMs) * time.Millisecond)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-pollStop:
-						return
-					case <-ticker.C:
-						// Send Poll request with target if specified
-						pollReq := &gnmi.SubscribeRequest{
-							Request: &gnmi.SubscribeRequest_Poll{Poll: &gnmi.Poll{}},
-						}
-						// Ensure poll requests also include target information
-						if gp.Target != "" {
-							// Some implementations may require target in poll requests too
-							t.logger("Sending poll request for target '%s'", gp.Target)
-						}
-						if err := stream.Send(pollReq); err != nil {
-							// Surface send errors to consumer and stop polling
-							ch <- err
-							return
-						}
-					}
+	pollStop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(time.Duration(pollEveryMs) * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pollStop:
+				return
+			case <-ticker.C:
+				if err := stream.Send(&gnmi.SubscribeRequest{
+					Request: &gnmi.SubscribeRequest_Poll{Poll: &gnmi.Poll{}},
+				}); err != nil {
+					ch <- err
+					return
 				}
-			}()
+			}
 		}
-	}
+	}()
 
-	// --- Receive loop (server -> client) ---
+	return pollStop
+}
+
+// startGNMIReceiveLoop starts the goroutine that receives gNMI responses
+func (t *GRPCClientTransport) startGNMIReceiveLoop(
+	ctx context.Context,
+	stream gnmi.GNMI_SubscribeClient,
+	ch chan any,
+	cancel context.CancelFunc,
+	conn *grpc.ClientConn,
+	pollStop chan struct{},
+) {
 	go func() {
 		defer func() {
 			if pollStop != nil {
@@ -317,6 +311,7 @@ func (t *GRPCClientTransport) handleGNMISubscribe(
 			cancel()
 			conn.Close()
 		}()
+
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
@@ -326,33 +321,108 @@ func (t *GRPCClientTransport) handleGNMISubscribe(
 				return
 			}
 
-			// Log target information in responses if available
-			if resp.GetUpdate() != nil && resp.GetUpdate().GetPrefix() != nil && resp.GetUpdate().GetPrefix().Target != "" {
-				t.logger("Received update for target '%s'", resp.GetUpdate().GetPrefix().Target)
-			}
-
-			// Convert protobuf to generic JSON object
-			b, err := protojson.Marshal(resp)
+			obj, err := t.convertGNMIResponseToJSON(resp)
 			if err != nil {
 				ch <- err
 				return
 			}
-			var obj any
-			if err := json.Unmarshal(b, &obj); err != nil {
-				ch <- err
-				return
-			}
+
 			ch <- obj
 		}
 	}()
+}
+
+// convertGNMIResponseToJSON converts a gNMI response to JSON object
+func (t *GRPCClientTransport) convertGNMIResponseToJSON(resp *gnmi.SubscribeResponse) (any, error) {
+	b, err := protojson.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	var obj any
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, err
+	}
+
+	return obj, nil
+}
+
+// callUTCPToolStream handles UTCP server streaming via UTCPService.CallToolStream
+func (t *GRPCClientTransport) callUTCPToolStream(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	gp *GRPCProvider,
+) (transports.StreamResult, error) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	conn, err := t.dial(ctx, gp)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+
+	client := grpcpb.NewUTCPServiceClient(conn)
+
+	payload, err := json.Marshal(args)
+	if err != nil {
+		cancel()
+		conn.Close()
+		return nil, err
+	}
+
+	req := &grpcpb.ToolCallRequest{
+		Tool:     toolName,
+		ArgsJson: string(payload),
+	}
+
+	stream, err := client.CallToolStream(ctx, req)
+	if err != nil {
+		cancel()
+		conn.Close()
+		return nil, err
+	}
+
+	ch := make(chan any, 16)
+	t.startUTCPReceiveLoop(ctx, stream, ch, cancel, conn)
 
 	return transports.NewChannelStreamResult(ch, func() error {
 		cancel()
-		// conn is closed by receive goroutine
 		return nil
 	}), nil
 }
 
+// startUTCPReceiveLoop starts the goroutine that receives UTCP streaming responses
+func (t *GRPCClientTransport) startUTCPReceiveLoop(
+	ctx context.Context,
+	stream grpcpb.UTCPService_CallToolStreamClient,
+	ch chan any,
+	cancel context.CancelFunc,
+	conn *grpc.ClientConn,
+) {
+	go func() {
+		defer func() {
+			close(ch)
+			cancel()
+			conn.Close()
+		}()
+
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				if err != io.EOF {
+					ch <- err
+				}
+				return
+			}
+
+			// Each message is JSON in ResultJson – pass as []byte
+			ch <- []byte(resp.GetResultJson())
+		}
+	}()
+}
+
+// parseGNMIPath parses a path string into a gNMI Path
 func parseGNMIPath(p string) *gnmi.Path {
 	p = strings.TrimPrefix(p, "/")
 	if p == "" {

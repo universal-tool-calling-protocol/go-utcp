@@ -61,8 +61,6 @@ func TestCoverage(t *testing.T) {
 	_, _ = resp.Descriptor()
 	_ = resp.GetResultJson()
 
-	_ = file_grpcpb_utcp_proto_rawDescGZIP()
-
 	srv := grpc.NewServer()
 	RegisterUTCPServiceServer(srv, &dummyServer{})
 	conn := fakeConn{}
