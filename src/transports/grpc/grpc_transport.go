@@ -151,9 +151,6 @@ func (t *GRPCClientTransport) CallToolStream(
 	if !ok {
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
 	}
-	if gp.ServiceName != "gnmi.gNMI" || gp.MethodName != "Subscribe" {
-		return nil, errors.New("streaming not supported by GRPCClientTransport")
-	}
 
 	// Add target to context if specified
 	ctx = t.addTargetToContext(ctx, gp)
@@ -165,6 +162,27 @@ func (t *GRPCClientTransport) CallToolStream(
 		return nil, err
 	}
 
+	// Route based on toolName instead of hardcoded service check
+	switch {
+	case strings.Contains(strings.ToLower(toolName), "subscribe"):
+		return t.handleGNMISubscribe(ctx, cancel, conn, args, gp)
+	default:
+		// For other streaming tools, you could add more cases here
+		// or fall back to the generic UTCP streaming service if it exists
+		cancel()
+		conn.Close()
+		return nil, fmt.Errorf("streaming tool '%s' not supported by GRPCClientTransport", toolName)
+	}
+}
+
+// Extract the gNMI Subscribe logic into a separate method for better organization
+func (t *GRPCClientTransport) handleGNMISubscribe(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	conn *grpc.ClientConn,
+	args map[string]any,
+	gp *GRPCProvider,
+) (transports.StreamResult, error) {
 	client := gnmi.NewGNMIClient(conn)
 	stream, err := client.Subscribe(ctx)
 	if err != nil {
