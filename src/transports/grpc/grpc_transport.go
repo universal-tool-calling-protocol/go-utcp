@@ -163,12 +163,20 @@ func (t *GRPCClientTransport) CallToolStream(
 	}
 
 	// Route based on toolName instead of hardcoded service check
+	toolNameLower := strings.ToLower(toolName)
 	switch {
-	case strings.Contains(strings.ToLower(toolName), "subscribe"):
-		return t.handleGNMISubscribe(ctx, cancel, conn, args, gp)
+	case strings.Contains(toolNameLower, "gnmi") || strings.Contains(toolNameLower, "subscribe"):
+		// Handle all gNMI operations - only Subscribe actually supports streaming
+		if strings.Contains(toolNameLower, "subscribe") {
+			return t.handleGNMISubscribe(ctx, cancel, conn, args, gp)
+		} else {
+			// For Get, Set, Capabilities - these are unary, not streaming
+			cancel()
+			conn.Close()
+			return nil, fmt.Errorf("gNMI tool '%s' does not support streaming - use CallTool instead (only Subscribe supports streaming)", toolName)
+		}
 	default:
 		// For other streaming tools, you could add more cases here
-		// or fall back to the generic UTCP streaming service if it exists
 		cancel()
 		conn.Close()
 		return nil, fmt.Errorf("streaming tool '%s' not supported by GRPCClientTransport", toolName)
