@@ -13,6 +13,7 @@ import (
 	gnmi "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
@@ -37,9 +38,28 @@ func NewGRPCClientTransport(logger func(format string, args ...interface{})) *GR
 	return &GRPCClientTransport{logger: logger}
 }
 
+// addTargetToContext adds the target as gRPC metadata if specified
+func (t *GRPCClientTransport) addTargetToContext(ctx context.Context, prov *GRPCProvider) context.Context {
+	if prov.Target != "" {
+		// Add target as gRPC metadata - common pattern for gNMI and similar services
+		md := metadata.Pairs("target", prov.Target)
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		t.logger("Added target '%s' to gRPC metadata", prov.Target)
+	}
+	return ctx
+}
+
 func (t *GRPCClientTransport) dial(ctx context.Context, prov *GRPCProvider) (*grpc.ClientConn, error) {
 	addr := fmt.Sprintf("%s:%d", prov.Host, prov.Port)
 	var opts []grpc.DialOption
+
+	// Add target as dial option if specified (some gRPC services use this)
+	if prov.Target != "" {
+		// Some services expect the target in the dial context
+		opts = append(opts, grpc.WithAuthority(prov.Target))
+		t.logger("Using target '%s' as gRPC authority", prov.Target)
+	}
+
 	if prov.UseSSL {
 		// In this example we just use insecure when UseSSL is false.
 		// Real implementation would configure TLS credentials.
@@ -56,6 +76,10 @@ func (t *GRPCClientTransport) RegisterToolProvider(ctx context.Context, prov Pro
 	if !ok {
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
 	}
+
+	// Add target to context if specified
+	ctx = t.addTargetToContext(ctx, gp)
+
 	conn, err := t.dial(ctx, gp)
 	if err != nil {
 		return nil, err
@@ -88,11 +112,16 @@ func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, arg
 	if !ok {
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
 	}
+
+	// Add target to context if specified
+	ctx = t.addTargetToContext(ctx, gp)
+
 	conn, err := t.dial(ctx, gp)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
+
 	client := grpcpb.NewUTCPServiceClient(conn)
 	payload, err := json.Marshal(args)
 	if err != nil {
@@ -112,9 +141,6 @@ func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, arg
 // Close cleans up (no-op).
 func (t *GRPCClientTransport) Close() error { return nil }
 
-// in: src/transports/grpc/grpc_transport.go
-// func (t *GRPCClientTransport) CallToolStream(...) (transports.StreamResult, error) { ... }
-
 func (t *GRPCClientTransport) CallToolStream(
 	ctx context.Context,
 	toolName string,
@@ -129,7 +155,10 @@ func (t *GRPCClientTransport) CallToolStream(
 		return nil, errors.New("streaming not supported by GRPCClientTransport")
 	}
 
+	// Add target to context if specified
+	ctx = t.addTargetToContext(ctx, gp)
 	ctx, cancel := context.WithCancel(ctx)
+
 	conn, err := t.dial(ctx, gp)
 	if err != nil {
 		cancel()
@@ -165,8 +194,37 @@ func (t *GRPCClientTransport) CallToolStream(
 			},
 		},
 	}
+
+	// Enhanced target usage: Set target in multiple places for better compatibility
 	if gp.Target != "" {
+		// 1. Set as prefix target (your existing approach)
 		subReq.GetSubscribe().Prefix = &gnmi.Path{Target: gp.Target}
+
+		// 2. Also set target in each subscription path for redundancy
+		for _, sub := range subReq.GetSubscribe().Subscription {
+			if sub.Path != nil {
+				sub.Path.Target = gp.Target
+			}
+		}
+
+		t.logger("Set gNMI target '%s' in subscribe request", gp.Target)
+	}
+
+	// Allow overriding target from args if provided
+	if targetOverride, ok := args["target"].(string); ok && targetOverride != "" {
+		if subReq.GetSubscribe().Prefix == nil {
+			subReq.GetSubscribe().Prefix = &gnmi.Path{}
+		}
+		subReq.GetSubscribe().Prefix.Target = targetOverride
+
+		// Update subscription paths as well
+		for _, sub := range subReq.GetSubscribe().Subscription {
+			if sub.Path != nil {
+				sub.Path.Target = targetOverride
+			}
+		}
+
+		t.logger("Overrode gNMI target with '%s' from args", targetOverride)
 	}
 
 	// Send initial Subscribe request
@@ -179,7 +237,7 @@ func (t *GRPCClientTransport) CallToolStream(
 	// Channel of decoded updates/errors for the UTCP client
 	ch := make(chan any, 16)
 
-	// --- NEW: optional client->server POLL pump for true duplex ---
+	// --- Optional client->server POLL pump for true duplex ---
 	var pollStop chan struct{}
 	if subMode == gnmi.SubscriptionList_POLL {
 		pollEveryMs := int64(0)
@@ -203,10 +261,16 @@ func (t *GRPCClientTransport) CallToolStream(
 					case <-pollStop:
 						return
 					case <-ticker.C:
-						// Actively send a Poll request (client -> server)
-						if err := stream.Send(&gnmi.SubscribeRequest{
+						// Send Poll request with target if specified
+						pollReq := &gnmi.SubscribeRequest{
 							Request: &gnmi.SubscribeRequest_Poll{Poll: &gnmi.Poll{}},
-						}); err != nil {
+						}
+						// Ensure poll requests also include target information
+						if gp.Target != "" {
+							// Some implementations may require target in poll requests too
+							t.logger("Sending poll request for target '%s'", gp.Target)
+						}
+						if err := stream.Send(pollReq); err != nil {
 							// Surface send errors to consumer and stop polling
 							ch <- err
 							return
@@ -235,6 +299,12 @@ func (t *GRPCClientTransport) CallToolStream(
 				}
 				return
 			}
+
+			// Log target information in responses if available
+			if resp.GetUpdate() != nil && resp.GetUpdate().GetPrefix() != nil && resp.GetUpdate().GetPrefix().Target != "" {
+				t.logger("Received update for target '%s'", resp.GetUpdate().GetPrefix().Target)
+			}
+
 			// Convert protobuf to generic JSON object
 			b, err := protojson.Marshal(resp)
 			if err != nil {
