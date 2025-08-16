@@ -17,6 +17,7 @@ Replace `cli_transport` with the directory of the example you want to run.
 - `cli_client`: Connects to tools exposed over the command line.
 - `graphql_client`: Calls tools provided via a GraphQL service.
 - `grpc_client`: Uses the gRPC transport.
+- `grpc_gnmi_client`: Streams gNMI telemetry using the UTCP client over gRPC.
 - `http_client`: Interacts with an HTTP provider.
 - `mcp_client`: Talks to a provider using the MCP transport.
 - `mcp_http_client`: Demonstrates the MCP HTTP transport.
@@ -33,6 +34,7 @@ Replace `cli_transport` with the directory of the example you want to run.
 - `cli_transport`: Exposes tools via the command line.
 - `graphql_transport`: Serves tools through a GraphQL endpoint.
 - `grpc_transport`: Implements a gRPC provider.
+- `grpc_gnmi_transport`: Streams gNMI telemetry over gRPC.
 - `http_transport`: Serves tools over HTTP.
 - `mcp_transport`: Bridges UTCP to the MCP protocol.
 - `mcp_http_transport`: Bridges UTCP to MCP over HTTP.

@@ -14,8 +14,10 @@ type GRPCProvider struct {
 	Port        int    `json:"port"`
 	ServiceName string `json:"service_name"`
 	MethodName  string `json:"method_name"`
-	UseSSL      bool   `json:"use_ssl"`
-	Auth        *Auth  `json:"auth,omitempty"`
+	// Target optionally specifies the gNMI target name for Subscribe operations.
+	Target string `json:"target,omitempty"`
+	UseSSL bool   `json:"use_ssl"`
+	Auth   *Auth  `json:"auth,omitempty"`
 }
 
 func UnmarshalGRPCProvider(data []byte) (*GRPCProvider, error) {

@@ -9,6 +9,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/machinebox/graphql v0.2.2
 	github.com/mark3labs/mcp-go v0.34.0
+	github.com/openconfig/gnmi v0.14.1
 	github.com/pion/webrtc/v3 v3.3.5
 	github.com/spf13/cast v1.7.1
 	github.com/stretchr/testify v1.10.0
@@ -20,8 +21,6 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/graphql-go/graphql v0.8.1 // indirect
-	github.com/graphql-go/handler v0.2.4 // indirect
 	github.com/matryer/is v1.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
