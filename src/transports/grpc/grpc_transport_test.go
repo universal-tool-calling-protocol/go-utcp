@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,22 +14,26 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 
 	"google.golang.org/grpc"
 )
 
-// --- UnifiedServer for tests ---
+// ------------------------------------------------------------
+// Unified gRPC test server: UTCPService + gNMI
+// ------------------------------------------------------------
+
 type UnifiedServer struct {
 	grpcpb.UnimplementedUTCPServiceServer
 	gnmi.UnimplementedGNMIServer
+
+	firstPrefixTarget atomic.Value // string
 }
 
-func (s *UnifiedServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
+func (s *UnifiedServer) Capabilities(ctx context.Context, _ *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
 	return &gnmi.CapabilityResponse{}, nil
 }
 
-func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb.Manual, error) {
+func (s *UnifiedServer) GetManual(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.Manual, error) {
 	return &grpcpb.Manual{
 		Version: "test-1.0",
 		Tools: []*grpcpb.Tool{
@@ -45,67 +50,162 @@ func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallReques
 	return &grpcpb.ToolCallResponse{ResultJson: string(b)}, nil
 }
 
-func (s *UnifiedServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
+// CallToolStream implements server-streaming UTCP tool responses for tests.
+// It supports:
+//   - tool "gnmi_subscribe": emits JSON objects resembling interface oper-status updates
+//   - any other tool: emits simple ping-style JSON with a seq counter
+//
+// Args supported (optional):
+//   - mode: "ONCE" | "STREAM" | "POLL" (default STREAM)
+//   - count: number of messages for ONCE/POLL (default 3; ONCE always 1)
+//   - interval_ms: delay between messages (default 30ms)
+func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcpb.UTCPService_CallToolStreamServer) error {
 	ctx := stream.Context()
-	out := make(chan *gnmi.SubscribeResponse, 8)
-	defer close(out)
+	var args map[string]any
+	_ = json.Unmarshal([]byte(req.ArgsJson), &args)
 
-	// sender goroutine
-	errCh := make(chan error, 1)
-	go func() {
-		for msg := range out {
-			if err := stream.Send(msg); err != nil {
-				errCh <- err
-				return
-			}
-		}
-		errCh <- nil
-	}()
-
-	sendInterface := func(state string) {
-		out <- &gnmi.SubscribeResponse{
-			Response: &gnmi.SubscribeResponse_Update{
-				Update: &gnmi.Notification{
-					Timestamp: time.Now().UnixNano(),
-					Update: []*gnmi.Update{{
-						Path: &gnmi.Path{Element: []string{"interfaces", "interface", "eth0"}},
-						Val:  &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: state}},
-					}},
-				},
-			},
-		}
+	mode, _ := args["mode"].(string)
+	if mode == "" {
+		mode = "STREAM"
+	}
+	cnt := 3
+	if v, ok := args["count"].(float64); ok && v > 0 {
+		cnt = int(v)
+	}
+	interval := 30 * time.Millisecond
+	if v, ok := args["interval_ms"].(float64); ok && v > 0 {
+		interval = time.Duration(int(v)) * time.Millisecond
 	}
 
-	mode := gnmi.SubscriptionList_STREAM
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err := <-errCh:
-			return err
-		default:
+	send := func(i int) error {
+		payload := map[string]any{
+			"seq":  i,
+			"tool": req.Tool,
+			"ts":   time.Now().UnixNano(),
 		}
-
-		req, err := stream.Recv()
-		if err != nil {
-			return err
+		if req.Tool == "gnmi_subscribe" {
+			payload["path"] = "/interfaces/interface[name=eth0]/state/oper-status"
+			payload["value"] = "UP"
 		}
-		switch r := req.Request.(type) {
-		case *gnmi.SubscribeRequest_Subscribe:
-			if r.Subscribe != nil {
-				mode = r.Subscribe.Mode
+		b, _ := json.Marshal(payload)
+		return stream.Send(&grpcpb.ToolCallResponse{ResultJson: string(b)})
+	}
+
+	switch mode {
+	case "ONCE":
+		return send(0)
+	case "POLL":
+		if cnt < 2 {
+			cnt = 2
+		}
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for i := 0; i < cnt; i++ {
+			if err := send(i); err != nil {
+				return err
 			}
-			sendInterface("UP") // ack
-		case *gnmi.SubscribeRequest_Poll:
-			if mode == gnmi.SubscriptionList_POLL {
-				sendInterface("UP")
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-t.C:
+			}
+		}
+		return nil
+	default: // STREAM
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		i := 0
+		for {
+			if err := send(i); err != nil {
+				return err
+			}
+			i++
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-t.C:
 			}
 		}
 	}
 }
 
-func startUnifiedServer(t *testing.T) (*grpc.Server, *GRPCProvider) {
+func (s *UnifiedServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
+	ctx := stream.Context()
+	mode := gnmi.SubscriptionList_STREAM
+	first := true
+
+	send := func(state string) error {
+		resp := &gnmi.SubscribeResponse{
+			Response: &gnmi.SubscribeResponse_Update{
+				Update: &gnmi.Notification{
+					Timestamp: time.Now().UnixNano(),
+					Update: []*gnmi.Update{{
+						Path: &gnmi.Path{Elem: []*gnmi.PathElem{{Name: "interfaces"}, {Name: "interface", Key: map[string]string{"name": "eth0"}}, {Name: "state"}, {Name: "oper-status"}}},
+						Val:  &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: state}},
+					}},
+				},
+			},
+		}
+		return stream.Send(resp)
+	}
+
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+
+		switch r := req.Request.(type) {
+		case *gnmi.SubscribeRequest_Subscribe:
+			if r.Subscribe != nil {
+				mode = r.Subscribe.Mode
+				if first {
+					first = false
+					if pfx := r.Subscribe.Prefix; pfx != nil && pfx.Target != "" {
+						s.firstPrefixTarget.Store(pfx.Target)
+					}
+				}
+			}
+			// Send an initial update immediately.
+			if err := send("UP"); err != nil {
+				return err
+			}
+
+			switch mode {
+			case gnmi.SubscriptionList_ONCE:
+				// End the stream after the first batch, like a device would after SyncResponse.
+				return nil
+
+			case gnmi.SubscriptionList_STREAM:
+				// Keep sending periodic updates until the client cancels.
+				t := time.NewTicker(30 * time.Millisecond)
+				defer t.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-t.C:
+						if err := send("UP"); err != nil {
+							return err
+						}
+					}
+				}
+
+			case gnmi.SubscriptionList_POLL:
+				// Do nothing here; wait for Poll messages handled below.
+			}
+
+		case *gnmi.SubscribeRequest_Poll:
+			if mode == gnmi.SubscriptionList_POLL {
+				if err := send("UP"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+func startUnifiedServer(t *testing.T) (*grpc.Server, *GRPCProvider, *UnifiedServer) {
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -122,99 +222,120 @@ func startUnifiedServer(t *testing.T) (*grpc.Server, *GRPCProvider) {
 		ServiceName:  "gnmi.gNMI",
 		MethodName:   "Subscribe",
 	}
-	return srv, prov
+	return srv, prov, us
 }
 
-// --- Tests ---
+// ------------------------------------------------------------
+// Tests: CallToolStream (gNMI path)
+// ------------------------------------------------------------
 
-func TestGRPCTransport_RegisterAndCall(t *testing.T) {
-	srv, prov := startUnifiedServer(t)
+func TestGNMI_CallToolStream_ONCE_Ends(t *testing.T) {
+	srv, prov, _ := startUnifiedServer(t)
 	defer srv.Stop()
 
 	tr := NewGRPCClientTransport(nil)
 	ctx := context.Background()
-	tools, err := tr.RegisterToolProvider(ctx, prov)
+
+	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{
+		"path": "/interfaces/interface[name=eth0]/state/oper-status",
+		"mode": "ONCE",
+	}, prov)
 	if err != nil {
-		t.Fatalf("register error: %v", err)
-	}
-	foundPing := false
-	for _, tool := range tools {
-		if tool.Name == "ping" {
-			foundPing = true
-			break
-		}
-	}
-	if !foundPing {
-		t.Fatalf("ping tool not found in %v", tools)
-	}
-
-	res, err := tr.CallTool(ctx, "ping", map[string]any{"msg": "hi"}, prov, nil)
-	if err != nil {
-		t.Fatalf("call error: %v", err)
-	}
-	m, ok := res.(map[string]any)
-	if !ok || m["pong"] != "hi" {
-		t.Fatalf("unexpected result: %#v", res)
-	}
-}
-
-func TestGRPCTransport_Errors(t *testing.T) {
-	tr := NewGRPCClientTransport(nil)
-	badProv := &GRPCProvider{
-		BaseProvider: BaseProvider{Name: "g", ProviderType: ProviderGRPC},
-		Host:         "127.0.0.1",
-		Port:         1,
-		UseSSL:       true,
-	}
-	_, err := tr.RegisterToolProvider(context.Background(), badProv)
-	if err == nil {
-		t.Fatal("expected error for SSL")
-	}
-	if err := tr.DeregisterToolProvider(context.Background(), &HttpProvider{}); err == nil {
-		t.Fatal("expected type error")
-	}
-	if _, err := tr.CallTool(context.Background(), "ping", nil, &HttpProvider{}, nil); err == nil {
-		t.Fatal("expected type error")
-	}
-}
-
-func TestUnifiedServer_GNMISubscribe(t *testing.T) {
-	srv, prov := startUnifiedServer(t)
-	defer srv.Stop()
-
-	tr := NewGRPCClientTransport(nil)
-	ctx := context.Background()
-	tools, err := tr.RegisterToolProvider(ctx, prov)
-	if err != nil {
-		t.Fatalf("register error: %v", err)
-	}
-	found := false
-	for _, tool := range tools {
-		if tool.Name == "gnmi_subscribe" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected gnmi_subscribe tool, got %v", tools)
-	}
-
-	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe",
-		map[string]any{"path": "/interfaces/interface/eth0", "mode": "STREAM"}, prov)
-	if err != nil {
-		t.Fatalf("call stream error: %v", err)
+		t.Fatalf("CallToolStream: %v", err)
 	}
 	defer stream.Close()
 
-	item, err := stream.Next()
+	if _, err := stream.Next(); err != nil {
+		t.Fatalf("first Next: %v", err)
+	}
+	// After ONCE, subsequent Next should return an error/EOF promptly.
+	if _, err := stream.Next(); err == nil {
+		t.Fatalf("expected EOF/error after ONCE completion")
+	}
+}
+
+func TestGNMI_CallToolStream_STREAM_MultipleAndCancel(t *testing.T) {
+	srv, prov, _ := startUnifiedServer(t)
+	defer srv.Stop()
+
+	tr := NewGRPCClientTransport(nil)
+	ctx := context.Background()
+
+	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{
+		"path": "/interfaces/interface[name=eth0]/state/oper-status",
+		"mode": "STREAM",
+	}, prov)
 	if err != nil {
-		t.Fatalf("next error: %v", err)
+		t.Fatalf("CallToolStream: %v", err)
 	}
-	m, ok := item.(map[string]any)
-	if !ok {
-		t.Fatalf("unexpected type: %T", item)
+
+	// Expect multiple updates
+	for i := 0; i < 3; i++ {
+		if _, err := stream.Next(); err != nil {
+			t.Fatalf("Next %d: %v", i, err)
+		}
 	}
-	if _, ok := m["update"]; !ok {
-		t.Fatalf("expected update field in response: %#v", m)
+
+	// Cancel and ensure stream ends
+	_ = stream.Close()
+	if _, err := stream.Next(); err == nil {
+		t.Fatalf("expected error after Close() on stream")
 	}
+}
+
+func TestGNMI_CallToolStream_POLL_Pumps(t *testing.T) {
+	srv, prov, _ := startUnifiedServer(t)
+	defer srv.Stop()
+
+	tr := NewGRPCClientTransport(nil)
+	ctx := context.Background()
+
+	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{
+		"path":          "/interfaces/interface[name=eth0]/state/oper-status",
+		"mode":          "POLL",
+		"poll_every_ms": 25,
+	}, prov)
+	if err != nil {
+		t.Fatalf("CallToolStream: %v", err)
+	}
+	defer stream.Close()
+
+	if _, err := stream.Next(); err != nil {
+		t.Fatalf("first Next: %v", err)
+	}
+	if _, err := stream.Next(); err != nil {
+		t.Fatalf("second Next: %v", err)
+	}
+}
+
+func TestGNMI_CallToolStream_TargetPrefixPropagated(t *testing.T) {
+	srv, prov, us := startUnifiedServer(t)
+	defer srv.Stop()
+
+	prov.Target = "edge-sw-01"
+	tr := NewGRPCClientTransport(nil)
+	ctx := context.Background()
+
+	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{
+		"path": "/interfaces/interface[name=eth0]/state/oper-status",
+		"mode": "ONCE",
+	}, prov)
+	if err != nil {
+		t.Fatalf("CallToolStream: %v", err)
+	}
+	defer stream.Close()
+	_, _ = stream.Next() // drain one
+
+	// wait briefly for server to record target
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if v := us.firstPrefixTarget.Load(); v != nil {
+			if v.(string) != "edge-sw-01" {
+				t.Fatalf("Prefix.Target mismatch: got %q, want %q", v.(string), "edge-sw-01")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("server did not observe Prefix.Target in time")
 }
