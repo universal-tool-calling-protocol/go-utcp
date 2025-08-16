@@ -26,4 +26,5 @@ message ToolCallResponse {
 service UTCPService {
   rpc GetManual(Empty) returns (Manual);
   rpc CallTool(ToolCallRequest) returns (ToolCallResponse);
+  rpc CallToolStream(ToolCallRequest) returns (stream ToolCallResponse);
 }

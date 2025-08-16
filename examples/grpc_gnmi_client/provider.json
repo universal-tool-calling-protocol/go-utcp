@@ -1,0 +1,12 @@
+{
+  "providers": [
+    {
+      "provider_type": "grpc",
+      "name": "gnmi",
+      "host": "127.0.0.1",
+      "port": 9339,
+      "service_name": "gnmi.gNMI",
+      "method_name": "Subscribe"
+    }
+  ]
+}
