@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net"
@@ -12,7 +13,10 @@ import (
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
 type server struct {
@@ -100,12 +104,26 @@ func (s *server) CallTool(ctx context.Context, req *grpcpb.ToolCallRequest) (*gr
 	return &grpcpb.ToolCallResponse{ResultJson: string(out)}, nil
 }
 
+func basicAuthInterceptor(user, pass string) grpc.UnaryServerInterceptor {
+	expected := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Error(codes.Unauthenticated, "missing metadata")
+		}
+		if auths := md.Get("authorization"); len(auths) == 0 || auths[0] != expected {
+			return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+		}
+		return handler(ctx, req)
+	}
+}
+
 func startServer(addr string) *grpc.Server {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	s := grpc.NewServer()
+	s := grpc.NewServer(grpc.UnaryInterceptor(basicAuthInterceptor("user", "pass")))
 	grpcpb.RegisterUTCPServiceServer(s, &server{})
 	reflection.Register(s)
 	go s.Serve(lis)
