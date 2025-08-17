@@ -27,7 +27,7 @@ const (
 	pass = "secret"
 )
 
-func checkCreds(ctx context.Context) error {
+func authFromContext(ctx context.Context) error {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return fmt.Errorf("missing metadata")
@@ -40,17 +40,25 @@ func checkCreds(ctx context.Context) error {
 	return nil
 }
 
-func (s *UnifiedServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
-	if err := checkCreds(ctx); err != nil {
+func unaryAuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	if err := authFromContext(ctx); err != nil {
 		return nil, err
 	}
+	return handler(ctx, req)
+}
+
+func streamAuthInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if err := authFromContext(ss.Context()); err != nil {
+		return err
+	}
+	return handler(srv, ss)
+}
+
+func (s *UnifiedServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
 	return &gnmi.CapabilityResponse{}, nil
 }
 
 func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb.Manual, error) {
-	if err := checkCreds(ctx); err != nil {
-		return nil, err
-	}
 	return &grpcpb.Manual{
 		Version: "1.2",
 		Tools: []*grpcpb.Tool{
@@ -60,9 +68,6 @@ func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb
 }
 
 func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallRequest) (*grpcpb.ToolCallResponse, error) {
-	if err := checkCreds(ctx); err != nil {
-		return nil, err
-	}
 	// Simple implementation - could be expanded based on tool name
 	return &grpcpb.ToolCallResponse{
 		ResultJson: `{"status": "not implemented for non-streaming"}`,
@@ -71,10 +76,6 @@ func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallReques
 
 func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcpb.UTCPService_CallToolStreamServer) error {
 	ctx := stream.Context()
-
-	if err := checkCreds(ctx); err != nil {
-		return err
-	}
 
 	if req.Tool == "gnmi_subscribe" {
 		// Parse args from JSON
@@ -132,10 +133,6 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 
 func (s *UnifiedServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-
-	if err := checkCreds(ctx); err != nil {
-		return err
-	}
 
 	// Single-sender to keep gRPC Send safe.
 	out := make(chan *gnmi.SubscribeResponse, 32)
@@ -244,7 +241,10 @@ func startGNMIServer(addr string) *grpc.Server {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(
+		grpc.UnaryInterceptor(unaryAuthInterceptor),
+		grpc.StreamInterceptor(streamAuthInterceptor),
+	)
 	gnmi.RegisterGNMIServer(srv, &UnifiedServer{})
 	grpcpb.RegisterUTCPServiceServer(srv, &UnifiedServer{})
 	go srv.Serve(lis)
