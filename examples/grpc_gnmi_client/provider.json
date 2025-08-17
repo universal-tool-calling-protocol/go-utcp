@@ -5,8 +5,10 @@
       "provider_type": "grpc",
       "host": "127.0.0.1",
       "port": 9339,
+      "service_name": "gnmi.gNMI",
+      "method_name": "Subscribe",
       "auth": {
-        "type": "http-basic",
+        "auth_type": "basic",
         "username": "testuser",
         "password": "testpass"
       }
