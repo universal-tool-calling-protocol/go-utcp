@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -21,8 +22,21 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
+
+type basicAuthCreds struct {
+	username string
+	password string
+}
+
+func (b *basicAuthCreds) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	token := base64.StdEncoding.EncodeToString([]byte(b.username + ":" + b.password))
+	return map[string]string{"authorization": "Basic " + token}, nil
+}
+
+func (b *basicAuthCreds) RequireTransportSecurity() bool { return false }
 
 // GRPCClientTransport implements ClientTransport over gRPC using the UTCPService.
 // It expects the remote server to implement the grpcpb.UTCPService service.
@@ -58,6 +72,14 @@ func (t *GRPCClientTransport) dial(ctx context.Context, prov *GRPCProvider) (*gr
 		// Some services expect the target in the dial context
 		opts = append(opts, grpc.WithAuthority(prov.Target))
 		t.logger("Using target '%s' as gRPC authority", prov.Target)
+	}
+
+	if prov.Auth != nil {
+		authIfc := *prov.Auth
+		switch a := authIfc.(type) {
+		case *BasicAuth:
+			opts = append(opts, grpc.WithPerRPCCredentials(&basicAuthCreds{username: a.Username, password: a.Password}))
+		}
 	}
 
 	if prov.UseSSL {
