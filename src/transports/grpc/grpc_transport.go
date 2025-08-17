@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -25,20 +26,17 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
-type basicPerRPCCreds struct {
-	username   string
-	password   string
-	requireTLS bool
+// addAuthToContext adds authentication metadata to the context if required
+func (t *GRPCClientTransport) addAuthToContext(ctx context.Context, prov *GRPCProvider) context.Context {
+	if prov.Auth != nil {
+		switch a := (*prov.Auth).(type) {
+		case *auth.BasicAuth:
+			token := base64.StdEncoding.EncodeToString([]byte(a.Username + ":" + a.Password))
+			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Basic "+token)
+		}
+	}
+	return ctx
 }
-
-func (b basicPerRPCCreds) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
-	return map[string]string{
-		"username": b.username,
-		"password": b.password,
-	}, nil
-}
-
-func (b basicPerRPCCreds) RequireTransportSecurity() bool { return b.requireTLS }
 
 // GRPCClientTransport implements ClientTransport over gRPC using the UTCPService.
 // It expects the remote server to implement the grpcpb.UTCPService service.
@@ -85,17 +83,6 @@ func (t *GRPCClientTransport) dial(ctx context.Context, prov *GRPCProvider) (*gr
 		t.logger("Using insecure gRPC transport for %s, suitable only for non-production", addr)
 	}
 
-	if prov.Auth != nil {
-		switch a := (*prov.Auth).(type) {
-		case *auth.BasicAuth:
-			opts = append(opts, grpc.WithPerRPCCredentials(basicPerRPCCreds{
-				username:   a.Username,
-				password:   a.Password,
-				requireTLS: prov.UseSSL,
-			}))
-		}
-	}
-
 	return grpc.DialContext(ctx, addr, opts...)
 }
 
@@ -106,8 +93,9 @@ func (t *GRPCClientTransport) RegisterToolProvider(ctx context.Context, prov Pro
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
 	}
 
-	// Add target to context if specified
+	// Add target and auth metadata to context if specified
 	ctx = t.addTargetToContext(ctx, gp)
+	ctx = t.addAuthToContext(ctx, gp)
 
 	conn, err := t.dial(ctx, gp)
 	if err != nil {
@@ -142,8 +130,9 @@ func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, arg
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
 	}
 
-	// Add target to context if specified
+	// Add target and auth metadata to context if specified
 	ctx = t.addTargetToContext(ctx, gp)
+	ctx = t.addAuthToContext(ctx, gp)
 
 	conn, err := t.dial(ctx, gp)
 	if err != nil {
@@ -186,9 +175,11 @@ func (t *GRPCClientTransport) CallToolStream(
 
 	// Route to appropriate streaming implementation
 	if gp.ServiceName == "gnmi.gNMI" && gp.MethodName == "Subscribe" {
+		ctx = t.addAuthToContext(ctx, gp)
 		return t.callGNMISubscribe(ctx, args, gp)
 	}
 
+	ctx = t.addAuthToContext(ctx, gp)
 	return t.callUTCPToolStream(ctx, toolName, args, gp)
 }
 

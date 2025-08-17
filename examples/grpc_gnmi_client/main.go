@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"path/filepath"
+	"strings"
 	"time"
 
 	gnmi "github.com/openconfig/gnmi/proto/gnmi"
@@ -32,9 +35,20 @@ func authFromContext(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("missing metadata")
 	}
-	u := md.Get("username")
-	p := md.Get("password")
-	if len(u) == 0 || len(p) == 0 || u[0] != user || p[0] != pass {
+	vals := md.Get("authorization")
+	if len(vals) == 0 {
+		return fmt.Errorf("unauthorized")
+	}
+	parts := strings.SplitN(vals[0], " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Basic") {
+		return fmt.Errorf("unauthorized")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return fmt.Errorf("unauthorized")
+	}
+	up := strings.SplitN(string(decoded), ":", 2)
+	if len(up) != 2 || up[0] != user || up[1] != pass {
 		return fmt.Errorf("unauthorized")
 	}
 	return nil
@@ -258,7 +272,7 @@ func main() {
 
 	ctx := context.Background()
 	repo := repository.NewInMemoryToolRepository()
-	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: "provider.json"}
+	cfg := &utcp.UtcpClientConfig{ProvidersFilePath: filepath.Join("examples", "grpc_gnmi_client", "provider.json")}
 	client, err := utcp.NewUTCPClient(ctx, cfg, repo, nil)
 	if err != nil {
 		log.Fatalf("client error: %v", err)
