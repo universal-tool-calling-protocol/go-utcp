@@ -260,7 +260,7 @@ func main() {
 		fmt.Println(t.Name)
 	}
 
-	stream, err := client.CallToolStream(ctx, ".gnmi_subscribe", map[string]any{
+	stream, err := client.CallToolStream(ctx, "gnmi.gnmi_subscribe", map[string]any{
 		"path": "/interfaces/interface/eth0",
 		"mode": "STREAM",
 	})
