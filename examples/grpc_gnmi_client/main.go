@@ -14,6 +14,7 @@ import (
 	"github.com/universal-tool-calling-protocol/go-utcp/src/repository"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 type UnifiedServer struct {
@@ -21,11 +22,35 @@ type UnifiedServer struct {
 	gnmi.UnimplementedGNMIServer
 }
 
+const (
+	user = "alice"
+	pass = "secret"
+)
+
+func checkCreds(ctx context.Context) error {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return fmt.Errorf("missing metadata")
+	}
+	u := md.Get("username")
+	p := md.Get("password")
+	if len(u) == 0 || len(p) == 0 || u[0] != user || p[0] != pass {
+		return fmt.Errorf("unauthorized")
+	}
+	return nil
+}
+
 func (s *UnifiedServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
+	if err := checkCreds(ctx); err != nil {
+		return nil, err
+	}
 	return &gnmi.CapabilityResponse{}, nil
 }
 
 func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb.Manual, error) {
+	if err := checkCreds(ctx); err != nil {
+		return nil, err
+	}
 	return &grpcpb.Manual{
 		Version: "1.2",
 		Tools: []*grpcpb.Tool{
@@ -35,6 +60,9 @@ func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb
 }
 
 func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallRequest) (*grpcpb.ToolCallResponse, error) {
+	if err := checkCreds(ctx); err != nil {
+		return nil, err
+	}
 	// Simple implementation - could be expanded based on tool name
 	return &grpcpb.ToolCallResponse{
 		ResultJson: `{"status": "not implemented for non-streaming"}`,
@@ -43,6 +71,10 @@ func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallReques
 
 func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcpb.UTCPService_CallToolStreamServer) error {
 	ctx := stream.Context()
+
+	if err := checkCreds(ctx); err != nil {
+		return err
+	}
 
 	if req.Tool == "gnmi_subscribe" {
 		// Parse args from JSON
@@ -65,10 +97,12 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 
 				// Create a mock update response
 				update := map[string]interface{}{
-					"timestamp": time.Now().UnixNano(),
-					"path":      args["path"],
-					"value":     fmt.Sprintf("mock_value_%d", counter),
-					"mode":      args["mode"],
+					"timestamp":          time.Now().UnixNano(),
+					"path":               args["path"],
+					"value":              fmt.Sprintf("mock_value_%d", counter),
+					"mode":               args["mode"],
+					"sub_mode":           args["sub_mode"],
+					"sample_interval_ns": args["sample_interval_ns"],
 				}
 
 				updateJson, err := json.Marshal(update)
@@ -99,6 +133,10 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 func (s *UnifiedServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
 
+	if err := checkCreds(ctx); err != nil {
+		return err
+	}
+
 	// Single-sender to keep gRPC Send safe.
 	out := make(chan *gnmi.SubscribeResponse, 32)
 	defer close(out)
@@ -121,8 +159,11 @@ func (s *UnifiedServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
 				Update: &gnmi.Notification{
 					Timestamp: time.Now().UnixNano(),
 					Update: []*gnmi.Update{{
-						Path: &gnmi.Path{Element: []string{"interfaces", "interface", "eth0"}},
-						Val:  &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: state}},
+						Path: &gnmi.Path{Elem: []*gnmi.PathElem{
+							{Name: "interfaces"},
+							{Name: "interface", Key: map[string]string{"name": "eth0"}},
+						}},
+						Val: &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: state}},
 					}},
 				},
 			},
@@ -229,8 +270,10 @@ func main() {
 	}
 
 	stream, err := client.CallToolStream(ctx, "gnmi.gnmi_subscribe", map[string]any{
-		"path": "/interfaces/interface/eth0",
-		"mode": "STREAM",
+		"path":               "/interfaces/interface[name=eth0]",
+		"mode":               "STREAM",
+		"sub_mode":           "SAMPLE",
+		"sample_interval_ns": 500000000,
 	})
 	if err != nil {
 		log.Fatalf("call stream: %v", err)

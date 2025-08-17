@@ -9,11 +9,13 @@ import (
 	"time"
 
 	gnmi "github.com/openconfig/gnmi/proto/gnmi"
+	auth "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	providers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/grpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 type UnifiedServer struct {
@@ -21,7 +23,28 @@ type UnifiedServer struct {
 	grpcpb.UnimplementedUTCPServiceServer
 }
 
+const (
+	user = "alice"
+	pass = "secret"
+)
+
+func checkCreds(ctx context.Context) error {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return fmt.Errorf("missing metadata")
+	}
+	u := md.Get("username")
+	p := md.Get("password")
+	if len(u) == 0 || len(p) == 0 || u[0] != user || p[0] != pass {
+		return fmt.Errorf("unauthorized")
+	}
+	return nil
+}
+
 func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallRequest) (*grpcpb.ToolCallResponse, error) {
+	if err := checkCreds(ctx); err != nil {
+		return nil, err
+	}
 	// Simple implementation - could be expanded based on tool name
 	return &grpcpb.ToolCallResponse{
 		ResultJson: `{"status": "not implemented for non-streaming"}`,
@@ -30,6 +53,10 @@ func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallReques
 
 func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcpb.UTCPService_CallToolStreamServer) error {
 	ctx := stream.Context()
+
+	if err := checkCreds(ctx); err != nil {
+		return err
+	}
 
 	if req.Tool == "gnmi_subscribe" {
 		// Parse args from JSON
@@ -52,10 +79,12 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 
 				// Create a mock update response
 				update := map[string]interface{}{
-					"timestamp": time.Now().UnixNano(),
-					"path":      args["path"],
-					"value":     fmt.Sprintf("mock_value_%d", counter),
-					"mode":      args["mode"],
+					"timestamp":          time.Now().UnixNano(),
+					"path":               args["path"],
+					"value":              fmt.Sprintf("mock_value_%d", counter),
+					"mode":               args["mode"],
+					"sub_mode":           args["sub_mode"],
+					"sample_interval_ns": args["sample_interval_ns"],
 				}
 
 				updateJson, err := json.Marshal(update)
@@ -84,10 +113,16 @@ func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcp
 }
 
 func (s *UnifiedServer) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) (*gnmi.CapabilityResponse, error) {
+	if err := checkCreds(ctx); err != nil {
+		return nil, err
+	}
 	return &gnmi.CapabilityResponse{}, nil
 }
 
 func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb.Manual, error) {
+	if err := checkCreds(ctx); err != nil {
+		return nil, err
+	}
 	return &grpcpb.Manual{
 		Version: "1.2",
 		Tools: []*grpcpb.Tool{
@@ -97,14 +132,22 @@ func (s *UnifiedServer) GetManual(ctx context.Context, e *grpcpb.Empty) (*grpcpb
 }
 
 func (s *UnifiedServer) Subscribe(stream gnmi.GNMI_SubscribeServer) error {
+	ctx := stream.Context()
+
+	if err := checkCreds(ctx); err != nil {
+		return err
+	}
 	if _, err := stream.Recv(); err != nil {
 		return err
 	}
 	resp := &gnmi.SubscribeResponse{
 		Response: &gnmi.SubscribeResponse_Update{
 			Update: &gnmi.Notification{Update: []*gnmi.Update{{
-				Path: &gnmi.Path{Element: []string{"interfaces", "interface", "eth0"}},
-				Val:  &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: "UP"}},
+				Path: &gnmi.Path{Elem: []*gnmi.PathElem{
+					{Name: "interfaces"},
+					{Name: "interface", Key: map[string]string{"name": "eth0"}},
+				}},
+				Val: &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: "UP"}},
 			}}},
 		},
 	}
@@ -130,14 +173,15 @@ func main() {
 
 	logger := func(format string, args ...interface{}) { log.Printf(format, args...) }
 	tr := transports.NewGRPCClientTransport(logger)
-	prov := &providers.GRPCProvider{BaseProvider: BaseProvider{Name: "g", ProviderType: ProviderGRPC}, Host: "127.0.0.1", Port: 9339, ServiceName: "gnmi.gNMI", MethodName: "Subscribe"}
+	var a auth.Auth = auth.NewBasicAuth(user, pass)
+	prov := &providers.GRPCProvider{BaseProvider: BaseProvider{Name: "g", ProviderType: ProviderGRPC}, Host: "127.0.0.1", Port: 9339, ServiceName: "gnmi.gNMI", MethodName: "Subscribe", Auth: &a}
 
 	ctx := context.Background()
 	if _, err := tr.RegisterToolProvider(ctx, prov); err != nil {
 		log.Fatalf("register: %v", err)
 	}
 
-	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{"path": "/interfaces/interface/eth0", "mode": "STREAM"}, prov)
+	stream, err := tr.CallToolStream(ctx, "gnmi_subscribe", map[string]any{"path": "/interfaces/interface[name=eth0]", "mode": "STREAM", "sub_mode": "SAMPLE", "sample_interval_ns": 500000000}, prov)
 	if err != nil {
 		log.Fatalf("call stream: %v", err)
 	}

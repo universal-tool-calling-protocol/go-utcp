@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	auth "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/grpcpb"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
@@ -23,6 +24,21 @@ import (
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
+
+type basicPerRPCCreds struct {
+	username   string
+	password   string
+	requireTLS bool
+}
+
+func (b basicPerRPCCreds) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
+	return map[string]string{
+		"username": b.username,
+		"password": b.password,
+	}, nil
+}
+
+func (b basicPerRPCCreds) RequireTransportSecurity() bool { return b.requireTLS }
 
 // GRPCClientTransport implements ClientTransport over gRPC using the UTCPService.
 // It expects the remote server to implement the grpcpb.UTCPService service.
@@ -66,7 +82,20 @@ func (t *GRPCClientTransport) dial(ctx context.Context, prov *GRPCProvider) (*gr
 		return nil, errors.New("SSL not implemented")
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		t.logger("Using insecure gRPC transport for %s, suitable only for non-production", addr)
 	}
+
+	if prov.Auth != nil {
+		switch a := (*prov.Auth).(type) {
+		case *auth.BasicAuth:
+			opts = append(opts, grpc.WithPerRPCCredentials(basicPerRPCCreds{
+				username:   a.Username,
+				password:   a.Password,
+				requireTLS: prov.UseSSL,
+			}))
+		}
+	}
+
 	return grpc.DialContext(ctx, addr, opts...)
 }
 
@@ -216,31 +245,72 @@ func (t *GRPCClientTransport) callGNMISubscribe(
 // buildSubscribeRequest constructs a gNMI SubscribeRequest from arguments
 func (t *GRPCClientTransport) buildSubscribeRequest(args map[string]any, gp *GRPCProvider) (*gnmi.SubscribeRequest, error) {
 	pathStr, _ := args["path"].(string)
-	modeStr, _ := args["mode"].(string)
+	listModeStr, _ := args["mode"].(string) // ONCE | POLL | STREAM
 
-	subMode := gnmi.SubscriptionList_STREAM
-	switch strings.ToUpper(modeStr) {
+	// List (outer) mode
+	listMode := gnmi.SubscriptionList_STREAM
+	switch strings.ToUpper(listModeStr) {
 	case "ONCE":
-		subMode = gnmi.SubscriptionList_ONCE
+		listMode = gnmi.SubscriptionList_ONCE
 	case "POLL":
-		subMode = gnmi.SubscriptionList_POLL
+		listMode = gnmi.SubscriptionList_POLL
 	}
 
+	// Per-subscription mode
+	subMode := gnmi.SubscriptionMode_SAMPLE
+	if v, ok := args["sub_mode"].(string); ok {
+		switch strings.ToUpper(v) {
+		case "SAMPLE":
+			subMode = gnmi.SubscriptionMode_SAMPLE
+		case "ON_CHANGE":
+			subMode = gnmi.SubscriptionMode_ON_CHANGE
+		case "TARGET_DEFINED":
+			subMode = gnmi.SubscriptionMode_TARGET_DEFINED
+		}
+	}
+
+	// Optional intervals / flags
+	toUint64 := func(x any) uint64 {
+		switch n := x.(type) {
+		case int:
+			return uint64(n)
+		case int64:
+			return uint64(n)
+		case float64:
+			return uint64(n)
+		case uint64:
+			return n
+		default:
+			return 0
+		}
+	}
+	sampleInterval := toUint64(args["sample_interval_ns"])
+	heartbeatInterval := toUint64(args["heartbeat_interval_ns"])
+	suppressRedundant, _ := args["suppress_redundant"].(bool)
+
+	// Path and subscription
 	path := parseGNMIPath(pathStr)
-	subReq := &gnmi.SubscribeRequest{
+	sub := &gnmi.Subscription{
+		Path:              path,
+		Mode:              subMode,
+		SampleInterval:    sampleInterval,
+		HeartbeatInterval: heartbeatInterval,
+		SuppressRedundant: suppressRedundant,
+	}
+
+	req := &gnmi.SubscribeRequest{
 		Request: &gnmi.SubscribeRequest_Subscribe{
 			Subscribe: &gnmi.SubscriptionList{
-				Mode:         subMode,
-				Subscription: []*gnmi.Subscription{{Path: path}},
+				Mode:         listMode,
+				Subscription: []*gnmi.Subscription{sub},
 			},
 		},
 	}
 
 	if gp.Target != "" {
-		subReq.GetSubscribe().Prefix = &gnmi.Path{Target: gp.Target}
+		req.GetSubscribe().Prefix = &gnmi.Path{Target: gp.Target}
 	}
-
-	return subReq, nil
+	return req, nil
 }
 
 // startPollingIfNeeded starts a polling goroutine for POLL mode subscriptions
@@ -424,10 +494,45 @@ func (t *GRPCClientTransport) startUTCPReceiveLoop(
 
 // parseGNMIPath parses a path string into a gNMI Path
 func parseGNMIPath(p string) *gnmi.Path {
-	p = strings.TrimPrefix(p, "/")
-	if p == "" {
+	p = strings.TrimSpace(p)
+	if p == "" || p == "/" {
 		return &gnmi.Path{}
 	}
-	elems := strings.Split(p, "/")
-	return &gnmi.Path{Element: elems}
+	p = strings.TrimPrefix(p, "/")
+	segs := strings.Split(p, "/")
+
+	elems := make([]*gnmi.PathElem, 0, len(segs))
+	for _, seg := range segs {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		name := seg
+		keys := map[string]string{}
+
+		if i := strings.IndexRune(seg, '['); i >= 0 {
+			name = seg[:i]
+			rest := seg[i:]
+			for len(rest) > 0 {
+				if rest[0] != '[' {
+					break
+				}
+				end := strings.IndexRune(rest, ']')
+				if end <= 1 {
+					break
+				}
+				kv := rest[1:end]
+				rest = rest[end+1:]
+				if eq := strings.IndexRune(kv, '='); eq > 0 && eq < len(kv)-1 {
+					k := kv[:eq]
+					v := kv[eq+1:]
+					keys[k] = v
+				}
+			}
+		}
+
+		elems = append(elems, &gnmi.PathElem{Name: name, Key: keys})
+	}
+
+	return &gnmi.Path{Elem: elems}
 }
