@@ -298,22 +298,34 @@ func (c *UtcpClient) setProviderName(prov Provider, name string) {
 }
 
 // RegisterToolProvider applies variable substitution, picks the right transport, and registers tools.
+// RegisterToolProvider picks the transport and registers tools.
+// NOTE: do NOT call substituteProviderVariables here; processProvider already did it.
 func (c *UtcpClient) RegisterToolProvider(
 	ctx context.Context,
 	prov Provider,
 ) ([]Tool, error) {
-	c.ensureCaches() // defensive
-	prov = c.substituteProviderVariables(prov)
+	c.ensureCaches()
+
+	// Derive/sanitize provider name with a safe fallback (prevents ".tool" cases).
 	name := strings.ReplaceAll(c.getProviderName(prov), ".", "_")
+	if name == "" {
+		name = strings.ToLower(string(prov.Type()))
+		if name == "" {
+			name = "provider"
+		}
+	}
 	c.setProviderName(prov, name)
 
-	// Check cache: if already registered, return cached tools and ensure resolution cache is primed
+	// Cache hit? Return and prime fast caches (S1005 fix: no blank identifier).
 	c.providerToolsCacheMu.RLock()
 	if tools, ok := c.providerToolsCache[name]; ok {
 		c.providerToolsCacheMu.RUnlock()
 
-		// Prime resolution caches for any missing entries
-		tr, _ := c.transports[string(prov.Type())]
+		tr := c.transports[string(prov.Type())]
+		if tr == nil {
+			// Defensive: provider cached but transport missing; skip priming.
+			return tools, nil
+		}
 
 		c.toolResolutionCacheMu.Lock()
 		for i := range tools {
@@ -337,31 +349,39 @@ func (c *UtcpClient) RegisterToolProvider(
 	}
 	c.providerToolsCacheMu.RUnlock()
 
+	// Look up transport
 	tr, ok := c.transports[string(prov.Type())]
-	if !ok {
+	if !ok || tr == nil {
 		return nil, fmt.Errorf("unsupported provider type: %s", prov.Type())
 	}
 
-	var tools []Tool
-	var err error
+	// For gRPC providers, ensure sane endpoint defaults (avoid dialing :0).
+	if gp, ok := prov.(*GRPCProvider); ok {
+		if gp.Host == "" {
+			gp.Host = "127.0.0.1"
+		}
+		if gp.Port == 0 {
+			gp.Port = 9339
+		}
+	}
 
-	// Special-case: if this is an HTTP provider and its URL points to an OpenAPI spec, try using the converter.
+	// Ask transport (HTTP may use OpenAPI converter)
+	var (
+		tools []Tool
+		err   error
+	)
 	if prov.Type() == ProviderHTTP {
 		if httpProv, ok := prov.(*HttpProvider); ok {
 			converter, convErr := openapi.NewConverterFromURL(httpProv.URL, "")
 			if convErr != nil {
-				fmt.Printf("OpenAPI converter instantiation error for %s: %v\n", httpProv.URL, convErr)
-				// fallback
-				tools, err = tr.RegisterToolProvider(ctx, prov)
+				tools, err = tr.RegisterToolProvider(ctx, prov) // fallback
 				if err != nil {
 					return nil, err
 				}
 			} else {
 				manual := converter.Convert()
-				fmt.Printf("Converter produced %d tools from %s\n", len(manual.Tools), httpProv.URL)
 				if len(manual.Tools) == 0 {
-					// fallback attempt
-					tools, err = tr.RegisterToolProvider(ctx, prov)
+					tools, err = tr.RegisterToolProvider(ctx, prov) // fallback
 					if err != nil {
 						return nil, err
 					}
@@ -382,22 +402,31 @@ func (c *UtcpClient) RegisterToolProvider(
 		}
 	}
 
-	// Prefix tool names with provider name if not already prefixed
+	// Normalize tool names so they are always qualified with this provider and never start with "."
 	for i := range tools {
-		if !strings.HasPrefix(tools[i].Name, name+".") {
-			tools[i].Name = name + "." + tools[i].Name
+		n := strings.TrimLeft(tools[i].Name, ".")
+		if dot := strings.Index(n, "."); dot >= 0 {
+			prefix, suffix := n[:dot], n[dot+1:]
+			if prefix != name {
+				n = name + "." + suffix
+			}
+			tools[i].Name = n
+		} else {
+			tools[i].Name = name + "." + n
 		}
 	}
 
+	// Persist provider + tools
 	if err := c.toolRepository.SaveProviderWithTools(ctx, prov, tools); err != nil {
 		return nil, err
 	}
 
-	// Populate caches
+	// Cache provider tools
 	c.providerToolsCacheMu.Lock()
 	c.providerToolsCache[name] = tools
 	c.providerToolsCacheMu.Unlock()
 
+	// Prime resolution + fast-call caches
 	c.toolResolutionCacheMu.Lock()
 	for i := range tools {
 		callName := tools[i].Name
@@ -722,13 +751,51 @@ func convertInterfaceMapToStringMap(input map[string]interface{}) map[string]any
 }
 
 // processProvider handles individual provider processing
+// processProvider handles individual provider processing (normalizes keys and auth,
+// tolerates both "type" and "provider_type", and avoids :0 by defaulting host/port).
 func (c *UtcpClient) processProvider(ctx context.Context, raw map[string]any, index int) error {
-	ptype, ok := raw["provider_type"].(string)
-	if !ok || ptype == "" {
-		return fmt.Errorf("missing or invalid provider_type")
+	// Copy for normalization
+	sub := make(map[string]any, len(raw))
+	for k, v := range raw {
+		sub[k] = v
 	}
-	// Substitute inline variables
-	subbed := c.replaceVarsInAny(raw, c.config).(map[string]any)
+
+	// Accept both "type" and "provider_type" (ensure "type" is set for UnmarshalProvider)
+	var ptype string
+	if t, ok := sub["type"].(string); ok && t != "" {
+		ptype = t
+	} else if t, ok := sub["provider_type"].(string); ok && t != "" {
+		ptype = t
+		sub["type"] = t
+	} else {
+		return fmt.Errorf("missing or invalid provider_type/type")
+	}
+
+	// Normalize auth: accept "auth.type" as alias for "auth.auth_type"
+	if a, ok := sub["auth"]; ok && a != nil {
+		if amap, ok := a.(map[string]any); ok {
+			if _, have := amap["auth_type"]; !have {
+				if v, ok := amap["type"]; ok {
+					amap["auth_type"] = v
+				}
+			}
+			sub["auth"] = amap
+		}
+	}
+
+	// Sensible defaults for endpoints (avoid dialing :0 for gRPC providers)
+	if ptype == "grpc" {
+		if _, ok := sub["host"]; !ok {
+			sub["host"] = "127.0.0.1"
+		}
+		if _, ok := sub["port"]; !ok {
+			sub["port"] = 9339
+		}
+	}
+
+	// Variable substitution after normalization
+	subbed := c.replaceVarsInAny(sub, c.config).(map[string]any)
+	subbed["type"] = ptype // keep consistent
 
 	blob, err := json.Marshal(subbed)
 	if err != nil {
@@ -740,18 +807,15 @@ func (c *UtcpClient) processProvider(ctx context.Context, raw map[string]any, in
 		return fmt.Errorf("error decoding provider %q: %w", ptype, err)
 	}
 
-	// Look up the name; if it's empty, default to "<providerType>_<index>"
+	// Name fallback/sanitization
 	providerName := c.getProviderName(prov)
 	if providerName == "" {
 		providerName = fmt.Sprintf("%s_%d", ptype, index)
-		c.setProviderName(prov, providerName)
-	} else {
-		// sanitize dots
-		providerName = strings.ReplaceAll(providerName, ".", "_")
-		c.setProviderName(prov, providerName)
 	}
+	providerName = strings.ReplaceAll(providerName, ".", "_")
+	c.setProviderName(prov, providerName)
 
-	// Now register
+	// Register
 	tools, err := c.RegisterToolProvider(ctx, prov)
 	if err != nil {
 		return fmt.Errorf("error registering provider %q: %w", providerName, err)

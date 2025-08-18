@@ -49,8 +49,7 @@ func (s *UnifiedServer) CallTool(ctx context.Context, req *grpcpb.ToolCallReques
 
 func (s *UnifiedServer) CallToolStream(req *grpcpb.ToolCallRequest, stream grpcpb.UTCPService_CallToolStreamServer) error {
 	ctx := stream.Context()
-
-	if req.Tool == "gnmi_subscribe" {
+	if strings.Contains(req.Tool, "gnmi_subscribe") {
 		var args map[string]any
 		if err := json.Unmarshal([]byte(req.ArgsJson), &args); err != nil {
 			return err
@@ -260,7 +259,7 @@ func main() {
 		fmt.Println(t.Name)
 	}
 
-	stream, err := client.CallToolStream(ctx, "gnmi.gnmi_subscribe", map[string]any{
+	stream, err := client.CallToolStream(ctx, tools[0].Name, map[string]any{
 		"path": "/interfaces/interface/eth0",
 		"mode": "STREAM",
 	})
