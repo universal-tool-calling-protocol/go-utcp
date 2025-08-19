@@ -135,12 +135,30 @@ func (t *GRPCClientTransport) DeregisterToolProvider(ctx context.Context, prov P
 }
 
 // CallTool invokes the CallTool RPC on the UTCPService.
-func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, args map[string]any, prov Provider, l *string) (any, error) {
+func (t *GRPCClientTransport) CallTool(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	prov Provider,
+	l *string,
+) (any, error) {
 	gp, ok := prov.(*GRPCProvider)
 	if !ok {
 		return nil, errors.New("GRPCClientTransport can only be used with GRPCProvider")
 	}
 
+	if gp.ServiceName == "gnmi.gNMI" {
+		switch gp.MethodName {
+		case "Capabilities":
+			return t.callGNMICapabilities(ctx, args, gp)
+		case "Get":
+			return t.callGNMIGet(ctx, args, gp)
+		case "Set":
+			return t.callGNMISet(ctx, args, gp)
+		}
+	}
+
+	// ---- Fallback: UTCP server path ----
 	// Add target to context if specified
 	ctx = t.addTargetToContext(ctx, gp)
 
@@ -151,19 +169,201 @@ func (t *GRPCClientTransport) CallTool(ctx context.Context, toolName string, arg
 	defer conn.Close()
 
 	client := grpcpb.NewUTCPServiceClient(conn)
+
 	payload, err := json.Marshal(args)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.CallTool(ctx, &grpcpb.ToolCallRequest{Tool: toolName, ArgsJson: string(payload)})
+
+	resp, err := client.CallTool(ctx, &grpcpb.ToolCallRequest{
+		Tool:     toolName,
+		ArgsJson: string(payload),
+	})
 	if err != nil {
 		return nil, err
 	}
+
 	var result any
 	if resp.ResultJson != "" {
 		_ = json.Unmarshal([]byte(resp.ResultJson), &result)
 	}
 	return result, nil
+}
+
+func (t *GRPCClientTransport) callGNMIGet(
+	ctx context.Context,
+	args map[string]any,
+	gp *GRPCProvider,
+) (any, error) {
+	ctx = t.addTargetToContext(ctx, gp)
+
+	conn, err := t.dial(ctx, gp)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	client := gnmi.NewGNMIClient(conn)
+
+	// paths: []string
+	var pathStrs []string
+	if v, ok := args["paths"].([]any); ok {
+		for _, p := range v {
+			pathStrs = append(pathStrs, fmt.Sprint(p))
+		}
+	} else if v, ok := args["paths"].([]string); ok {
+		pathStrs = v
+	} else {
+		return nil, fmt.Errorf("gnmi_get: missing or invalid 'paths'")
+	}
+	var paths []*gnmi.Path
+	for _, s := range pathStrs {
+		paths = append(paths, parseGNMIPath(s))
+	}
+
+	// encoding
+	enc := gnmi.Encoding_JSON_IETF
+	if s, ok := args["encoding"].(string); ok {
+		switch strings.ToUpper(s) {
+		case "JSON":
+			enc = gnmi.Encoding_JSON
+		case "ASCII":
+			enc = gnmi.Encoding_ASCII
+		case "BYTES":
+			enc = gnmi.Encoding_BYTES
+		case "PROTO":
+			enc = gnmi.Encoding_PROTO
+		}
+	}
+
+	req := &gnmi.GetRequest{
+		Path:     paths,
+		Encoding: enc,
+	}
+	// optional use_models: []string "name@version"
+	if ums, ok := args["use_models"].([]any); ok {
+		for _, x := range ums {
+			if s, ok := x.(string); ok && s != "" {
+				name, ver := s, ""
+				if i := strings.IndexByte(s, '@'); i > 0 {
+					name, ver = s[:i], s[i+1:]
+				}
+				req.UseModels = append(req.UseModels, &gnmi.ModelData{Name: name, Version: ver})
+			}
+		}
+	}
+
+	resp, err := client.Get(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := protojson.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+	var obj any
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+func (t *GRPCClientTransport) callGNMISet(
+	ctx context.Context,
+	args map[string]any,
+	gp *GRPCProvider,
+) (any, error) {
+	ctx = t.addTargetToContext(ctx, gp)
+
+	conn, err := t.dial(ctx, gp)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	client := gnmi.NewGNMIClient(conn)
+
+	mkTV := func(v any) *gnmi.TypedValue {
+		// Accept GNMI JSON typed form: {"stringVal": "..."} etc.
+		if m, ok := v.(map[string]any); ok {
+			b, _ := json.Marshal(m)
+			tv := &gnmi.TypedValue{}
+			if err := protojson.Unmarshal(b, tv); err == nil && tv.Value != nil {
+				return tv
+			}
+		}
+		// Fallback: stringify
+		return &gnmi.TypedValue{Value: &gnmi.TypedValue_StringVal{StringVal: fmt.Sprint(v)}}
+	}
+
+	req := &gnmi.SetRequest{}
+
+	if ups, ok := args["update"].([]any); ok {
+		for _, u := range ups {
+			if m, ok := u.(map[string]any); ok {
+				p := parseGNMIPath(fmt.Sprint(m["path"]))
+				req.Update = append(req.Update, &gnmi.Update{Path: p, Val: mkTV(m["val"])})
+			}
+		}
+	}
+	if reps, ok := args["replace"].([]any); ok {
+		for _, r := range reps {
+			if m, ok := r.(map[string]any); ok {
+				p := parseGNMIPath(fmt.Sprint(m["path"]))
+				req.Replace = append(req.Replace, &gnmi.Update{Path: p, Val: mkTV(m["val"])})
+			}
+		}
+	}
+	if dels, ok := args["delete"].([]any); ok {
+		for _, d := range dels {
+			req.Delete = append(req.Delete, parseGNMIPath(fmt.Sprint(d)))
+		}
+	}
+
+	resp, err := client.Set(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := protojson.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+	var obj any
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+func (t *GRPCClientTransport) callGNMICapabilities(
+	ctx context.Context,
+	_ map[string]any,
+	gp *GRPCProvider,
+) (any, error) {
+	// Attach target header (if any)
+	ctx = t.addTargetToContext(ctx, gp)
+
+	conn, err := t.dial(ctx, gp)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	client := gnmi.NewGNMIClient(conn)
+	resp, err := client.Capabilities(ctx, &gnmi.CapabilityRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := protojson.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+	var obj any
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 // Close cleans up (no-op).
