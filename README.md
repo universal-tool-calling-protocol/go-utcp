@@ -22,6 +22,8 @@ In contrast to other protocols like MCP, UTCP places a strong emphasis on:
 
 * Built-in transports for HTTP, CLI, Server-Sent Events, streaming HTTP,
   GraphQL, MCP and UDP.
+* Variable substitution via environment variables or `.env` files using
+  `UtcpDotEnv`.
 * In-memory repository for storing providers and tools discovered at
   runtime.
 * Utilities such as `OpenApiConverter` to convert OpenAPI definitions
