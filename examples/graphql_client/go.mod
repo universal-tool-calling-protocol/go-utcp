@@ -1,4 +1,4 @@
-module example-graphql-client
+module main
 
 go 1.23.0
 
