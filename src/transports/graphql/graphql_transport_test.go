@@ -60,3 +60,59 @@ func TestGraphQLClientTransport_RegisterAndCall(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", res)
 	}
 }
+
+// TestGraphQLClientTransport_RegisterToolFiltering ensures that tools are
+// filtered by provider OperationType and OperationName to avoid duplicates.
+func TestGraphQLClientTransport_RegisterToolFiltering(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query string `json:"query"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if strings.Contains(req.Query, "__schema") {
+			// Return one query field and one subscription field
+			resp := map[string]any{"data": map[string]any{"__schema": map[string]any{
+				"queryType":        map[string]any{"fields": []map[string]any{{"name": "echo"}, {"name": "ping"}}},
+				"subscriptionType": map[string]any{"fields": []map[string]any{{"name": "updates"}}},
+			}}}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	tr := NewGraphQLClientTransport(nil)
+	ctx := context.Background()
+
+	// Query provider should only register query fields and respect OperationName
+	qName := "echo"
+	provQuery := &GraphQLProvider{
+		BaseProvider:  BaseProvider{Name: "gql", ProviderType: ProviderGraphQL},
+		URL:           server.URL,
+		OperationType: "query",
+		OperationName: &qName,
+	}
+	tools, err := tr.RegisterToolProvider(ctx, provQuery)
+	if err != nil {
+		t.Fatalf("register error: %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "gql.echo" {
+		t.Fatalf("unexpected tools: %#v", tools)
+	}
+
+	// Subscription provider should only register subscription field
+	provSub := &GraphQLProvider{
+		BaseProvider:  BaseProvider{Name: "gqlsub", ProviderType: ProviderGraphQL},
+		URL:           server.URL,
+		OperationType: "subscription",
+	}
+	tools, err = tr.RegisterToolProvider(ctx, provSub)
+	if err != nil {
+		t.Fatalf("register error: %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "gqlsub.updates" {
+		t.Fatalf("unexpected tools for subscription: %#v", tools)
+	}
+}

@@ -271,52 +271,46 @@ func (t *GraphQLClientTransport) RegisterToolProvider(
 		return nil, fmt.Errorf("introspection failed: %w", err)
 	}
 
-	// Build tool list
+	// Build tool list with optional filtering by operation type/name
 	var toolsList []Tool
 
-	// Register query fields
-	for _, f := range resp.Schema.QueryType.Fields {
+	opType := strings.ToLower(prov.OperationType)
+
+	// Helper to register a field if it matches the optional OperationName
+	addTool := func(fieldName string, descPtr *string) {
+		if prov.OperationName != nil && *prov.OperationName != fieldName {
+			return
+		}
 		desc := ""
-		if f.Description != nil {
-			desc = *f.Description
+		if descPtr != nil {
+			desc = *descPtr
 		}
 		toolsList = append(toolsList, Tool{
-			Name:        fmt.Sprintf("%s.%s", prov.Name, f.Name),
+			Name:        fmt.Sprintf("%s.%s", prov.Name, fieldName),
 			Description: desc,
 			Inputs:      ToolInputOutputSchema{Required: nil},
 			Provider:    prov,
 		})
 	}
 
+	// Register query fields
+	if opType == "" || opType == "query" {
+		for _, f := range resp.Schema.QueryType.Fields {
+			addTool(f.Name, f.Description)
+		}
+	}
+
 	// Register mutation fields
-	if resp.Schema.MutationType != nil {
+	if (opType == "" || opType == "mutation") && resp.Schema.MutationType != nil {
 		for _, f := range resp.Schema.MutationType.Fields {
-			desc := ""
-			if f.Description != nil {
-				desc = *f.Description
-			}
-			toolsList = append(toolsList, Tool{
-				Name:        fmt.Sprintf("%s.%s", prov.Name, f.Name),
-				Description: desc,
-				Inputs:      ToolInputOutputSchema{Required: nil},
-				Provider:    prov,
-			})
+			addTool(f.Name, f.Description)
 		}
 	}
 
 	// Register subscription fields
-	if resp.Schema.SubscriptionType != nil {
+	if (opType == "" || opType == "subscription") && resp.Schema.SubscriptionType != nil {
 		for _, f := range resp.Schema.SubscriptionType.Fields {
-			desc := ""
-			if f.Description != nil {
-				desc = *f.Description
-			}
-			toolsList = append(toolsList, Tool{
-				Name:        fmt.Sprintf("%s.%s", prov.Name, f.Name),
-				Description: desc,
-				Inputs:      ToolInputOutputSchema{Required: nil},
-				Provider:    prov,
-			})
+			addTool(f.Name, f.Description)
 		}
 	}
 	return toolsList, nil
