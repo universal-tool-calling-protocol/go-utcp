@@ -14,6 +14,7 @@ Replace `cli_transport` with the directory of the example you want to run.
 
 ## Client examples
 
+- `agent_swarm`: Demonstrates agent-to-agent coordination where a coordinator chains UTCP tools from multiple workers to build a swarm action plan.
 - `cli_client`: Connects to tools exposed over the command line.
 - `graphql_client`: Calls tools provided via a GraphQL service.
 - `grpc_client`: Uses the gRPC transport.
