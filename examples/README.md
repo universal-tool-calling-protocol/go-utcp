@@ -15,6 +15,7 @@ Replace `cli_transport` with the directory of the example you want to run.
 ## Agent Development Kit
 
 - `adk_basic`: Builds a minimal HTTP agent using the UTCP ADK.
+- `adk_llm`: Demonstrates an LLM-powered coordinator delegating to sub-agents with tools.
 
 ## Client examples
 
