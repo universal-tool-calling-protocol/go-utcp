@@ -12,6 +12,10 @@ GOWORK=off go run ./examples/cli_transport
 
 Replace `cli_transport` with the directory of the example you want to run.
 
+## Agent Development Kit
+
+- `adk_basic`: Builds a minimal HTTP agent using the UTCP ADK.
+
 ## Client examples
 
 - `cli_client`: Connects to tools exposed over the command line.
