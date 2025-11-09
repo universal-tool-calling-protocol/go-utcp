@@ -130,3 +130,7 @@ func main() {
 	}
 }
 ```
+
+## Further Reading
+
+- [DeepWiki: Universal Tool Calling Protocol (go-utcp)](https://deepwiki.com/universal-tool-calling-protocol/go-utcp)
