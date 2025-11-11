@@ -1,6 +1,8 @@
 module github.com/universal-tool-calling-protocol/go-utcp
 
-go 1.23.0
+go 1.24
+
+toolchain go1.24.10
 
 require (
 	github.com/google/uuid v1.6.0
@@ -13,6 +15,7 @@ require (
 	github.com/pion/webrtc/v3 v3.3.5
 	github.com/spf13/cast v1.7.1
 	github.com/stretchr/testify v1.10.0
+	google.golang.org/genai v1.34.0
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v2 v2.4.0
@@ -20,9 +23,14 @@ require (
 )
 
 require (
+	cloud.google.com/go v0.116.0 // indirect
+	cloud.google.com/go/auth v0.9.3 // indirect
+	cloud.google.com/go/compute/metadata v0.6.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/graphql-go/graphql v0.8.1 // indirect
-	github.com/graphql-go/handler v0.2.4 // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/s2a-go v0.1.8 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/matryer/is v1.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -45,6 +53,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/net v0.40.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect

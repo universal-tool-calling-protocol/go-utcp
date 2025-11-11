@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	jsoniter "github.com/json-iterator/go"
 
@@ -68,6 +69,7 @@ type UtcpClientInterface interface {
 	SearchTools(query string, limit int) ([]Tool, error)
 	GetTransports() map[string]ClientTransport
 	CallToolStream(ctx context.Context, toolName string, args map[string]any) (transports.StreamResult, error)
+	CallToolChain(ctx context.Context, steps []ChainStep, timeout time.Duration) (map[string]any, error)
 }
 
 type resolvedTool struct {

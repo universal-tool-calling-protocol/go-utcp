@@ -1,0 +1,10 @@
+{
+  "providers": [
+    {
+      "name": "demo_tools",
+      "provider_type": "mcp",
+      "url": "http://localhost:8002/mcp",
+      "description": "Local demo MCP server exposing basic tools like hello and process"
+    }
+  ]
+}
