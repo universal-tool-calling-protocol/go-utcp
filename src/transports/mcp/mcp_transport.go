@@ -5,13 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
+
+	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -254,6 +255,12 @@ func (t *MCPTransport) CallTool(
 		return nil, fmt.Errorf("provider '%s' not registered", mp.Name)
 	}
 
+	// Ensure toolName is unprefixed for MCP calls.
+	callName := toolName
+	if _, suffix, ok := strings.Cut(toolName, "."); ok {
+		callName = suffix
+	}
+
 	// Dispatch based on tool capabilities
 	var res interface{}
 	var err error
@@ -261,11 +268,11 @@ func (t *MCPTransport) CallTool(
 	switch {
 	case proc.httpClient != nil:
 		// HTTP‑capable synchronous tools
-		res, err = t.callHTTPTool(ctx, proc.httpClient, toolName, args)
+		res, err = t.callHTTPTool(ctx, proc.httpClient, callName, args)
 
 	default:
 		// StdIO blocking tools
-		res, err = t.callStdioTool(ctx, proc, toolName, args, mp.Timeout)
+		res, err = t.callStdioTool(ctx, proc, callName, args, mp.Timeout)
 	}
 	if err != nil {
 		return nil, err
@@ -273,7 +280,7 @@ func (t *MCPTransport) CallTool(
 
 	// If this was the HTTP tool and it returned a {"content": […]} map,
 	// unwrap it so callers get the slice directly.
-	if toolName == "http" {
+	if callName == "http" {
 		if m, ok := res.(map[string]any); ok {
 			if content, exists := m["content"]; exists {
 				if arr, ok := content.([]any); ok {
@@ -295,7 +302,7 @@ func (t *MCPTransport) callStdioTool(
 	args map[string]any,
 	timeoutSeconds int,
 ) (interface{}, error) {
-	// Spawn the stdio stream (reuse your existing helper)
+	// Spawn the stdio stream
 	ch, err := t.callStdioToolStream(ctx, process, toolName, args, timeoutSeconds)
 	if err != nil {
 		return nil, err
@@ -417,14 +424,20 @@ func (t *MCPTransport) CallingToolStream(
 		return nil, fmt.Errorf("provider '%s' not registered", mp.Name)
 	}
 
-	t.logger("Calling MCP tool '%s' on provider '%s'", toolName, mp.Name)
+	// Ensure toolName is unprefixed for MCP calls.
+	callName := toolName
+	if _, suffix, ok := strings.Cut(toolName, "."); ok {
+		callName = suffix
+	}
+
+	t.logger("Calling MCP tool '%s' on provider '%s'", callName, mp.Name)
 
 	var ch <-chan any
 	var err error
 	if proc.httpClient != nil {
-		ch, err = t.callHTTPToolStream(streamCtx, proc.httpClient, toolName, args)
+		ch, err = t.callHTTPToolStream(streamCtx, proc.httpClient, callName, args)
 	} else {
-		ch, err = t.callStdioToolStream(streamCtx, proc, toolName, args, mp.Timeout)
+		ch, err = t.callStdioToolStream(streamCtx, proc, callName, args, mp.Timeout)
 	}
 	if err != nil {
 		cancelFn()
