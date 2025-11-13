@@ -1,4 +1,4 @@
-package utcp
+package chain
 
 // ChainStep defines one step in a Go-native UTCP tool chain.
 type ChainStep struct {
