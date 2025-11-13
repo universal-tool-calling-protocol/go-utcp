@@ -69,12 +69,12 @@ func looksLikeServerOutput(s string) bool {
 }
 
 // --- Core UTCP Client ---
-type UtcpClient struct {
+type UtcpChainClient struct {
 	Client ToolCaller
 }
 
 // CallToolChain executes a chain of steps with optional result passing and streaming support.
-func (c *UtcpClient) CallToolChain(
+func (c *UtcpChainClient) CallToolChain(
 	ctx context.Context,
 	steps []ChainStep,
 	timeout time.Duration,
@@ -170,7 +170,7 @@ func (c *UtcpClient) CallToolChain(
 	return results, nil
 }
 
-func (c *UtcpClient) runExternalCodeDirect(ctx context.Context, args map[string]any, timeout time.Duration) (any, error) {
+func (c *UtcpChainClient) runExternalCodeDirect(ctx context.Context, args map[string]any, timeout time.Duration) (any, error) {
 	lang, ok := args["language"].(string)
 	if !ok {
 		return nil, fmt.Errorf("missing language")
@@ -249,7 +249,7 @@ func (c *UtcpClient) runExternalCodeDirect(ctx context.Context, args map[string]
 	return runCommandWithDetection(ctx, cmd, timeout, strings.Join(cmd.Args, " "))
 }
 
-func (c *UtcpClient) runExternalToolDirect(ctx context.Context, lang, code string, timeout time.Duration) (any, error) {
+func (c *UtcpChainClient) runExternalToolDirect(ctx context.Context, lang, code string, timeout time.Duration) (any, error) {
 	config, ok := languageConfigs[lang]
 	if !ok {
 		return nil, fmt.Errorf("unsupported language: %s", lang)
@@ -271,7 +271,7 @@ func (c *UtcpClient) runExternalToolDirect(ctx context.Context, lang, code strin
 }
 
 // --- Go / Yaegi Execution ---
-func (c *UtcpClient) runYaegiCode(ctx context.Context, step ChainStep, timeout time.Duration) (any, error) {
+func (c *UtcpChainClient) runYaegiCode(ctx context.Context, step ChainStep, timeout time.Duration) (any, error) {
 	code := fmt.Sprintf(`tools["%s"](%#v)`, step.ToolName, step.Inputs)
 	tools := map[string]func(map[string]any) (any, error){
 		step.ToolName: func(args map[string]any) (any, error) {
@@ -285,7 +285,7 @@ func (c *UtcpClient) runYaegiCode(ctx context.Context, step ChainStep, timeout t
 }
 
 // --- Cross-language Execution (kept for backward compatibility with ToolCaller interface) ---
-func (c *UtcpClient) runExternalCode(ctx context.Context, args map[string]any, timeout time.Duration) (any, error) {
+func (c *UtcpChainClient) runExternalCode(ctx context.Context, args map[string]any, timeout time.Duration) (any, error) {
 	res, err := c.runExternalCodeDirect(ctx, args, timeout)
 
 	// If the error is a context deadline or cancellation, convert it into a string
@@ -379,7 +379,7 @@ func runCommandWithDetection(ctx context.Context, cmd *exec.Cmd, timeout time.Du
 }
 
 // --- Yaegi Tool Executor ---
-func (c *UtcpClient) CallToolCode(
+func (c *UtcpChainClient) CallToolCode(
 	ctx context.Context,
 	tools map[string]func(map[string]any) (any, error),
 	code string,

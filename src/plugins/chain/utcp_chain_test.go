@@ -42,7 +42,7 @@ func (m *mockToolCaller) CallTool(ctx context.Context, name string, args map[str
 	case "add":
 		return mockAdd(args)
 	case "run_code":
-		client := &UtcpClient{Client: m} // pass self so nested calls work
+		client := &UtcpChainClient{Client: m} // pass self so nested calls work
 		return client.runExternalCode(ctx, args, time.Millisecond*6)
 	default:
 		return nil, errors.New("unknown tool")
@@ -58,7 +58,7 @@ func (m *mockToolCaller) CallToolStream(ctx context.Context, name string, args m
 // --- Tests ---
 
 func TestCallToolCode_SingleStep(t *testing.T) {
-	client := &UtcpClient{
+	client := &UtcpChainClient{
 		Client: &mockToolCaller{},
 	}
 
@@ -89,7 +89,7 @@ func TestCallToolCode_SingleStep(t *testing.T) {
 
 func TestCallToolChain_MultiStep(t *testing.T) {
 	mock := &mockToolCaller{}
-	client := &UtcpClient{
+	client := &UtcpChainClient{
 		Client: mock,
 	}
 
@@ -121,7 +121,7 @@ func TestCallToolChain_MultiStep(t *testing.T) {
 }
 
 func TestCallToolCode_Error(t *testing.T) {
-	client := &UtcpClient{Client: &mockToolCaller{}}
+	client := &UtcpChainClient{Client: &mockToolCaller{}}
 
 	failWrapper := func(args map[string]any) (any, error) {
 		return nil, errors.New("forced error")
@@ -140,7 +140,7 @@ func TestCallToolCode_Error(t *testing.T) {
 }
 
 func TestCallToolCode_Timeout(t *testing.T) {
-	client := &UtcpClient{Client: &mockToolCaller{}}
+	client := &UtcpChainClient{Client: &mockToolCaller{}}
 
 	sleepWrapper := func(args map[string]any) (any, error) {
 		time.Sleep(2 * time.Second)
@@ -190,7 +190,7 @@ func writeTempFile(t *testing.T, dir, name, content string) string {
 }
 
 func TestRunYaegiCode(t *testing.T) {
-	client := &UtcpClient{Client: &mockCaller{}}
+	client := &UtcpChainClient{Client: &mockCaller{}}
 	step := ChainStep{
 		ToolName: "mock",
 		Inputs:   map[string]any{},
@@ -211,7 +211,7 @@ func TestRunExternalCode_Python(t *testing.T) {
 	file := writeTempFile(t, tmpDir, "hello.py", `print("hello")`)
 	fileName := filepath.Base(file) // ✅ base name only
 
-	client := &UtcpClient{}
+	client := &UtcpChainClient{}
 	res, err := client.CallToolChain(context.Background(), []ChainStep{
 		{
 			ToolName: "python",
@@ -233,7 +233,7 @@ func TestRunExternalCode_Python(t *testing.T) {
 }
 
 func TestCallToolChain_UsePrevious(t *testing.T) {
-	client := &UtcpClient{Client: &mockCaller{}}
+	client := &UtcpChainClient{Client: &mockCaller{}}
 	steps := []ChainStep{
 		{
 			ToolName: "step1",
@@ -263,7 +263,7 @@ func TestRunExternalCode_Timeout(t *testing.T) {
 	os.Chmod(file, 0o755) // ensure executable
 	fileName := filepath.Base(file)
 
-	client := &UtcpClient{}
+	client := &UtcpChainClient{}
 
 	// Use a shorter timeout to ensure it triggers before the sleep finishes
 	// Give enough margin for process startup
@@ -305,7 +305,7 @@ func TestRunExternalCode_ServerDetection(t *testing.T) {
 	file := writeTempFile(t, tmpDir, "server.sh", `echo "Listening on 8080"; sleep 5`)
 	fileName := filepath.Base(file) // ✅ base name only
 
-	client := &UtcpClient{}
+	client := &UtcpChainClient{}
 	res, err := client.CallToolChain(context.Background(), []ChainStep{
 		{
 			ToolName: "bash",
@@ -342,7 +342,7 @@ func main() {
 	file := writeTempFile(t, tmpDir, "hello.go", goCode)
 	fileName := filepath.Base(file)
 
-	client := &UtcpClient{}
+	client := &UtcpChainClient{}
 	res, err := client.CallToolChain(context.Background(), []ChainStep{
 		{
 			ToolName: "go_script",
@@ -408,7 +408,7 @@ func main() {
     fmt.Print(prev + " Final step!")
 }`)
 
-	client := &UtcpClient{}
+	client := &UtcpChainClient{}
 
 	// Build chain steps with UNIQUE tool names
 	chain := []ChainStep{
@@ -495,7 +495,7 @@ func (m *mockStreamToolCaller) CallToolStream(ctx context.Context, toolName stri
 
 // --- Stream + UsePrevious test ---
 func TestStreamUsePreviousChain(t *testing.T) {
-	client := &UtcpClient{
+	client := &UtcpChainClient{
 		Client: &mockStreamToolCaller{},
 	}
 
@@ -529,7 +529,7 @@ func TestStreamUsePreviousChain(t *testing.T) {
 }
 
 func TestCallToolChain_InlinePythonCode(t *testing.T) {
-	client := &UtcpClient{}
+	client := &UtcpChainClient{}
 
 	code := `print("INLINE_OK")`
 
@@ -561,7 +561,7 @@ func TestCallToolChain_InlinePythonCode(t *testing.T) {
 
 func TestCallToolChain_InlineCode_NoLanguage_YaegiFallback(t *testing.T) {
 	mock := &mockCaller{}
-	client := &UtcpClient{Client: mock}
+	client := &UtcpChainClient{Client: mock}
 
 	steps := []ChainStep{
 		{
@@ -583,7 +583,7 @@ func TestCallToolChain_InlineCode_NoLanguage_YaegiFallback(t *testing.T) {
 }
 
 func TestCallToolChain_StepID(t *testing.T) {
-	client := &UtcpClient{
+	client := &UtcpChainClient{
 		Client: &mockCaller{},
 	}
 
