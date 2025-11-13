@@ -1,6 +1,8 @@
 module github.com/universal-tool-calling-protocol/go-utcp
 
-go 1.23.0
+go 1.24
+
+toolchain go1.24.10
 
 require (
 	github.com/google/uuid v1.6.0
@@ -13,6 +15,7 @@ require (
 	github.com/pion/webrtc/v3 v3.3.5
 	github.com/spf13/cast v1.7.1
 	github.com/stretchr/testify v1.10.0
+	github.com/traefik/yaegi v0.16.1
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v2 v2.4.0
@@ -21,8 +24,6 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/graphql-go/graphql v0.8.1 // indirect
-	github.com/graphql-go/handler v0.2.4 // indirect
 	github.com/matryer/is v1.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
