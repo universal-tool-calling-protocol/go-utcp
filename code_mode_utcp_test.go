@@ -581,3 +581,51 @@ func TestCallCodeModeChain_InlineCode_NoLanguage_YaegiFallback(t *testing.T) {
 		t.Fatalf("expected 'ok:mock', got %v", res["mock"])
 	}
 }
+
+func TestCallCodeModeChain_StepID(t *testing.T) {
+	client := &CodeModeUtcpClient{
+		Client: &mockCaller{},
+	}
+
+	steps := []ChainStep{
+		{
+			ID:       "first",
+			ToolName: "echo",
+			Inputs:   map[string]any{"msg": "hello"},
+		},
+		{
+			ID:       "sum-step",
+			ToolName: "add",
+			Inputs:   map[string]any{"a": 10, "b": 5},
+		},
+	}
+
+	res, err := client.CallCodeModeChain(context.Background(), steps, 3*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check keys — must be IDs, not tool names
+	if _, ok := res["echo"]; ok {
+		t.Fatalf("unexpected key 'echo', ID override did not work")
+	}
+	if _, ok := res["add"]; ok {
+		t.Fatalf("unexpected key 'add', ID override did not work")
+	}
+
+	// Check ID keys exist
+	if _, ok := res["first"]; !ok {
+		t.Fatalf("expected key 'first' missing")
+	}
+	if _, ok := res["sum-step"]; !ok {
+		t.Fatalf("expected key 'sum-step' missing")
+	}
+
+	// Validate values
+	if res["first"] != "ok:echo" {
+		t.Fatalf("expected ok:echo, got %v", res["first"])
+	}
+	if res["sum-step"] != "ok:add" {
+		t.Fatalf("expected ok:add, got %v", res["sum-step"])
+	}
+}
