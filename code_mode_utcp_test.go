@@ -527,3 +527,57 @@ func TestStreamUsePreviousChain(t *testing.T) {
 		t.Errorf("step2 result mismatch: got %v, want %v", step2Result, "HELLO WORLD")
 	}
 }
+
+func TestCallCodeModeChain_InlinePythonCode(t *testing.T) {
+	client := &CodeModeUtcpClient{}
+
+	code := `print("INLINE_OK")`
+
+	steps := []ChainStep{
+		{
+			ToolName: "inline_python",
+			Inputs: map[string]any{
+				"language": "python",
+				"code":     code,
+				"timeout":  5.0,
+			},
+		},
+	}
+
+	res, err := client.CallCodeModeChain(context.Background(), steps, 5*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out, ok := res["inline_python"].(string)
+	if !ok {
+		t.Fatalf("expected string output, got %T", res["inline_python"])
+	}
+
+	if !strings.Contains(out, "INLINE_OK") {
+		t.Fatalf("expected INLINE_OK in output, got: %s", out)
+	}
+}
+
+func TestCallCodeModeChain_InlineCode_NoLanguage_YaegiFallback(t *testing.T) {
+	mock := &mockCaller{}
+	client := &CodeModeUtcpClient{Client: mock}
+
+	steps := []ChainStep{
+		{
+			ToolName: "mock",
+			Inputs: map[string]any{
+				"code": `tools["mock"](map[string]any{})`,
+			},
+		},
+	}
+
+	res, err := client.CallCodeModeChain(context.Background(), steps, 3*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if res["mock"] != "ok:mock" {
+		t.Fatalf("expected 'ok:mock', got %v", res["mock"])
+	}
+}
