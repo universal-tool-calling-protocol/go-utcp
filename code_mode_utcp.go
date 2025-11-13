@@ -136,7 +136,10 @@ func (c *CodeModeUtcpClient) CallCodeModeChain(
 		if err != nil {
 			return results, fmt.Errorf("step %d (%s) failed: %w", i+1, step.ToolName, err)
 		}
-
+		resultKey := step.ToolName
+		if step.ID != "" {
+			resultKey = step.ID
+		}
 		// --- Handle stream results properly ---
 		switch v := res.(type) {
 		case transports.StreamResult:
@@ -152,15 +155,16 @@ func (c *CodeModeUtcpClient) CallCodeModeChain(
 				buf.WriteString(chunk.(string))
 			}
 			lastOutput = strings.TrimSpace(buf.String())
-			results[step.ToolName] = lastOutput
+			results[resultKey] = lastOutput
 
 		default:
 			// Normal result (non-stream)
 			if strRes, ok := res.(string); ok {
 				lastOutput = strings.TrimSpace(strRes)
 			}
-			results[step.ToolName] = res
+			results[resultKey] = res
 		}
+
 	}
 
 	return results, nil
