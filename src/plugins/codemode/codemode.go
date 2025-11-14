@@ -179,6 +179,11 @@ func (c *GoCodeMode) injectHelpers(i *interp.Interpreter) {
 					return c.client.CallTool(context.Background(), name, args)
 				},
 			),
+			"CallTool": reflect.ValueOf(
+				func(name string, args map[string]any) (any, error) {
+					return c.client.CallTool(context.Background(), name, args)
+				},
+			),
 
 			// searchTools("query", 5)
 			"searchTools": reflect.ValueOf(
@@ -186,9 +191,33 @@ func (c *GoCodeMode) injectHelpers(i *interp.Interpreter) {
 					return c.client.SearchTools(query, limit)
 				},
 			),
+			"SearchTools": reflect.ValueOf(
+				func(query string, limit int) ([]tools.Tool, error) {
+					return c.client.SearchTools(query, limit)
+				},
+			),
 
 			// callToolStream("provider.tool", args)
 			"callToolStream": reflect.ValueOf(
+				func(name string, args map[string]any) (string, error) {
+					stream, err := c.client.CallToolStream(context.Background(), name, args)
+					if err != nil {
+						return "", err
+					}
+					var buf bytes.Buffer
+					for {
+						chunk, err := stream.Next()
+						if err != nil {
+							break
+						}
+						if s, ok := chunk.(string); ok {
+							buf.WriteString(s)
+						}
+					}
+					return buf.String(), nil
+				},
+			),
+			"CallToolStream": reflect.ValueOf(
 				func(name string, args map[string]any) (string, error) {
 					stream, err := c.client.CallToolStream(context.Background(), name, args)
 					if err != nil {
