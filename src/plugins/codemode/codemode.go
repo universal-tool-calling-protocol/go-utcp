@@ -146,7 +146,6 @@ func (s *codeModeStream) Next() (any, error) {
 }
 
 func (c *CodeModeUTCP) injectHelpers(ctx context.Context, i *interp.Interpreter) error {
-	// In injectHelpers(), inject into "main" instead of "codemode/codemode"
 	i.Use(interp.Exports{
 		"codemode/codemode": { // must match: import "codemode"
 			"codeModeStream": reflect.ValueOf((*codeModeStream)(nil)).Elem(),
