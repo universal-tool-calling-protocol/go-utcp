@@ -132,6 +132,54 @@ func TestCodeMode_Execute_CallTool(t *testing.T) {
 	}
 }
 
+func TestCodeMode_Execute_MultipleCallTool(t *testing.T) {
+	// toFloat64 handles conversion from int or float64.
+	toFloat64 := func(v any) (float64, bool) {
+		if f, ok := v.(float64); ok {
+			return f, true
+		}
+		if i, ok := v.(int); ok {
+			return float64(i), true
+		}
+		return 0, false
+	}
+
+	mock := &mockUTCP{
+		callToolFn: func(name string, args map[string]any) (any, error) {
+			a, _ := toFloat64(args["a"])
+			b, _ := toFloat64(args["b"])
+
+			switch name {
+			case "math.add":
+				return map[string]any{"result": a + b}, nil
+			case "math.multiply":
+				return map[string]any{"result": a * b}, nil
+			default:
+				return nil, errors.New("unknown tool")
+			}
+		},
+	}
+
+	cm := NewCodeModeUTCP(mock)
+
+	res, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `
+			addRes, _ := codemode.CallTool("math.add", map[string]any{"a": 4, "b": 5})
+			intermediate := addRes.(map[string]any)["result"]
+			multRes, _ := codemode.CallTool("math.multiply", map[string]any{"a": intermediate, "b": 2})
+			return multRes.(map[string]any)["result"]
+`,
+		Timeout: 2000,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Value.(float64) != 18 {
+		t.Fatalf("expected 18, got %#v", res.Value)
+	}
+}
+
 func TestCodeMode_Execute_SearchTools(t *testing.T) {
 	mock := &mockUTCP{
 		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {
