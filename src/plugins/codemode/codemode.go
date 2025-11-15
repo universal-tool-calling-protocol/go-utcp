@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -102,28 +103,74 @@ func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeMode
 		Stdout: &stdout,
 		Stderr: &stderr,
 	})
+
 	i.Use(stdlib.Symbols)
 
-	// Make UTCP functions available to the script
+	// Inject codemode helpers (CallTool, CallToolStream, etc.)
 	if err := c.injectHelpers(ctx, i); err != nil {
 		return CodeModeResult{}, fmt.Errorf("failed to inject helpers: %w", err)
 	}
 
-	// Wrap user code in a function to capture the return value
-	// In Execute(), remove the import line:
-	wrappedCode := fmt.Sprintf(`package main
+	//----------------------------------------------------------------------
+	// DETECT IF LAST LINE IS AN EXPRESSION
+	//----------------------------------------------------------------------
 
-import "codemode"  // <--- Add this to resolve codemode
+	trimmed := strings.TrimSpace(args.Code)
+	lines := strings.Split(trimmed, "\n")
+	lastLine := strings.TrimSpace(lines[len(lines)-1])
+
+	isExpr := true
+
+	// Anything that is clearly a statement → not an expression
+	if strings.Contains(lastLine, ":=") ||
+		strings.Contains(lastLine, "=") ||
+		strings.Contains(lastLine, "{") ||
+		strings.Contains(lastLine, "}") ||
+		strings.HasPrefix(lastLine, "return") ||
+		strings.HasPrefix(lastLine, "if ") ||
+		strings.HasPrefix(lastLine, "for ") ||
+		strings.HasPrefix(lastLine, "var ") ||
+		strings.HasPrefix(lastLine, "func ") {
+		isExpr = false
+	}
+
+	//----------------------------------------------------------------------
+	// BUILD WRAPPED CODE
+	//----------------------------------------------------------------------
+
+	var wrapped string
+
+	if isExpr {
+		// Append a return of the final expression
+		wrapped = fmt.Sprintf(`package main
+import codemode "codemode"
+
+func run() any {
+    %s
+    return (%s)
+}
+`, args.Code, lastLine)
+	} else {
+		// Normal: statements only
+		wrapped = fmt.Sprintf(`package main
+import codemode "codemode"
 
 func run() any {
     %s
     return nil
-}`, args.Code)
-	if _, err := i.EvalWithContext(ctx, wrappedCode); err != nil {
+}
+`, args.Code)
+	}
+
+	//----------------------------------------------------------------------
+	// RUN INTERPRETER
+	//----------------------------------------------------------------------
+
+	_, err := i.EvalWithContext(ctx, wrapped)
+	if err != nil {
 		return CodeModeResult{}, fmt.Errorf("code execution failed: %w\n%s", err, stderr.String())
 	}
 
-	// Get the result from the `run` function
 	v, err := i.EvalWithContext(ctx, "main.run()")
 	if err != nil {
 		return CodeModeResult{}, fmt.Errorf("failed to get return value: %w\n%s", err, stderr.String())
