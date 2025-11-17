@@ -153,7 +153,7 @@ func wrapIntoProgram(clean string) string {
 
 import (
     "fmt"
-    codemode "codemode/codemode"
+    codemode "codemode_helpers/codemode_helpers"
 )
 
 func run() any {
@@ -215,7 +215,7 @@ func (c *CodeModeUTCP) injectHelpers(ctx context.Context, i *interp.Interpreter)
 
 	// Register helper namespace
 	if err := i.Use(interp.Exports{
-		"codemode/codemode": {
+		"codemode_helpers/codemode_helpers": {
 			"CodeModeStream": reflect.ValueOf(codeModeStream{}),
 			"Errorf": reflect.ValueOf(func(format string, args ...any) error {
 				return fmt.Errorf(format, args...)
