@@ -4,13 +4,15 @@ package codemode
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
-
-	"time"
 
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
@@ -80,7 +82,7 @@ func (c *CodeModeUTCP) Tools(ctx context.Context) ([]tools.Tool, error) {
 				Title: "CodeModeResult",
 			},
 
-			Handler: c.toolHandler,
+			Handler: createToolHandler(c.client),
 		},
 	}, nil
 }
@@ -91,39 +93,104 @@ func (c *CodeModeUTCP) Tools(ctx context.Context) ([]tools.Tool, error) {
 // ───────────────────────────────────────────────────────────
 //
 
-func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
-	timeout := time.Duration(args.Timeout) * time.Millisecond
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Initialize Yaegi interpreter
+func newInterpreter() (*interp.Interpreter, *bytes.Buffer, *bytes.Buffer) {
 	var stdout, stderr bytes.Buffer
+
 	i := interp.New(interp.Options{
 		Stdout: &stdout,
 		Stderr: &stderr,
 	})
-	i.Use(stdlib.Symbols)
 
-	// Make UTCP functions available to the script
+	return i, &stdout, &stderr
+}
+
+func (c *CodeModeUTCP) prepareWrappedProgram(code string) (string, error) {
+	code = preprocessUserCode(code)
+	clean := normalizeSnippet(code)
+
+	return wrapIntoProgram(clean), nil
+}
+
+func preprocessUserCode(code string) string {
+	trim := strings.TrimSpace(code)
+
+	if strings.HasPrefix(trim, "{") {
+		code = "__out = " + jsonToGoMap(trim)
+	}
+
+	code = stripOutRedeclarations(code)
+	code = convertOutWalrus(code)
+	code = ensureOutAssigned(code)
+
+	return code
+}
+
+func stripOutRedeclarations(code string) string {
+	re := regexp.MustCompile(`(?m)^\s*(var\s+__out\s+.*|__out\s*:=.*)$`)
+	return re.ReplaceAllString(code, "")
+}
+
+func convertOutWalrus(code string) string {
+	re := regexp.MustCompile(`__out\s*:=`)
+	return re.ReplaceAllString(code, "__out = ")
+}
+
+func ensureOutAssigned(code string) string {
+	if !strings.Contains(code, "__out") {
+		trim := strings.TrimSpace(code)
+		return "__out = " + trim
+	}
+	return code
+}
+
+// injectHelpers makes UTCP client functions available to the Yaegi interpreter.
+type codeModeStream struct {
+	next func() (any, error)
+}
+
+func wrapIntoProgram(clean string) string {
+	return fmt.Sprintf(`package main
+
+import (
+    "fmt"
+    codemode "codemode/codemode"
+)
+
+func run() any {
+    var __out any
+
+    %s
+
+    return __out
+}
+`, clean)
+}
+func withTimeout(ctx context.Context, ms int) (context.Context, context.CancelFunc) {
+	if ms <= 0 {
+		ms = 5000
+	}
+	return context.WithTimeout(ctx, time.Duration(ms)*time.Millisecond)
+}
+
+func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
+	ctx, cancel := withTimeout(ctx, args.Timeout)
+	defer cancel()
+
+	i, stdout, stderr := newInterpreter()
+
 	if err := c.injectHelpers(ctx, i); err != nil {
 		return CodeModeResult{}, fmt.Errorf("failed to inject helpers: %w", err)
 	}
 
-	// Wrap user code in a function to capture the return value
-	// In Execute(), remove the import line:
-	wrappedCode := fmt.Sprintf(`package main
+	wrapped, err := c.prepareWrappedProgram(args.Code)
+	if err != nil {
+		return CodeModeResult{}, err
+	}
 
-import "codemode"  // <--- Add this to resolve codemode
-
-func run() any {
-    %s
-    return nil
-}`, args.Code)
-	if _, err := i.EvalWithContext(ctx, wrappedCode); err != nil {
+	if _, err := i.EvalWithContext(ctx, wrapped); err != nil {
 		return CodeModeResult{}, fmt.Errorf("code execution failed: %w\n%s", err, stderr.String())
 	}
 
-	// Get the result from the `run` function
 	v, err := i.EvalWithContext(ctx, "main.run()")
 	if err != nil {
 		return CodeModeResult{}, fmt.Errorf("failed to get return value: %w\n%s", err, stderr.String())
@@ -136,69 +203,134 @@ func run() any {
 	}, nil
 }
 
-// injectHelpers makes UTCP client functions available to the Yaegi interpreter.
-type codeModeStream struct {
-	next func() (any, error)
-}
-
 func (s *codeModeStream) Next() (any, error) {
 	return s.next()
 }
 
 func (c *CodeModeUTCP) injectHelpers(ctx context.Context, i *interp.Interpreter) error {
-	i.Use(interp.Exports{
-		"codemode/codemode": { // must match: import "codemode"
-			"codeModeStream": reflect.ValueOf((*codeModeStream)(nil)).Elem(),
+	// Load standard library ONLY ONCE
+	if err := i.Use(stdlib.Symbols); err != nil {
+		return fmt.Errorf("codemode: failed to load stdlib: %w", err)
+	}
 
+	// Register helper namespace
+	if err := i.Use(interp.Exports{
+		"codemode/codemode": {
+			"CodeModeStream": reflect.ValueOf(codeModeStream{}),
+			"Errorf": reflect.ValueOf(func(format string, args ...any) error {
+				return fmt.Errorf(format, args...)
+			}),
 			"CallTool": reflect.ValueOf(func(name string, args map[string]any) (any, error) {
-				return c.client.CallTool(ctx, name, args)
+				v, err := c.client.CallTool(ctx, name, args)
+				if err != nil {
+					return nil, fmt.Errorf("codemode CallTool(%s) failed: %w", name, err)
+				}
+				return v, nil
 			}),
 
 			"SearchTools": reflect.ValueOf(func(query string, limit int) ([]tools.Tool, error) {
-				return c.client.SearchTools(query, limit)
+				v, err := c.client.SearchTools(query, limit)
+				if err != nil {
+					return nil, fmt.Errorf("codemode SearchTools(%s) failed: %w", query, err)
+				}
+				return v, nil
 			}),
 
 			"CallToolStream": reflect.ValueOf(func(name string, args map[string]any) (*codeModeStream, error) {
 				s, err := c.client.CallToolStream(ctx, name, args)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("codemode CallToolStream(%s) failed: %w", name, err)
 				}
 
 				return &codeModeStream{
 					next: func() (any, error) {
-						return s.Next()
+						v, err := s.Next()
+						if err != nil {
+							return nil, fmt.Errorf("codemode stream.Next(%s) failed: %w", name, err)
+						}
+						return v, nil
 					},
 				}, nil
 			}),
 		},
-	})
+	}); err != nil {
+		return fmt.Errorf("codemode: failed to load exports: %w", err)
+	}
 
 	return nil
 }
 
-func (c *CodeModeUTCP) toolHandler(ctx map[string]interface{}, inputs map[string]interface{}) (map[string]interface{}, error) {
-	var args CodeModeArgs
-	if code, ok := inputs["code"].(string); ok {
-		args.Code = code
+func createToolHandler(client utcp.UtcpClientInterface) tools.ToolHandler {
+	return func(ctx map[string]interface{}, inputs map[string]interface{}) (map[string]interface{}, error) {
+		if client == nil {
+			return nil, fmt.Errorf("codemode tool handler was created without a valid UTCP client")
+		}
+
+		// We create a temporary instance here to call Execute, but it uses the captured client.
+		c := NewCodeModeUTCP(client)
+		var args CodeModeArgs
+		if code, ok := inputs["code"].(string); ok {
+			args.Code = code
+		}
+		if timeout, ok := inputs["timeout"].(float64); ok { // JSON numbers are float64
+			args.Timeout = int(timeout)
+		}
+
+		if args.Timeout <= 0 {
+			args.Timeout = 3000
+		}
+
+		result, err := c.Execute(context.Background(), args)
+		if err != nil {
+			return nil, fmt.Errorf("error executing codemode script: %w", err)
+		}
+
+		if result.Stderr != "" {
+			return nil, fmt.Errorf("codemode script produced an error: %s", result.Stderr)
+		}
+
+		return map[string]interface{}{
+			"value":  result.Value,
+			"stdout": result.Stdout,
+			"stderr": result.Stderr,
+		}, nil
 	}
-	if timeout, ok := inputs["timeout"].(float64); ok { // JSON numbers are float64
-		args.Timeout = int(timeout)
+}
+
+func normalizeSnippet(code string) string {
+	s := strings.TrimSpace(code)
+
+	// If the snippet *is* a JSON object → convert to Go map
+	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
+		var m map[string]any
+		if json.Unmarshal([]byte(s), &m) == nil {
+			// %#v prints Go syntax: map[string]interface {}{"a":1}
+			return "__out = " + fmt.Sprintf("%#v", m)
+		}
 	}
 
-	if args.Timeout <= 0 {
-		args.Timeout = 3000
+	// If snippet *assigns* JSON to __out: `__out = {...}`
+	if strings.HasPrefix(s, "__out = {") {
+		var m map[string]any
+		inside := strings.TrimSpace(strings.TrimPrefix(s, "__out = "))
+		if json.Unmarshal([]byte(inside), &m) == nil {
+			return "__out = " + fmt.Sprintf("%#v", m)
+		}
 	}
 
-	result, err := c.Execute(context.Background(), args)
-	if err != nil {
-		return nil, err
+	return code
+}
+
+// jsonToGoMap converts a JSON object string into a Go map literal.
+func jsonToGoMap(s string) string {
+	s = strings.TrimSpace(s)
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		// return original snippet if not valid JSON
+		return s
 	}
 
-	// To prevent issues with JSON marshaling of complex types, we can format the value.
-	// For now, we'll just pass it through.
-	return map[string]interface{}{
-		"value":  result.Value,
-		"stdout": result.Stdout,
-		"stderr": result.Stderr,
-	}, nil
+	// %#v prints Go map syntax like: map[string]interface {}{"a":1}
+	return fmt.Sprintf("%#v", m)
 }

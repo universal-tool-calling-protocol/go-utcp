@@ -584,7 +584,7 @@ func TestCallToolChain_InlineCode_NoLanguage_YaegiFallback(t *testing.T) {
 
 func TestCallToolChain_StepID(t *testing.T) {
 	client := &UtcpChainClient{
-		Client: &mockCaller{},
+		Client: &mockToolCaller{},
 	}
 
 	steps := []ChainStep{
@@ -622,10 +622,10 @@ func TestCallToolChain_StepID(t *testing.T) {
 	}
 
 	// Validate values
-	if res["first"] != "ok:echo" {
-		t.Fatalf("expected ok:echo, got %v", res["first"])
+	if res["first"] != "hello" {
+		t.Fatalf("expected hello, got %v", res["first"])
 	}
-	if res["sum-step"] != "ok:add" {
-		t.Fatalf("expected ok:add, got %v", res["sum-step"])
+	if res["sum-step"] != 15 {
+		t.Fatalf("expected 15, got %v", res["sum-step"])
 	}
 }

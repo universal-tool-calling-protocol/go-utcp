@@ -18,8 +18,13 @@ import (
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
+	"github.com/universal-tool-calling-protocol/go-utcp"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
+
+func NewChainModeUTCP(client utcp.UtcpClientInterface) *UtcpChainClient {
+	return &UtcpChainClient{Client: client}
+}
 
 // --- Language Configurations ---
 type LanguageConfig struct {
