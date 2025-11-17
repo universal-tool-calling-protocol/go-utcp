@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -105,24 +106,63 @@ func newInterpreter() (*interp.Interpreter, *bytes.Buffer, *bytes.Buffer) {
 }
 
 func (c *CodeModeUTCP) prepareWrappedProgram(code string) (string, error) {
-	code = preprocessUserCode(code)
-	clean := normalizeSnippet(code)
-
+	processed := preprocessUserCode(code)
+	clean := normalizeSnippet(processed)
 	return wrapIntoProgram(clean), nil
 }
 
 func preprocessUserCode(code string) string {
 	trim := strings.TrimSpace(code)
 
-	if strings.HasPrefix(trim, "{") {
-		code = "__out = " + jsonToGoMap(trim)
+	// JSON object → treat as literal expression
+	if strings.HasPrefix(trim, "{") && strings.HasSuffix(trim, "}") {
+		return "__out = " + jsonToGoLiteral(trim)
 	}
 
 	code = stripOutRedeclarations(code)
 	code = convertOutWalrus(code)
 	code = ensureOutAssigned(code)
-
 	return code
+}
+
+func jsonToGoLiteral(s string) string {
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return s // fallback to raw
+	}
+	return toGoLiteral(v)
+}
+
+func toGoLiteral(v any) string {
+	switch val := v.(type) {
+
+	case map[string]any:
+		parts := make([]string, 0, len(val))
+		for k, v2 := range val {
+			parts = append(parts,
+				fmt.Sprintf("%q: %s", k, toGoLiteral(v2)))
+		}
+		sort.Strings(parts)
+		return fmt.Sprintf("map[string]any{%s}", strings.Join(parts, ", "))
+
+	case []any:
+		items := make([]string, len(val))
+		for i := range val {
+			items[i] = toGoLiteral(val[i])
+		}
+		return fmt.Sprintf("[]any{%s}", strings.Join(items, ", "))
+
+	case string:
+		return fmt.Sprintf("%q", val)
+
+	case float64, bool:
+		return fmt.Sprintf("%v", val)
+
+	case nil:
+		return "nil"
+	}
+
+	return fmt.Sprintf("%#v", v)
 }
 
 func stripOutRedeclarations(code string) string {
@@ -152,18 +192,27 @@ func wrapIntoProgram(clean string) string {
 	return fmt.Sprintf(`package main
 
 import (
-    "fmt"
     codemode "codemode_helpers/codemode_helpers"
 )
 
 func run() any {
     var __out any
 
-    %s
+    // ----- BEGIN USER CODE -----
+%s
+    // ----- END USER CODE -----
 
     return __out
 }
-`, clean)
+`, indent(clean, "    "))
+}
+
+func indent(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 func withTimeout(ctx context.Context, ms int) (context.Context, context.CancelFunc) {
 	if ms <= 0 {
