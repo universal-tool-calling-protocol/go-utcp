@@ -21,6 +21,8 @@ import (
 	"github.com/universal-tool-calling-protocol/go-utcp"
 )
 
+const utcpToolHeader = "X-UTCP-Tool"
+
 var discovered bool
 
 func startServer(addr string) {
@@ -82,13 +84,19 @@ func startServer(addr string) {
 			return
 		}
 
-		// Format B: Legacy shortcut used by many clients → { "message": "hello" } → treat as http.echo
+		// Format B: Header-provided tool dispatch (e.g. UTCP HTTP transport multiplexing)
+		if headerTool := strings.TrimSpace(r.Header.Get(utcpToolHeader)); headerTool != "" {
+			handleTool(w, headerTool, payload)
+			return
+		}
+
+		// Format C: Legacy shortcut used by many clients → { "message": "hello" } → treat as http.echo
 		if message, ok := payload["message"].(string); ok {
 			handleTool(w, "http.echo", map[string]interface{}{"message": message})
 			return
 		}
 
-		// Format C: Some older experimental clients → { "tool": "...", "args": { ... } }
+		// Format D: Some older experimental clients → { "tool": "...", "args": { ... } }
 		if toolName, ok := payload["tool"].(string); ok {
 			args := map[string]interface{}{}
 			if a, ok := payload["args"]; ok {
@@ -145,9 +153,11 @@ func handleTool(w http.ResponseWriter, toolName string, args map[string]interfac
 		json.NewEncoder(w).Encode(map[string]any{"result": *a * *b})
 
 	case "http.string.concat":
-		str1, _ := args["prefix"].(string)
-		str2 := fmt.Sprintf("%v", args["value"])
-		json.NewEncoder(w).Encode(map[string]any{"result": str1 + str2})
+		// The tool call was sending 'a' and 'b' but the handler expected 'prefix' and 'value'.
+		// This is now aligned with the tools.json spec.
+		prefix := fmt.Sprintf("%v", args["prefix"])
+		value := fmt.Sprintf("%v", args["value"])
+		json.NewEncoder(w).Encode(map[string]any{"result": prefix + value})
 
 	case "http.stream.echo":
 		// Simple non-streaming echo for testing (streaming not required for this demo)
@@ -193,7 +203,7 @@ func main() {
 		log.Fatalf("client error: %v", err)
 	}
 
-	modelName := flag.String("model", "gemini-2.5-flash", "Gemini model ID")
+	modelName := flag.String("model", "gemini-2.5-pro", "Gemini model ID")
 	flag.Parse()
 
 	researcherModel, err := models.NewGeminiLLM(ctx, *modelName, "")
@@ -227,7 +237,7 @@ func main() {
 1. Call the http.echo tool with the message "hello world".
 2. Call the http.math.add tool with a=5 and b=7.
 3. Take the result from the previous step and call the http.math.multiply tool with it and the number 3.
-4. Take the result from the previous step and call the http.string.concat tool to prepend "Number: " to it.
+4. Take the result from the previous step and call the http.string.concat tool to prepend "Number: " to it, using 'prefix' and 'value' as arguments.
 `
 
 	resp, err := ag.Generate(ctx, "test", prompt)
