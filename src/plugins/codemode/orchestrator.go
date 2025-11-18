@@ -268,7 +268,6 @@ func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
 	var allSpecs []tools.Tool
 	seen := make(map[string]bool)
 
-	// 2. Built-in CodeMode tool (if available)
 	if cmTools, err := a.Tools(context.Background()); err == nil {
 		for _, t := range cmTools {
 			key := strings.ToLower(strings.TrimSpace(t.Name))
@@ -288,7 +287,6 @@ func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
 		limit = 50
 	}
 
-	// 3. Get UTCP tool specs and merge
 	if a.client != nil {
 		utcpTools, _ := a.client.SearchTools("", limit)
 		for _, tool := range utcpTools {
