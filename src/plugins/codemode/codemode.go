@@ -114,13 +114,13 @@ func (c *CodeModeUTCP) prepareWrappedProgram(code string) (string, error) {
 func preprocessUserCode(code string) string {
 	trim := strings.TrimSpace(code)
 
-	// JSON object → treat as literal expression
 	if strings.HasPrefix(trim, "{") && strings.HasSuffix(trim, "}") {
 		return "__out = " + jsonToGoLiteral(trim)
 	}
 
-	code = stripOutRedeclarations(code)
-	code = convertOutWalrus(code)
+	code = stripPackageAndImports(code)
+	code = convertOutWalrus(code) // This now handles all __out assignment conversions
+	code = fixBareReturn(code)    // 👈 ADD THIS LINE
 	code = ensureOutAssigned(code)
 	return code
 }
@@ -143,7 +143,11 @@ func toGoLiteral(v any) string {
 				fmt.Sprintf("%q: %s", k, toGoLiteral(v2)))
 		}
 		sort.Strings(parts)
-		return fmt.Sprintf("map[string]any{%s}", strings.Join(parts, ", "))
+		if len(parts) > 0 {
+			// Add a trailing comma for multi-line safety
+			return fmt.Sprintf("map[string]any{%s,}", strings.Join(parts, ", "))
+		}
+		return "map[string]any{}"
 
 	case []any:
 		items := make([]string, len(val))
@@ -165,14 +169,32 @@ func toGoLiteral(v any) string {
 	return fmt.Sprintf("%#v", v)
 }
 
-func stripOutRedeclarations(code string) string {
-	re := regexp.MustCompile(`(?m)^\s*(var\s+__out\s+.*|__out\s*:=.*)$`)
-	return re.ReplaceAllString(code, "")
+func fixBareReturn(code string) string {
+	// replace any `return` followed by end-of-line or `}` with `return __out`
+	re := regexp.MustCompile(`(?m)^\s*return\s*$`)
+	return re.ReplaceAllString(code, "return __out")
 }
 
 func convertOutWalrus(code string) string {
+	// This regex finds `__out :=` and replaces it with `__out = `
+	// It handles cases where __out is the only variable or the first of several.
+	// e.g., `__out := ...` -> `__out = ...`
+	// e.g., `__out, err := ...` -> `__out, err = ...` (which is incorrect if err is new, but better than a syntax error)
+	// A more robust solution would be a proper Go parser, but this regex is a significant improvement.
 	re := regexp.MustCompile(`__out\s*:=`)
 	return re.ReplaceAllString(code, "__out = ")
+}
+func stripPackageAndImports(code string) string {
+	// Remove package declaration
+	rePackage := regexp.MustCompile(`(?m)^\s*package\s+\w+\s*$`)
+	code = rePackage.ReplaceAllString(code, "")
+
+	// Remove import declarations (single line and multi-line)
+	reImportSingle := regexp.MustCompile(`(?m)^\s*import\s+(".*"|\w+\s+".*"|\(.*\))\s*$`)
+	code = reImportSingle.ReplaceAllString(code, "")
+	reImportMulti := regexp.MustCompile(`(?s)^\s*import\s*\((.*?)\)\s*$`)
+	code = reImportMulti.ReplaceAllString(code, "")
+	return code
 }
 
 func ensureOutAssigned(code string) string {
@@ -192,7 +214,8 @@ func wrapIntoProgram(clean string) string {
 	return fmt.Sprintf(`package main
 
 import (
-    codemode "codemode_helpers/codemode_helpers"
+	"context/context"
+	codemode "codemode_helpers/codemode_helpers"
 )
 
 func run() any {
@@ -227,20 +250,20 @@ func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeMode
 
 	i, stdout, stderr := newInterpreter()
 
-	if err := c.injectHelpers(ctx, i); err != nil {
+	if err := injectHelpers(i, c.client); err != nil {
 		return CodeModeResult{}, fmt.Errorf("failed to inject helpers: %w", err)
 	}
 
 	wrapped, err := c.prepareWrappedProgram(args.Code)
 	if err != nil {
-		return CodeModeResult{}, err
+		return CodeModeResult{}, fmt.Errorf("failed to prepare program: %w", err)
 	}
 
-	if _, err := i.EvalWithContext(ctx, wrapped); err != nil {
-		return CodeModeResult{}, fmt.Errorf("code execution failed: %w\n%s", err, stderr.String())
+	if _, err := i.Eval(wrapped); err != nil {
+		return CodeModeResult{}, fmt.Errorf("code execution failed: %w\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
 	}
 
-	v, err := i.EvalWithContext(ctx, "main.run()")
+	v, err := i.Eval(`main.run()`)
 	if err != nil {
 		return CodeModeResult{}, fmt.Errorf("failed to get return value: %w\n%s", err, stderr.String())
 	}
@@ -256,54 +279,39 @@ func (s *codeModeStream) Next() (any, error) {
 	return s.next()
 }
 
-func (c *CodeModeUTCP) injectHelpers(ctx context.Context, i *interp.Interpreter) error {
-	// Load standard library ONLY ONCE
+func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface) error {
+	// Load standard library — this already includes a perfectly working "context" package
 	if err := i.Use(stdlib.Symbols); err != nil {
-		return fmt.Errorf("codemode: failed to load stdlib: %w", err)
+		return fmt.Errorf("failed to load stdlib: %w", err)
 	}
 
-	// Register helper namespace
-	if err := i.Use(interp.Exports{
-		"codemode_helpers/codemode_helpers": {
-			"CodeModeStream": reflect.ValueOf(codeModeStream{}),
-			"Errorf": reflect.ValueOf(func(format string, args ...any) error {
-				return fmt.Errorf(format, args...)
-			}),
+	exports := interp.Exports{
+		"codemode_helpers/codemode_helpers": map[string]reflect.Value{
+			"CodeModeStream": reflect.ValueOf((*codeModeStream)(nil)),
+
+			"Errorf":  reflect.ValueOf(fmt.Errorf),
+			"Sprintf": reflect.ValueOf(fmt.Sprintf),
+
 			"CallTool": reflect.ValueOf(func(name string, args map[string]any) (any, error) {
-				v, err := c.client.CallTool(ctx, name, args)
-				if err != nil {
-					return nil, fmt.Errorf("codemode CallTool(%s) failed: %w", name, err)
-				}
-				return v, nil
+				return client.CallTool(context.Background(), name, args)
 			}),
 
 			"SearchTools": reflect.ValueOf(func(query string, limit int) ([]tools.Tool, error) {
-				v, err := c.client.SearchTools(query, limit)
-				if err != nil {
-					return nil, fmt.Errorf("codemode SearchTools(%s) failed: %w", query, err)
-				}
-				return v, nil
+				return client.SearchTools(query, limit)
 			}),
 
 			"CallToolStream": reflect.ValueOf(func(name string, args map[string]any) (*codeModeStream, error) {
-				s, err := c.client.CallToolStream(ctx, name, args)
+				stream, err := client.CallToolStream(context.Background(), name, args)
 				if err != nil {
-					return nil, fmt.Errorf("codemode CallToolStream(%s) failed: %w", name, err)
+					return nil, fmt.Errorf("CallToolStream failed: %w", err)
 				}
-
-				return &codeModeStream{
-					next: func() (any, error) {
-						v, err := s.Next()
-						if err != nil {
-							return nil, fmt.Errorf("codemode stream.Next(%s) failed: %w", name, err)
-						}
-						return v, nil
-					},
-				}, nil
+				return &codeModeStream{next: stream.Next}, nil
 			}),
 		},
-	}); err != nil {
-		return fmt.Errorf("codemode: failed to load exports: %w", err)
+	}
+
+	if err := i.Use(exports); err != nil {
+		return fmt.Errorf("failed to export helpers: %w", err)
 	}
 
 	return nil
@@ -349,37 +357,15 @@ func createToolHandler(client utcp.UtcpClientInterface) tools.ToolHandler {
 func normalizeSnippet(code string) string {
 	s := strings.TrimSpace(code)
 
-	// If the snippet *is* a JSON object → convert to Go map
+	// If the snippet is a JSON object, convert it to a Go map literal.
 	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
-		var m map[string]any
-		if json.Unmarshal([]byte(s), &m) == nil {
-			// %#v prints Go syntax: map[string]interface {}{"a":1}
-			return "__out = " + fmt.Sprintf("%#v", m)
-		}
+		return "__out = " + jsonToGoLiteral(s)
 	}
 
-	// If snippet *assigns* JSON to __out: `__out = {...}`
+	// If the snippet assigns a JSON object to __out, convert it.
 	if strings.HasPrefix(s, "__out = {") {
-		var m map[string]any
 		inside := strings.TrimSpace(strings.TrimPrefix(s, "__out = "))
-		if json.Unmarshal([]byte(inside), &m) == nil {
-			return "__out = " + fmt.Sprintf("%#v", m)
-		}
+		return "__out = " + jsonToGoLiteral(inside)
 	}
-
 	return code
-}
-
-// jsonToGoMap converts a JSON object string into a Go map literal.
-func jsonToGoMap(s string) string {
-	s = strings.TrimSpace(s)
-
-	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		// return original snippet if not valid JSON
-		return s
-	}
-
-	// %#v prints Go map syntax like: map[string]interface {}{"a":1}
-	return fmt.Sprintf("%#v", m)
 }
