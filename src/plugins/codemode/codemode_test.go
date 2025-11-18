@@ -81,7 +81,7 @@ func toFloat64(v any) (float64, bool) {
 
 func TestCodeMode_Execute_Simple(t *testing.T) {
 	mock := &mockUTCP{}
-	cm := NewCodeModeUTCP(mock)
+	cm := NewCodeModeUTCP(mock, nil)
 
 	res, err := cm.Execute(context.Background(), CodeModeArgs{
 		Code:    `__out = 2 + 3`,
@@ -98,7 +98,7 @@ func TestCodeMode_Execute_Simple(t *testing.T) {
 
 func TestCodeMode_Execute_Timeout(t *testing.T) {
 	mock := &mockUTCP{}
-	cm := NewCodeModeUTCP(mock)
+	cm := NewCodeModeUTCP(mock, nil)
 
 	_, err := cm.Execute(context.Background(), CodeModeArgs{
 		Code: `
@@ -122,7 +122,7 @@ func TestCodeMode_Execute_CallTool(t *testing.T) {
 		},
 	}
 
-	cm := NewCodeModeUTCP(mock)
+	cm := NewCodeModeUTCP(mock, nil)
 
 	res, err := cm.Execute(context.Background(), CodeModeArgs{
 		Code: `
@@ -171,7 +171,7 @@ func TestCodeMode_Execute_MultipleCallTool(t *testing.T) {
 		},
 	}
 
-	cm := NewCodeModeUTCP(mock)
+	cm := NewCodeModeUTCP(mock, nil)
 
 	res, err := cm.Execute(context.Background(), CodeModeArgs{
 		Code: `
@@ -207,7 +207,7 @@ func TestCodeMode_Execute_SearchTools(t *testing.T) {
 		},
 	}
 
-	cm := NewCodeModeUTCP(mock)
+	cm := NewCodeModeUTCP(mock, nil)
 
 	res, err := cm.Execute(context.Background(), CodeModeArgs{
 		Code: `
@@ -243,7 +243,7 @@ func TestCodeMode_Execute_CallToolStream(t *testing.T) {
 		},
 	}
 
-	cm := NewCodeModeUTCP(mock)
+	cm := NewCodeModeUTCP(mock, nil)
 
 	res, err := cm.Execute(context.Background(), CodeModeArgs{
 		Code: `

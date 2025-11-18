@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -40,9 +39,14 @@ type CodeModeResult struct {
 
 type CodeModeUTCP struct {
 	client utcp.UtcpClientInterface
+	model  interface {
+		Generate(ctx context.Context, sessionID string, prompt string) (any, error)
+	}
 }
 
-func NewCodeModeUTCP(client utcp.UtcpClientInterface) *CodeModeUTCP {
+func NewCodeModeUTCP(client utcp.UtcpClientInterface, model interface {
+	Generate(ctx context.Context, sessionID, prompt string) (string, error)
+}) *CodeModeUTCP {
 	return &CodeModeUTCP{client: client}
 }
 
@@ -83,7 +87,7 @@ func (c *CodeModeUTCP) Tools(ctx context.Context) ([]tools.Tool, error) {
 				Title: "CodeModeResult",
 			},
 
-			Handler: createToolHandler(c.client),
+			Handler: c.createToolHandler(),
 		},
 	}, nil
 }
@@ -237,16 +241,8 @@ func indent(s, prefix string) string {
 	}
 	return strings.Join(lines, "\n")
 }
-func withTimeout(ctx context.Context, ms int) (context.Context, context.CancelFunc) {
-	if ms <= 0 {
-		ms = 5000
-	}
-	return context.WithTimeout(ctx, time.Duration(ms)*time.Millisecond)
-}
 
 func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
-	ctx, cancel := withTimeout(ctx, args.Timeout)
-	defer cancel()
 
 	i, stdout, stderr := newInterpreter()
 
@@ -317,14 +313,8 @@ func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface) error
 	return nil
 }
 
-func createToolHandler(client utcp.UtcpClientInterface) tools.ToolHandler {
+func (cm *CodeModeUTCP) createToolHandler() tools.ToolHandler {
 	return func(ctx map[string]interface{}, inputs map[string]interface{}) (map[string]interface{}, error) {
-		if client == nil {
-			return nil, fmt.Errorf("codemode tool handler was created without a valid UTCP client")
-		}
-
-		// We create a temporary instance here to call Execute, but it uses the captured client.
-		c := NewCodeModeUTCP(client)
 		var args CodeModeArgs
 		if code, ok := inputs["code"].(string); ok {
 			args.Code = code
@@ -337,7 +327,7 @@ func createToolHandler(client utcp.UtcpClientInterface) tools.ToolHandler {
 			args.Timeout = 3000
 		}
 
-		result, err := c.Execute(context.Background(), args)
+		result, err := cm.Execute(context.Background(), args)
 		if err != nil {
 			return nil, fmt.Errorf("error executing codemode script: %w", err)
 		}

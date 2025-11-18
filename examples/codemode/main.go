@@ -19,6 +19,7 @@ import (
 	"github.com/Protocol-Lattice/go-agent/src/models"
 	"github.com/Protocol-Lattice/go-agent/src/subagents"
 	"github.com/universal-tool-calling-protocol/go-utcp"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/plugins/codemode"
 )
 
 var discovered bool
@@ -207,16 +208,16 @@ func main() {
 			}),
 			adkmodules.InMemoryMemoryModule(100000, memory.AutoEmbedder(), &memOpts),
 		),
-		adk.WithCodeModeUtcp(client),
-		adk.WithUTCP(client),
 	)
-	if err != nil {
-		log.Fatalf("failed to initialise kit: %v", err)
-	}
 
 	ag, err := kit.BuildAgent(ctx)
 	if err != nil {
 		log.Fatalf("failed to build agent: %v", err)
+	}
+
+	cm := codemode.NewCodeModeUTCP(client, ag)
+	if err != nil {
+		log.Fatalf("failed to initialise kit: %v", err)
 	}
 
 	prompt := `
@@ -226,9 +227,12 @@ func main() {
 4. Take the result from the previous step and call the http.string.concat tool to prepend "Number: " to it, using 'prefix' and 'value' as arguments.
 `
 
-	resp, err := ag.Generate(ctx, "test", prompt)
+	ok, resp, err := cm.CallTool(ctx, prompt)
 	if err != nil {
 		log.Fatalf("failed to generate: %v", err)
+	}
+	if !ok {
+		log.Fatalf("failed to generate: %v", resp)
 	}
 	fmt.Println(resp)
 }

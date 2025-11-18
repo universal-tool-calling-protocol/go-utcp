@@ -3,6 +3,7 @@ module github.com/universal-tool-calling-protocol/go-utcp
 go 1.25.0
 
 require (
+	github.com/Protocol-Lattice/go-agent v1.0.7
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
@@ -27,7 +28,6 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/longrunning v0.5.7 // indirect
-	github.com/Protocol-Lattice/go-agent v1.0.7 // indirect
 	github.com/alpkeskin/gotoon v0.1.1 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.13.0 // indirect
 	github.com/anush008/fastembed-go v1.0.0 // indirect
