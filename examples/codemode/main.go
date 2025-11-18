@@ -21,8 +21,6 @@ import (
 	"github.com/universal-tool-calling-protocol/go-utcp"
 )
 
-const utcpToolHeader = "X-UTCP-Tool"
-
 var discovered bool
 
 func startServer(addr string) {
@@ -81,18 +79,6 @@ func startServer(addr string) {
 		// Fallback: Use tool name from path and payload as input
 		if toolName := strings.TrimPrefix(r.URL.Path, "/tools"); toolName != "" {
 			handleTool(w, toolName, payload)
-			return
-		}
-
-		// Format B: Header-provided tool dispatch (e.g. UTCP HTTP transport multiplexing)
-		if headerTool := strings.TrimSpace(r.Header.Get(utcpToolHeader)); headerTool != "" {
-			handleTool(w, headerTool, payload)
-			return
-		}
-
-		// Format C: Legacy shortcut used by many clients → { "message": "hello" } → treat as http.echo
-		if message, ok := payload["message"].(string); ok {
-			handleTool(w, "http.echo", map[string]interface{}{"message": message})
 			return
 		}
 
