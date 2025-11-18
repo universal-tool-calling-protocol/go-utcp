@@ -158,8 +158,10 @@ Key benefits:
 Enable it by registering the plugin:
 
 ```go
-cm := codemode.NewCodeModeUTCP(client)
+cm := codemode.NewCodeModeUTCP(client, llmodel)
 ```
+
+// LLm model must satisfy interface from NewCodeModeUTCP
 
 ---
 
