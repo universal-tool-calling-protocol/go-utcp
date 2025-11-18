@@ -40,12 +40,12 @@ type CodeModeResult struct {
 type CodeModeUTCP struct {
 	client utcp.UtcpClientInterface
 	model  interface {
-		Generate(ctx context.Context, sessionID string, prompt string) (any, error)
+		Generate(ctx context.Context, _ string, prompt string) (any, error)
 	}
 }
 
 func NewCodeModeUTCP(client utcp.UtcpClientInterface, model interface {
-	Generate(ctx context.Context, sessionID, prompt string) (string, error)
+	Generate(ctx context.Context, _, prompt string) (string, error)
 }) *CodeModeUTCP {
 	return &CodeModeUTCP{client: client}
 }
