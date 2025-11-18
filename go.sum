@@ -36,6 +36,8 @@ github.com/Protocol-Lattice/go-agent v1.0.1 h1:AfL548nKvbLvzkyrFSnD3hj9JZoIeRwNV
 github.com/Protocol-Lattice/go-agent v1.0.1/go.mod h1:vd+JFrs9TwSWSs0NV/LpBTG6ITs6JdxuM2p9Eg2iLs4=
 github.com/Protocol-Lattice/go-agent v1.0.2 h1:0P3qNTTjdCVY8vFGOTAr6lZtkX7790e9KqjwZsUIyqE=
 github.com/Protocol-Lattice/go-agent v1.0.2/go.mod h1:vd+JFrs9TwSWSs0NV/LpBTG6ITs6JdxuM2p9Eg2iLs4=
+github.com/Protocol-Lattice/go-agent v1.0.7 h1:crDuduuAf7FGPbZNSy7nX0U+eZimqI2snNRkTUFa9Ag=
+github.com/Protocol-Lattice/go-agent v1.0.7/go.mod h1:vd+JFrs9TwSWSs0NV/LpBTG6ITs6JdxuM2p9Eg2iLs4=
 github.com/alpkeskin/gotoon v0.1.1 h1:GQOVwMfWKINnfEA6slrXHJaJYDwnUFmrPlXOtnuja1w=
 github.com/alpkeskin/gotoon v0.1.1/go.mod h1:XRTz8RM4tz8M2nB37MNRN8rHF4YgeYd8nIXmoU0B0+M=
 github.com/anthropics/anthropic-sdk-go v1.13.0 h1:Bhbe8sRoDPtipttg8bQYrMCKe2b79+q6rFW1vOKEUKI=
