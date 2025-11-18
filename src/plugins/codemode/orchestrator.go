@@ -14,7 +14,7 @@ import (
 
 func (cm *CodeModeUTCP) CallTool(
 	ctx context.Context,
-	userInput string,
+	prompt string,
 ) (bool, any, error) {
 
 	toolSpecs := cm.ToolSpecs()
@@ -23,7 +23,7 @@ func (cm *CodeModeUTCP) CallTool(
 	// --------------------------------------------
 	// 1) Decide whether tools are needed
 	// --------------------------------------------
-	need, err := cm.decideIfToolsNeeded(ctx, userInput, detailed)
+	need, err := cm.decideIfToolsNeeded(ctx, prompt, detailed)
 	if err != nil {
 		return false, "", err
 	}
@@ -34,7 +34,7 @@ func (cm *CodeModeUTCP) CallTool(
 	// --------------------------------------------
 	// 2) Select tools (exact names)
 	// --------------------------------------------
-	selected, err := cm.selectTools(ctx, userInput, detailed)
+	selected, err := cm.selectTools(ctx, prompt, detailed)
 	if err != nil {
 		return true, "", err
 	}
@@ -45,7 +45,7 @@ func (cm *CodeModeUTCP) CallTool(
 	// --------------------------------------------
 	// 3) Generate snippet using chosen tools only
 	// --------------------------------------------
-	snippet, ok, err := cm.generateSnippet(ctx, userInput, selected, detailed)
+	snippet, ok, err := cm.generateSnippet(ctx, prompt, selected, detailed)
 	if err != nil && !ok {
 		return true, "", err
 	}
