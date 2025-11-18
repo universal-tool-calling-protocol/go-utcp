@@ -189,7 +189,7 @@ func main() {
 		log.Fatalf("client error: %v", err)
 	}
 
-	modelName := flag.String("model", "gemini-2.5-pro", "Gemini model ID")
+	modelName := flag.String("model", "gemini-2.5-flash", "Gemini model ID")
 	flag.Parse()
 
 	researcherModel, err := models.NewGeminiLLM(ctx, *modelName, "")
