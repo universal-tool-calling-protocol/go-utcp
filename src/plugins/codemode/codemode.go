@@ -42,6 +42,8 @@ type CodeModeUTCP struct {
 	model  interface {
 		Generate(ctx context.Context, prompt string) (any, error)
 	}
+	// For testing purposes, to mock the Execute method.
+	executeFunc func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error)
 }
 
 func NewCodeModeUTCP(client utcp.UtcpClientInterface, model interface {
@@ -243,6 +245,10 @@ func indent(s, prefix string) string {
 }
 
 func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
+	// Allow mocking for tests
+	if c.executeFunc != nil {
+		return c.executeFunc(ctx, args)
+	}
 
 	i, stdout, stderr := newInterpreter()
 
