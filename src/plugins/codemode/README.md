@@ -70,7 +70,7 @@ Main entry point for orchestrating tool calls.
 ```go
 func NewCodeModeUTCP(
     client utcp.UtcpClientInterface,
-    model interface { Generate(ctx context.Context, _, prompt string) (string, error) }
+    model interface { Generate(ctx context.Context,prompt string) (string, error) }
 ) *CodeModeUTCP
 ```
 
