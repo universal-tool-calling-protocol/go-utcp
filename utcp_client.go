@@ -518,18 +518,21 @@ func (c *UtcpClient) CallTool(
 }
 
 func (c *UtcpClient) SearchTools(providerPrefix string, limit int) ([]Tool, error) {
+	// If providerPrefix is empty, return all tools.
+	if providerPrefix == "" {
+		return c.toolRepository.GetTools(context.Background())
+	}
+
 	all, err := c.toolRepository.GetTools(context.Background())
 	if err != nil {
 		return nil, err
 	}
+
 	var filtered []Tool
 	for _, t := range all {
 		if strings.HasPrefix(t.Name, providerPrefix+".") {
 			filtered = append(filtered, t)
 		}
-	}
-	if len(filtered) == 0 {
-		return nil, fmt.Errorf("no tools found for provider %q", providerPrefix)
 	}
 	return filtered, nil
 }
