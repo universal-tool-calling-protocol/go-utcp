@@ -382,3 +382,56 @@ if err != nil {
 	assert.True(t, needed)
 	assert.Equal(t, "tool2 stream result", result.(CodeModeResult).Value)
 }
+
+func TestCallTool_NoToolsSelected(t *testing.T) {
+	ctx := context.Background()
+
+	mock := &mockModel{
+		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
+			switch {
+			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
+				return `{"needs": true}`, nil
+			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
+				return `{"tools": []}`, nil // No tools selected
+			default:
+				return nil, fmt.Errorf("unexpected prompt: %s", prompt)
+			}
+		},
+	}
+
+	cm := &CodeModeUTCP{model: mock}
+
+	needed, result, err := cm.CallTool(ctx, "a prompt that doesn't need tools")
+
+	require.NoError(t, err)
+	assert.False(t, needed)
+	assert.Equal(t, "", result)
+}
+
+func TestCallTool_GenerateSnippetFails(t *testing.T) {
+	ctx := context.Background()
+
+	mock := &mockModel{
+		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
+			switch {
+			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
+				return `{"needs": true}`, nil
+			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
+				return `{"tools": ["test.tool"]}`, nil
+			case strings.Contains(prompt, "Generate a Go snippet"):
+				return nil, errors.New("snippet generation failed") // Simulate snippet generation failure
+			default:
+				return nil, fmt.Errorf("unexpected prompt: %s", prompt)
+			}
+		},
+	}
+
+	cm := &CodeModeUTCP{model: mock}
+
+	needed, _, err := cm.CallTool(ctx, "a prompt that needs tools")
+	if err != nil {
+		assert.EqualError(t, err, "snippet generation failed")
+	}
+	require.Error(t, err)
+	assert.True(t, needed)
+}
