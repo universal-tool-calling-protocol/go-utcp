@@ -30,7 +30,7 @@ func NewTagSearchStrategy(repo ToolRepository, descriptionWeight float64) *TagSe
 // SearchTools returns tools ordered by relevance to the query, using explicit tags and description keywords.
 func (s *TagSearchStrategy) SearchTools(ctx context.Context, query string, limit int) ([]Tool, error) {
 	// Normalize query
-	queryLower := strings.ToLower(query)
+	queryLower := strings.ToLower(strings.TrimSpace(query))
 	words := s.wordRegex.FindAllString(queryLower, -1)
 	queryWordSet := make(map[string]struct{}, len(words))
 	for _, w := range words {
@@ -43,57 +43,74 @@ func (s *TagSearchStrategy) SearchTools(ctx context.Context, query string, limit
 		return nil, err
 	}
 
-	// SUTCP each tool
-	type sUTCPdTool struct {
-		t     Tool
-		sUTCP float64
+	// Compute SUTCP score for each tool
+	type scoredTool struct {
+		tool  Tool
+		score float64
 	}
-	var sUTCPd []sUTCPdTool
-	for _, t := range tools {
-		var sUTCP float64
+	var scored []scoredTool
 
-		// SUTCP from tags
+	for _, t := range tools {
+		var score float64
+
+		// Match against tags
 		for _, tag := range t.Tags {
 			tagLower := strings.ToLower(tag)
+
+			// Direct substring match
 			if strings.Contains(queryLower, tagLower) {
-				sUTCP += 1.0
+				score += 1.0
 			}
-			// Partial matches on tag words
+
+			// Word-level overlap
 			tagWords := s.wordRegex.FindAllString(tagLower, -1)
 			for _, w := range tagWords {
 				if _, ok := queryWordSet[w]; ok {
-					sUTCP += s.descriptionWeight
+					score += s.descriptionWeight
 				}
 			}
 		}
 
-		// SUTCP from description
+		// Match against description
 		if t.Description != "" {
 			descWords := s.wordRegex.FindAllString(strings.ToLower(t.Description), -1)
 			for _, w := range descWords {
 				if len(w) > 2 {
 					if _, ok := queryWordSet[w]; ok {
-						sUTCP += s.descriptionWeight
+						score += s.descriptionWeight
 					}
 				}
 			}
 		}
 
-		sUTCPd = append(sUTCPd, sUTCPdTool{t: t, sUTCP: sUTCP})
+		scored = append(scored, scoredTool{tool: t, score: score})
 	}
 
-	// Sort by descending sUTCP
-	sort.Slice(sUTCPd, func(i, j int) bool {
-		return sUTCPd[i].sUTCP > sUTCPd[j].sUTCP
+	// Sort descending by score
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
 	})
 
-	// Return up to limit
+	// Collect only positive matches
 	var result []Tool
-	for i, st := range sUTCPd {
-		if i >= limit {
-			break
+	for _, st := range scored {
+		if st.score > 0 {
+			result = append(result, st.tool)
+			if len(result) >= limit {
+				break
+			}
 		}
-		result = append(result, st.t)
 	}
+
+	// If no matches, fallback to top N (for discoverability)
+	if len(result) == 0 && len(scored) > 0 {
+		for i, st := range scored {
+			if i >= limit {
+				break
+			}
+			result = append(result, st.tool)
+		}
+	}
+
 	return result, nil
 }
