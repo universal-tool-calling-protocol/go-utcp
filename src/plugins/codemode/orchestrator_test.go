@@ -285,3 +285,100 @@ func TestCallTool_ToolsNeededAndExecuted(t *testing.T) {
 	assert.True(t, needed, "Should indicate that tools were needed")
 	assert.Equal(t, "execution result", result.(CodeModeResult).Value, "Should return the result from the mocked Execute function")
 }
+
+func TestCallTool_MultiStepExecution(t *testing.T) {
+	ctx := context.Background()
+
+	generatedCode := `
+res1, err := codemode.CallTool("tool1", map[string]any{"param": "value1"})
+if err != nil {
+	__out = err.Error()
+} else {
+	res2, err := codemode.CallTool("tool2", map[string]any{"input": res1})
+	if err != nil {
+		__out = err.Error()
+	} else {
+		__out = res2
+	}
+}`
+
+	mock := &mockModel{
+		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
+			switch {
+			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
+				return `{"needs": true}`, nil
+			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
+				return `{"tools": ["tool1", "tool2"]}`, nil
+			case strings.Contains(prompt, "Generate a Go snippet"):
+				return fmt.Sprintf(`{"code": %q}`, generatedCode), nil
+			default:
+				return nil, fmt.Errorf("unexpected prompt: %s", prompt)
+			}
+		},
+	}
+
+	cm := &CodeModeUTCP{
+		model: mock,
+		executeFunc: func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
+			assert.Equal(t, generatedCode, args.Code)
+			return CodeModeResult{Value: "tool2 result"}, nil
+		},
+	}
+
+	needed, result, err := cm.CallTool(ctx, "a prompt that needs multiple tools and steps")
+	require.NoError(t, err)
+	assert.True(t, needed)
+	assert.Equal(t, "tool2 result", result.(CodeModeResult).Value)
+}
+
+func TestCallTool_MixCallToolAndCallToolStream(t *testing.T) {
+	ctx := context.Background()
+
+	generatedCode := `
+res1, err := codemode.CallTool("tool1", map[string]any{"param": "value1"})
+if err != nil {
+	__out = err.Error()
+} else {
+	res2Ch, err := codemode.CallToolStream("tool2", map[string]any{"input": res1})
+	if err != nil {
+		__out = err.Error()
+	} else {
+		var res2 []string
+		for {
+			item, ok := res2Ch.Next()
+			if !ok {
+				break
+			}
+			res2 += append(res2,item)
+		}
+		__out = res2
+	}
+}`
+
+	mock := &mockModel{
+		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
+			switch {
+			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
+				return `{"needs": true}`, nil
+			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
+				return `{"tools": ["tool1", "tool2"]}`, nil
+			case strings.Contains(prompt, "Generate a Go snippet"):
+				return fmt.Sprintf(`{"code": %q}`, generatedCode), nil
+			default:
+				return nil, fmt.Errorf("unexpected prompt: %s", prompt)
+			}
+		},
+	}
+
+	cm := &CodeModeUTCP{
+		model: mock,
+		executeFunc: func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
+			assert.Equal(t, generatedCode, args.Code)
+			return CodeModeResult{Value: "tool2 stream result"}, nil
+		},
+	}
+	needed, result, err := cm.CallTool(ctx, "a prompt that needs multiple tools and steps")
+	require.NoError(t, err)
+	assert.True(t, needed)
+	assert.Equal(t, "tool2 stream result", result.(CodeModeResult).Value)
+}
