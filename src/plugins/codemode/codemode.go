@@ -40,7 +40,7 @@ type CodeModeResult struct {
 type CodeModeUTCP struct {
 	client utcp.UtcpClientInterface
 	model  interface {
-		Generate(ctx context.Context, prompt string) (any, error)
+		Generate(ctx context.Context, _ string, prompt string) (any, error)
 	}
 }
 
