@@ -125,7 +125,7 @@ func main() {
 	}
 
 	// Discover tools
-	tools, err := client.SearchTools("", 10)
+	tools, err := client.SearchTools("http", 10)
 	if err != nil {
 		log.Fatalf("search: %v", err)
 	}

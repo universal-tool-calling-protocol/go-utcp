@@ -517,26 +517,21 @@ func (c *UtcpClient) CallTool(
 	return fn(ctx, args)
 }
 
-func (c *UtcpClient) SearchTools(query string, limit int) ([]Tool, error) {
-	tools, err := c.searchStrategy.SearchTools(context.Background(), query, limit)
+func (c *UtcpClient) SearchTools(providerPrefix string, limit int) ([]Tool, error) {
+	all, err := c.toolRepository.GetTools(context.Background())
 	if err != nil {
 		return nil, err
 	}
-
-	// Convert []*Tool to []Tool if needed
-	result := make([]Tool, len(tools))
-	for i, tool := range tools {
-		switch t := any(tool).(type) {
-		case Tool:
-			result[i] = t
-		case *Tool:
-			result[i] = *t
-		default:
-			// fallback (shouldn't happen)
-			result[i] = Tool{}
+	var filtered []Tool
+	for _, t := range all {
+		if strings.HasPrefix(t.Name, providerPrefix+".") {
+			filtered = append(filtered, t)
 		}
 	}
-	return result, nil
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("no tools found for provider %q", providerPrefix)
+	}
+	return filtered, nil
 }
 
 // ----- variable substitution src -----
