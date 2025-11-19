@@ -165,7 +165,7 @@ Respond ONLY in JSON:
 }
 `, string(toolsJSON), query, toolSpecs)
 
-	raw, err := cm.model.Generate(ctx, "", prompt)
+	raw, err := cm.model.Generate(ctx, prompt)
 	if err != nil {
 		return "", false, err
 	}
@@ -319,7 +319,7 @@ Respond ONLY in JSON:
 { "needs": true } or { "needs": false }
 `, query, tools)
 
-	raw, err := cm.model.Generate(ctx, "", prompt)
+	raw, err := cm.model.Generate(ctx, prompt)
 	if err != nil {
 		return false, err
 	}
@@ -461,7 +461,7 @@ Rules:
 - If multiple tools apply, include all.
 `, query, tools)
 
-	raw, err := cm.model.Generate(ctx, "", prompt)
+	raw, err := cm.model.Generate(ctx, prompt)
 	if err != nil {
 		return nil, err
 	}
