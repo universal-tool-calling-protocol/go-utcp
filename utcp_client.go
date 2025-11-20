@@ -115,7 +115,7 @@ func NewUTCPClient(
 
 	client := &UtcpClient{
 		config:              cfg,
-		transports:          defaultTransports(),
+		transports:          defaultTransports(cfg.EnableTransportLogs),
 		toolRepository:      repo,
 		searchStrategy:      strat,
 		providerToolsCache:  make(map[string][]Tool),
@@ -152,55 +152,32 @@ func NewUTCPClient(
 }
 
 // defaultTransports wires up your various transport implementations.
-func defaultTransports() map[string]ClientTransport {
-	// NOTE: If runtime logging overhead shows up in profiles, consider passing no-op loggers here.
+func defaultTransports(enableLogs bool) map[string]ClientTransport {
+	logf := func(string, ...interface{}) {}
+	logErr := func(string, error) {}
+
+	if enableLogs {
+		logf = func(format string, args ...interface{}) {
+			fmt.Printf(format+"\n", args...)
+		}
+		logErr = func(msg string, err error) {
+			fmt.Printf("%s: %v\n", msg, err)
+		}
+	}
+
 	return map[string]ClientTransport{
-		"http": NewHttpClientTransport(
-			func(format string, args ...interface{}) {
-				fmt.Printf("HTTP Transport: "+format+"\n", args...)
-			},
-		),
-		"cli": NewCliTransport(
-			func(format string, args ...interface{}) {
-				fmt.Printf("CLI Transport: "+format+"\n", args...)
-			},
-		),
-		"sse": NewSSETransport(func(format string, args ...interface{}) {
-			fmt.Printf("SSE Transport: "+format+"\n", args...)
-		}),
-		"http_stream": NewStreamableHTTPTransport(func(format string, args ...interface{}) {
-			fmt.Printf("HTTP Stream Transport: "+format+"\n", args...)
-		}),
-		"mcp": NewMCPTransport(
-			func(format string, args ...interface{}) {
-				fmt.Printf("MCP Transport: "+format+"\n", args...)
-			},
-		),
-		"websocket": NewWebSocketTransport(func(format string, args ...interface{}) {
-			fmt.Printf("WebSocket Transport: "+format+"\n", args...)
-		}),
-		"tcp": NewTCPClientTransport(
-			func(format string, args ...interface{}) {
-				fmt.Printf("TCP Transport: "+format+"\n", args...)
-			},
-		),
-		"udp": NewUDPTransport(
-			func(format string, args ...interface{}) {
-				fmt.Printf("UDP Transport: "+format+"\n", args...)
-			},
-		),
-		"grpc": NewGRPCClientTransport(func(format string, args ...interface{}) {
-			fmt.Printf("gRPC Transport: "+format+"\n", args...)
-		}),
-		"graphql": NewGraphQLClientTransport(func(msg string, err error) {
-			fmt.Printf("GraphQL Transport: %s: %v\n", msg, err)
-		}),
-		"webrtc": NewWebRTCClientTransport(func(format string, args ...interface{}) {
-			fmt.Printf("WebRTC Transport: "+format+"\n", args...)
-		}),
-		"text": texttransport.NewTextTransport(func(format string, args ...interface{}) {
-			fmt.Printf("Text Transport: "+format+"\n", args...)
-		}),
+		"http":        NewHttpClientTransport(logf),
+		"cli":         NewCliTransport(logf),
+		"sse":         NewSSETransport(logf),
+		"http_stream": NewStreamableHTTPTransport(logf),
+		"mcp":         NewMCPTransport(logf),
+		"websocket":   NewWebSocketTransport(logf),
+		"tcp":         NewTCPClientTransport(logf),
+		"udp":         NewUDPTransport(logf),
+		"grpc":        NewGRPCClientTransport(logf),
+		"graphql":     NewGraphQLClientTransport(logErr),
+		"webrtc":      NewWebRTCClientTransport(logf),
+		"text":        texttransport.NewTextTransport(logf),
 	}
 }
 

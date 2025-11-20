@@ -240,7 +240,7 @@ func TestCreateProviderOfTypeAll(t *testing.T) {
 }
 
 func TestDefaultTransportsKeys(t *testing.T) {
-	tr := defaultTransports()
+	tr := defaultTransports(false)
 	keys := []string{"http", "cli", "sse", "http_stream", "mcp", "udp", "tcp", "websocket", "graphql", "grpc"}
 	for _, k := range keys {
 		if _, ok := tr[k]; !ok {

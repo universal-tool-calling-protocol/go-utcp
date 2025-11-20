@@ -63,13 +63,18 @@ type UtcpClientConfig struct {
 
 	// A list of providers to load from (e.g. .env, AWS SSM, Vault, etc.)
 	LoadVariablesFrom []UtcpVariablesConfig
+
+	// Enable transport-level debug logging. Defaults to false to keep hot
+	// paths as lean as possible.
+	EnableTransportLogs bool
 }
 
 // NewClientConfig constructs a config with sensible defaults.
 func NewClientConfig() *UtcpClientConfig {
 	return &UtcpClientConfig{
-		Variables:         make(map[string]string),
-		ProvidersFilePath: "",
-		LoadVariablesFrom: nil,
+		Variables:           make(map[string]string),
+		ProvidersFilePath:   "",
+		LoadVariablesFrom:   nil,
+		EnableTransportLogs: false,
 	}
 }
