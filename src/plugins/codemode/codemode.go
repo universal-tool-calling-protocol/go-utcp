@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -250,6 +251,15 @@ func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeMode
 		return c.executeFunc(ctx, args)
 	}
 
+	// 1. Enforce Timeout via Context
+	// Convert integer ms to Duration. Default to 30s if invalid.
+	timeoutMs := args.Timeout
+	if timeoutMs <= 0 {
+		timeoutMs = 30000
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
+	defer cancel()
+
 	i, stdout, stderr := newInterpreter()
 
 	if err := injectHelpers(i, c.client); err != nil {
@@ -261,20 +271,69 @@ func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeMode
 		return CodeModeResult{}, fmt.Errorf("failed to prepare program: %w", err)
 	}
 
-	if _, err := i.Eval(wrapped); err != nil {
-		return CodeModeResult{}, fmt.Errorf("code execution failed: %w\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
+	// 2. Structure for async result handling
+	type evalResult struct {
+		val reflect.Value
+		err error
 	}
+	done := make(chan evalResult, 1)
 
-	v, err := i.Eval(`main.run()`)
-	if err != nil {
-		return CodeModeResult{}, fmt.Errorf("failed to get return value: %w\n%s", err, stderr.String())
+	// 3. Run Eval in a Goroutine
+	go func() {
+		// Safety: recover from internal interpreter panics
+		defer func() {
+			if r := recover(); r != nil {
+				done <- evalResult{err: fmt.Errorf("interpreter panic: %v", r)}
+			}
+		}()
+
+		// Phase A: Compilation & Definition
+		if _, err := i.Eval(wrapped); err != nil {
+			done <- evalResult{err: fmt.Errorf("compilation failed: %w", err)}
+			return
+		}
+
+		// Phase B: Execution of the wrapped runner
+		v, err := i.Eval(`main.run()`)
+		done <- evalResult{val: v, err: err}
+	}()
+
+	// 4. Wait for Completion or Timeout
+	select {
+	case <-ctx.Done():
+		return CodeModeResult{
+			Stdout: stdout.String(),
+			Stderr: stderr.String(),
+		}, fmt.Errorf("execution timed out after %dms", timeoutMs)
+
+	case res := <-done:
+		if res.err != nil {
+			return CodeModeResult{
+				Stdout: stdout.String(),
+				Stderr: stderr.String(),
+			}, fmt.Errorf("runtime error: %w\nstdout: %s\nstderr: %s", res.err, stdout.String(), stderr.String())
+		}
+
+		// 5. Handle Result & Check for Error Objects
+		finalVal := res.val.Interface()
+		finalStderr := stderr.String()
+
+		// FIX: If the user code returned an `error` type (e.g. "return err"),
+		// we capture it and move it to Stderr so the Tool Handler treats it as a failure.
+		if errObj, ok := finalVal.(error); ok {
+			if finalStderr != "" {
+				finalStderr += "\n"
+			}
+			finalStderr += "Script returned error: " + errObj.Error()
+			finalVal = nil // Nullify value since it was an error
+		}
+
+		return CodeModeResult{
+			Value:  finalVal,
+			Stdout: stdout.String(),
+			Stderr: finalStderr,
+		}, nil
 	}
-
-	return CodeModeResult{
-		Value:  v.Interface(),
-		Stdout: stdout.String(),
-		Stderr: stderr.String(),
-	}, nil
 }
 
 func (s *codeModeStream) Next() (any, error) {
