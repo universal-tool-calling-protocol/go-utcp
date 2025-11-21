@@ -42,7 +42,7 @@ type Tool struct {
 // ToolHandler is the signature your Go tool functions must satisfy.
 // The first argument is your execution context (if any), here we use a generic map.
 // You can replace `map[string]interface{}` with a concrete struct or interface as needed.
-type ToolHandler func(ctx context.Context, inputs map[string]interface{}) (map[string]interface{}, error)
+type ToolHandler func(ctx context.Context, inputs map[string]interface{}) (any, error)
 
 // ToolContext keeps the registry of all tools.
 var (

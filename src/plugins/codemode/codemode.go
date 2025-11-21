@@ -379,7 +379,7 @@ func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface) error
 }
 
 func (cm *CodeModeUTCP) createToolHandler() tools.ToolHandler {
-	return func(ctx context.Context, inputs map[string]interface{}) (map[string]interface{}, error) {
+	return func(ctx context.Context, inputs map[string]interface{}) (any, error) {
 		var args CodeModeArgs
 		if code, ok := inputs["code"].(string); ok {
 			args.Code = code
@@ -401,11 +401,7 @@ func (cm *CodeModeUTCP) createToolHandler() tools.ToolHandler {
 			return nil, fmt.Errorf("codemode script produced an error: %s", result.Stderr)
 		}
 
-		return map[string]interface{}{
-			"value":  result.Value,
-			"stdout": result.Stdout,
-			"stderr": result.Stderr,
-		}, nil
+		return result.Value, nil
 	}
 }
 
