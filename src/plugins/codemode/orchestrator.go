@@ -272,7 +272,7 @@ func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
 	var allSpecs []tools.Tool
 	seen := make(map[string]bool)
 
-	if cmTools, err := a.Tools(context.Background()); err == nil {
+	if cmTools, err := a.Tools(); err == nil {
 		for _, t := range cmTools {
 			key := strings.ToLower(strings.TrimSpace(t.Name))
 			if key == "" || seen[key] {

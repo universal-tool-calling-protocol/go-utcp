@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
@@ -28,7 +29,7 @@ func TestAddToolPanics(t *testing.T) {
 // TestRegisterToolDefaults uses RegisterTool with nil schemas and expects defaults.
 func TestRegisterToolDefaults(t *testing.T) {
 	Tools = nil
-	handler := func(ctx map[string]interface{}, in map[string]interface{}) (map[string]interface{}, error) {
+	handler := func(ctx context.Context, in map[string]interface{}) (map[string]interface{}, error) {
 		return in, nil
 	}
 	prov := &CliProvider{BaseProvider: BaseProvider{Name: "cli", ProviderType: ProviderCLI}}

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"reflect"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
@@ -41,7 +42,7 @@ type Tool struct {
 // ToolHandler is the signature your Go tool functions must satisfy.
 // The first argument is your execution context (if any), here we use a generic map.
 // You can replace `map[string]interface{}` with a concrete struct or interface as needed.
-type ToolHandler func(ctx map[string]interface{}, inputs map[string]interface{}) (outputs map[string]interface{}, err error)
+type ToolHandler func(ctx context.Context, inputs map[string]interface{}) (map[string]interface{}, error)
 
 // ToolContext keeps the registry of all tools.
 var (

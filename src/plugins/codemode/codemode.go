@@ -59,7 +59,7 @@ func NewCodeModeUTCP(client utcp.UtcpClientInterface, model interface {
 // ───────────────────────────────────────────────────────────
 //
 
-func (c *CodeModeUTCP) Tools(ctx context.Context) ([]tools.Tool, error) {
+func (c *CodeModeUTCP) Tools() ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
 			Name:        CodeModeToolName,
@@ -379,7 +379,7 @@ func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface) error
 }
 
 func (cm *CodeModeUTCP) createToolHandler() tools.ToolHandler {
-	return func(ctx map[string]interface{}, inputs map[string]interface{}) (map[string]interface{}, error) {
+	return func(ctx context.Context, inputs map[string]interface{}) (map[string]interface{}, error) {
 		var args CodeModeArgs
 		if code, ok := inputs["code"].(string); ok {
 			args.Code = code
