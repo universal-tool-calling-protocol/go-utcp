@@ -392,7 +392,7 @@ func (cm *CodeModeUTCP) createToolHandler() tools.ToolHandler {
 			args.Timeout = 3000
 		}
 
-		result, err := cm.Execute(context.Background(), args)
+		result, err := cm.Execute(ctx, args)
 		if err != nil {
 			return nil, fmt.Errorf("error executing codemode script: %w", err)
 		}
