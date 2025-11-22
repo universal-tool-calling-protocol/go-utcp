@@ -43,6 +43,7 @@ func getMinimalStdlib() map[string]map[string]reflect.Value {
 			"context/context",
 			"fmt/fmt",
 			"reflect/reflect",
+			"sync/sync",
 		}
 
 		for _, pkg := range neededPackages {
@@ -244,11 +245,12 @@ type codeModeStream struct {
 }
 
 func wrapIntoProgram(clean string) string {
-	return fmt.Sprintf(`package main
+return fmt.Sprintf(`package main
 
 import (
 	"context/context"
 	codemode "codemode_helpers/codemode_helpers"
+	"sync/sync"
 )
 
 func run() any {

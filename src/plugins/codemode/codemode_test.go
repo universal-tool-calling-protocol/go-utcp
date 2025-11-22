@@ -197,6 +197,79 @@ func TestCodeMode_Execute_MultipleCallTool(t *testing.T) {
 	}
 }
 
+func TestCodeMode_Execute_ParallelWaitGroup(t *testing.T) {
+	mock := &mockUTCP{
+		callToolFn: func(name string, args map[string]any) (any, error) {
+			switch name {
+			case "alpha":
+				return map[string]any{"result": args["input"]}, nil
+			case "beta":
+				return map[string]any{"result": args["input"]}, nil
+			case "concat":
+				left, _ := args["left"].(string)
+				right, _ := args["right"].(string)
+				return map[string]any{"result": left + "|" + right}, nil
+			default:
+				return nil, errors.New("unknown tool")
+			}
+		},
+	}
+
+	cm := NewCodeModeUTCP(mock, nil)
+
+	res, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `
+var wg sync.WaitGroup
+var mu sync.Mutex
+results := map[string]any{}
+
+wg.Add(2)
+go func() {
+	defer wg.Done()
+	out, err := codemode.CallTool("alpha", map[string]any{"input": "first"})
+	if err != nil { return }
+	if m, ok := out.(map[string]any); ok {
+		mu.Lock()
+		results["left"] = m["result"]
+		mu.Unlock()
+	}
+}()
+
+go func() {
+	defer wg.Done()
+	out, err := codemode.CallTool("beta", map[string]any{"input": "second"})
+	if err != nil { return }
+	if m, ok := out.(map[string]any); ok {
+		mu.Lock()
+		results["right"] = m["result"]
+		mu.Unlock()
+	}
+}()
+
+wg.Wait()
+combined, _ := codemode.CallTool("concat", map[string]any{
+	"left": results["left"],
+	"right": results["right"],
+})
+__out = combined
+`,
+		Timeout: 2000,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	resultMap, ok := res.Value.(map[string]any)
+	if !ok {
+		t.Fatalf("expected a map, got %T", res.Value)
+	}
+
+	if resultMap["result"] != "first|second" {
+		t.Fatalf("expected concatenated result, got %#v", resultMap["result"])
+	}
+}
+
 func TestCodeMode_Execute_SearchTools(t *testing.T) {
 	mock := &mockUTCP{
 		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {

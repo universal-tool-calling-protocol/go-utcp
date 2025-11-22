@@ -135,6 +135,28 @@ To pass output of one tool into another:
     }
 
 ------------------------------------------------------------
+PARALLEL TOOL CALLS — USE WAITGROUP
+------------------------------------------------------------
+- If tools are independent, run them in goroutines.
+- Use sync.WaitGroup + sync.Mutex to share results safely:
+    var wg sync.WaitGroup
+    var mu sync.Mutex
+    results := map[string]any{}
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        r1, err := codemode.CallTool("<tool>", map[string]any{"input": "x"})
+        if err != nil { return }
+        mu.Lock()
+        results["first"] = r1
+        mu.Unlock()
+    }()
+    // repeat for other tools
+    wg.Wait()
+- After wg.Wait(), read from results to feed follow-up tool calls and assign __out.
+- Do not add imports; sync is already available.
+
+------------------------------------------------------------
 STREAMING TOOLS — STRICT RULES
 ------------------------------------------------------------
 When calling a streaming tool:
