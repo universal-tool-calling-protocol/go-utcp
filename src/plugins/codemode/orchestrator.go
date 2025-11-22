@@ -75,8 +75,9 @@ func (cm *CodeModeUTCP) generateSnippet(
 	toolsJSON, _ := json.Marshal(tools)
 
 	prompt := fmt.Sprintf(`
-Generate a Go snippet that uses ONLY the following UTCP tools:
+CRITICAL: Your code will be executed INSIDE a function wrapper.
 
+Generate a Go snippet that uses ONLY the following UTCP tools:
 %v
 
 USER QUERY:
@@ -85,110 +86,230 @@ USER QUERY:
 TOOL SPECS:
 %s
 
-------------------------------------------------------------
-SNIPPET RULES
-------------------------------------------------------------
-- Use ONLY the tool names listed above.
-- Use EXACT input keys from the tool schemas. Do NOT invent new fields.
-- Use these exact helper functions:
-  - codemode.CallTool(name, args)
-  - codemode.CallToolStream(name, args)
-  - codemode.SearchTools(query, limit)
-  - codemode.Sprintf(format, ...), codemode.Errorf(format, ...)
-- No imports, no package — ONLY Go statements.
-- Don't Declare 'var __out'
-- Always assign to '__out' using '=' (e.g., '__out = ...'). 
-- If you need to assign a new variable along with __out, declare the error first:
-      var err error
-      __out, err = codemode.CallTool(...)
-- The final result MUST be assigned to '__out', containing all intermediate and final results.
-- If ANY streaming tool is used, set "stream": true.
+============================================================
+CRITICAL RULES (VIOLATIONS WILL CAUSE RUNTIME ERRORS)
+============================================================
 
-------------------------------------------------------------
-CHAINING (NON-STREAMING) — STRICT RULES
-------------------------------------------------------------
-To pass output of one tool into another:
+1. SCOPE CONTEXT
+   - Your code executes INSIDE a function body - write ONLY function body code
+   - NEVER include: package declarations, import statements, func definitions
+   - The wrapper already provides: package main, imports, and func run()
 
-1. Call the tool:
-    r1, err := codemode.CallTool("<tool>", map[string]any{
-        "a": 5,
-        "b": 7,
-    })
-    if err != nil { return err }
+2. VARIABLE DECLARATIONS
+   - For new variables use 'var' keyword OR walrus operator ':='
+   - CORRECT: var result any
+   - CORRECT: result := someValue
+   - CORRECT: r1, err := codemode.CallTool(...)
+   - WRONG: result any (missing 'var')
+   
+3. __out ASSIGNMENT (MOST CRITICAL)
+   - __out is ALREADY DECLARED in the wrapper - DO NOT declare it again
+   - ALWAYS use '=' (assignment) NEVER ':=' (declaration+assignment)
+   - CORRECT: __out = result
+   - CORRECT: __out = map[string]any{"key": value}
+   - WRONG: var __out any (already declared)
+   - WRONG: __out := result (redeclaration error)
+   
+4. MULTI-VALUE ASSIGNMENT WITH __out
+   - If assigning multiple values including __out, declare error first:
+     CORRECT:
+       var err error
+       __out, err = codemode.CallTool(...)
+   - Or use separate lines:
+     CORRECT:
+       result, err := codemode.CallTool(...)
+       __out = result
 
-2. Extract value using EXACT output-schema keys:
-    var sum any
-    if m, ok := r1.(map[string]any); ok {
-        sum = m["result"]   // key MUST match schema
+5. TOOL USAGE
+   - Use ONLY the tool names listed above - NO modifications
+   - Use EXACT input keys from tool schemas - NO invented fields
+   - Available helpers: codemode.CallTool, codemode.CallToolStream, 
+     codemode.SearchTools, codemode.Sprintf, codemode.Errorf
+   - sync.WaitGroup and sync.Mutex are available (no import needed)
+
+6. FINAL RESULT
+   - The LAST line must assign to __out
+   - __out should contain all intermediate and final results
+   - If streaming tools used, set "stream": true in response
+
+============================================================
+EXAMPLES - LEARN FROM THESE
+============================================================
+
+EXAMPLE 1: Simple Tool Call
+----------------------------
+result, err := codemode.CallTool("math.add", map[string]any{
+    "a": 5,
+    "b": 7,
+})
+if err != nil {
+    return err
+}
+__out = result
+
+EXAMPLE 2: Chaining Tools (Extract Output → Pass to Next)
+----------------------------------------------------------
+// Step 1: Call first tool
+r1, err := codemode.CallTool("math.add", map[string]any{
+    "a": 5,
+    "b": 7,
+})
+if err != nil {
+    return err
+}
+
+// Step 2: Extract value using EXACT output schema key
+var sum any
+if m, ok := r1.(map[string]any); ok {
+    sum = m["result"]  // 'result' must match tool's output schema
+}
+
+// Step 3: Use extracted value in next tool
+r2, err := codemode.CallTool("math.multiply", map[string]any{
+    "a": sum,
+    "b": 3,
+})
+if err != nil {
+    return err
+}
+
+// Step 4: Assign final result (USE = NOT :=)
+__out = map[string]any{
+    "sum": sum,
+    "product": r2,
+}
+
+EXAMPLE 3: Parallel Tool Calls
+-------------------------------
+var wg sync.WaitGroup
+var mu sync.Mutex
+results := map[string]any{}
+
+// Launch parallel calls
+wg.Add(2)
+
+go func() {
+    defer wg.Done()
+    r1, err := codemode.CallTool("api.fetch", map[string]any{"url": "example.com"})
+    if err != nil {
+        return
     }
+    mu.Lock()
+    results["fetch"] = r1
+    mu.Unlock()
+}()
 
-3. Use this value as input to the next tool:
-    r2, err := codemode.CallTool("<next_tool>", map[string]any{
-        "a": sum,
-        "b": 3,
-    })
-
-4. The final line must set:
-    __out = map[string]any{ // USE = NOT :=
-        "sum": sum,
-        "product": r2,
+go func() {
+    defer wg.Done()
+    r2, err := codemode.CallTool("db.query", map[string]any{"table": "users"})
+    if err != nil {
+        return
     }
+    mu.Lock()
+    results["query"] = r2
+    mu.Unlock()
+}()
 
-------------------------------------------------------------
-PARALLEL TOOL CALLS — USE WAITGROUP
-------------------------------------------------------------
-- If tools are independent, run them in goroutines.
-- Use sync.WaitGroup + sync.Mutex to share results safely:
-    var wg sync.WaitGroup
-    var mu sync.Mutex
-    results := map[string]any{}
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        r1, err := codemode.CallTool("<tool>", map[string]any{"input": "x"})
-        if err != nil { return }
-        mu.Lock()
-        results["first"] = r1
-        mu.Unlock()
-    }()
-    // repeat for other tools
-    wg.Wait()
-- After wg.Wait(), read from results to feed follow-up tool calls and assign __out.
-- Do not add imports; sync is already available.
+wg.Wait()
+__out = results
 
-------------------------------------------------------------
-STREAMING TOOLS — STRICT RULES
-------------------------------------------------------------
-When calling a streaming tool:
+EXAMPLE 4: Streaming Tool
+--------------------------
+stream, err := codemode.CallToolStream("api.stream", map[string]any{
+    "input": "hello",
+})
+if err != nil {
+    return err
+}
 
-1. Start the stream:
-    stream, err := codemode.CallToolStream("<stream_tool>", map[string]any{
-        "input": "hello",
-    })
-    if err != nil { return err }
-
-2. Read chunks in a loop:
-    var items []any
-    for {
-        chunk, err := stream.Next()
-        if err != nil { break }
-        items = append(items, chunk)
+var items []any
+for {
+    chunk, err := stream.Next()
+    if err != nil {
+        break
     }
+    items = append(items, chunk)
+}
 
-3. You may chain streaming results into non-streaming tools:
-    r2, err := codemode.CallTool("provider.summarize", map[string]any{
-        "values": items,
-    })
+__out = items
 
-4. Or output directly:
-    __out = items
+EXAMPLE 5: Streaming → Non-Streaming Chain
+-------------------------------------------
+// Collect streaming results
+stream, err := codemode.CallToolStream("logs.fetch", map[string]any{
+    "source": "server",
+})
+if err != nil {
+    return err
+}
 
-------------------------------------------------------------
+var logs []any
+for {
+    chunk, err := stream.Next()
+    if err != nil {
+        break
+    }
+    logs = append(logs, chunk)
+}
+
+// Pass to summarization tool
+summary, err := codemode.CallTool("text.summarize", map[string]any{
+    "items": logs,
+})
+if err != nil {
+    return err
+}
+
+__out = map[string]any{
+    "log_count": len(logs),
+    "summary": summary,
+}
+
+============================================================
+COMMON MISTAKES TO AVOID
+============================================================
+
+❌ WRONG: __out := result
+✅ CORRECT: __out = result
+
+❌ WRONG: var __out any
+✅ CORRECT: (don't declare __out at all, just assign to it)
+
+❌ WRONG: __out, err := codemode.CallTool(...)
+✅ CORRECT: 
+   var err error
+   __out, err = codemode.CallTool(...)
+
+❌ WRONG: package main
+✅ CORRECT: (no package declaration)
+
+❌ WRONG: import "fmt"
+✅ CORRECT: (no imports)
+
+❌ WRONG: func run() { ... }
+✅ CORRECT: (no function definitions)
+
+❌ WRONG: return (bare return)
+✅ CORRECT: return err (or return __out if needed)
+
+❌ WRONG: map[string]any{"key" value}  (missing colon)
+✅ CORRECT: map[string]any{"key": value}
+
+❌ WRONG: var result := value
+✅ CORRECT: result := value  OR  var result = value
+
+============================================================
+RESPONSE FORMAT
+============================================================
+
 Respond ONLY in JSON:
 {
   "code": "<go snippet>",
   "stream": false
 }
+
+Set "stream": true ONLY if you use codemode.CallToolStream.
+
 `, string(toolsJSON), query, toolSpecs)
 
 	raw, err := cm.model.Generate(ctx, prompt)

@@ -173,6 +173,7 @@ CodeMode automatically normalizes user-provided code:
 
 - **Package/Import stripping** – Removes `package` and `import` declarations
 - **Walrus to assignment conversion** – Converts `__out :=` to `__out =`
+- **Var Walrus fixing** – Converts `var x := y` to `var x = y` (including types/multi-vars)
 - **Bare return fixing** – Replaces bare `return` statements with `return __out`
 - **Automatic wrapping** – Wraps snippets into a complete Go program with proper structure
 - **JSON to Go literal conversion** – Converts JSON objects to Go map literals

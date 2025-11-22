@@ -162,9 +162,11 @@ func preprocessUserCode(code string) string {
 }
 
 func fixVarWalrus(code string) string {
-	// Fix 'var x := y' → 'var x = y' anywhere, not just at line start
-	re := regexp.MustCompile(`\bvar\s+([A-Za-z0-9_]+)\s*:=`)
-	return re.ReplaceAllString(code, "var $1 =")
+	// Fix 'var x := y' → 'var x = y'
+	// Also handles 'var x int := y' and 'var x, y := 1, 2'
+	// We look for 'var' followed by non-assignment chars up to ':='
+	re := regexp.MustCompile(`\bvar\s+([^=;]+):=`)
+	return re.ReplaceAllString(code, "var $1=")
 }
 
 func convertOutWalrus(code string) string {
