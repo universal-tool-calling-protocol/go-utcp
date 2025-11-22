@@ -221,12 +221,12 @@ func TestCodeMode_Execute_ParallelWaitGroup(t *testing.T) {
 		Code: `
 var wg sync.WaitGroup
 var mu sync.Mutex
-results := map[string]any{}
+var results = map[string]any{}
 
 wg.Add(2)
 go func() {
 	defer wg.Done()
-	out, err := codemode.CallTool("alpha", map[string]any{"input": "first"})
+	var out, err = codemode.CallTool("alpha", map[string]any{"input": "first"})
 	if err != nil { return }
 	if m, ok := out.(map[string]any); ok {
 		mu.Lock()
@@ -237,7 +237,7 @@ go func() {
 
 go func() {
 	defer wg.Done()
-	out, err := codemode.CallTool("beta", map[string]any{"input": "second"})
+	var out, err = codemode.CallTool("beta", map[string]any{"input": "second"})
 	if err != nil { return }
 	if m, ok := out.(map[string]any); ok {
 		mu.Lock()
@@ -247,7 +247,7 @@ go func() {
 }()
 
 wg.Wait()
-combined, _ := codemode.CallTool("concat", map[string]any{
+var combined, _ = codemode.CallTool("concat", map[string]any{
 	"left": results["left"],
 	"right": results["right"],
 })
@@ -320,14 +320,14 @@ func TestCodeMode_Execute_CallToolStream(t *testing.T) {
 
 	res, err := cm.Execute(context.Background(), CodeModeArgs{
 		Code: `
-    stream, _ := codemode.CallToolStream("stream.echo", map[string]any{
+    var stream, _ = codemode.CallToolStream("stream.echo", map[string]any{
         "value": "ignored",
     })
     var result string
-    chunk, _ := stream.Next()
-    for ; chunk != nil; {
+    for {
+        var chunk, err = stream.Next()
+        if err != nil { break }
         result += chunk.(string)
-        chunk, _ = stream.Next()
     }
     __out = result
 `,

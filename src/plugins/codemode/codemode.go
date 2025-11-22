@@ -155,9 +155,17 @@ func preprocessUserCode(code string) string {
 
 	code = stripPackageAndImports(code)
 	code = convertOutWalrus(code) // This now handles all __out assignment conversions
+	code = fixVarWalrus(code)     // Fix common LLM error: var x := ...
 	code = fixBareReturn(code)    // 👈 ADD THIS LINE
 	code = ensureOutAssigned(code)
 	return code
+}
+
+func fixVarWalrus(code string) string {
+	// Common LLM hallucination: "var x := val" -> "var x = val"
+	// Matches "var <anything> :=" and replaces with "var <anything> ="
+	re := regexp.MustCompile(`(?m)^(\s*)var\s+([^=]+?)\s*:=`)
+	return re.ReplaceAllString(code, "${1}var $2 =")
 }
 
 func jsonToGoLiteral(s string) string {
@@ -245,7 +253,7 @@ type codeModeStream struct {
 }
 
 func wrapIntoProgram(clean string) string {
-return fmt.Sprintf(`package main
+	return fmt.Sprintf(`package main
 
 import (
 	"context/context"
