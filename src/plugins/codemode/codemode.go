@@ -162,10 +162,15 @@ func preprocessUserCode(code string) string {
 }
 
 func fixVarWalrus(code string) string {
-	// Common LLM hallucination: "var x := val" -> "var x = val"
-	// Matches "var <anything> :=" and replaces with "var <anything> ="
-	re := regexp.MustCompile(`(?m)^(\s*)var\s+([^=]+?)\s*:=`)
-	return re.ReplaceAllString(code, "${1}var $2 =")
+	// Fix 'var x := y' → 'var x = y' anywhere, not just at line start
+	re := regexp.MustCompile(`\bvar\s+([A-Za-z0-9_]+)\s*:=`)
+	return re.ReplaceAllString(code, "var $1 =")
+}
+
+func convertOutWalrus(code string) string {
+	// Fix '__out := ...' even if indented or inside blocks
+	re := regexp.MustCompile(`\b__out\s*:=`)
+	return re.ReplaceAllString(code, "__out =")
 }
 
 func jsonToGoLiteral(s string) string {
@@ -218,14 +223,6 @@ func fixBareReturn(code string) string {
 	return re.ReplaceAllString(code, "return __out")
 }
 
-func convertOutWalrus(code string) string {
-	// Only convert `__out :=` when __out is the sole variable being declared
-	// This avoids breaking multi-variable declarations like `result, err := ...`
-	// Pattern: __out followed by optional whitespace, :=, but NOT preceded by comma
-	// Use capture groups to preserve both leading whitespace and spacing before :=
-	re := regexp.MustCompile(`(?m)^(\s*)__out(\s*):=`)
-	return re.ReplaceAllString(code, "${1}__out${2}=")
-}
 func stripPackageAndImports(code string) string {
 	// Remove package declaration
 	rePackage := regexp.MustCompile(`(?m)^\s*package\s+\w+\s*$`)
