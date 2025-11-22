@@ -110,11 +110,14 @@ CHAINING (NON-STREAMING) — STRICT RULES
 To pass output of one tool into another:
 
 1. Call the tool:
-    r1, err := codemode.CallTool("<tool>", map[string]any{
+    r1, err := codemode.CallTool("<tool_name>", map[string]any{
         "a": 5,
         "b": 7,
     })
-    if err != nil { return err }
+    if err != nil {
+        __out = err
+        return __out
+    }
 
 2. Extract value using EXACT output-schema keys:
     var sum any
@@ -123,10 +126,14 @@ To pass output of one tool into another:
     }
 
 3. Use this value as input to the next tool:
-    r2, err := codemode.CallTool("<next_tool>", map[string]any{
+    r2, err := codemode.CallTool("<another_tool_name>", map[string]any{
         "a": sum,
         "b": 3,
     })
+    if err != nil {
+        __out = err
+        return __out
+    }
 
 4. The final line must set:
     __out = map[string]any{ // USE = NOT :=
@@ -134,6 +141,14 @@ To pass output of one tool into another:
         "product": r2,
     }
 
+------------------------------------------------------------
+AGENT TOOLS (e.g. 'specialist.specialist') — STRICT RULES
+------------------------------------------------------------
+Agent tools ALWAYS require an 'instruction' key.
+
+    fact, err := codemode.CallTool("specialist.specialist", map[string]any{
+        "instruction": "Tell me a fun fact about the Eiffel Tower.",
+    })
 ------------------------------------------------------------
 STREAMING TOOLS — STRICT RULES
 ------------------------------------------------------------
@@ -143,7 +158,10 @@ When calling a streaming tool:
     stream, err := codemode.CallToolStream("<stream_tool>", map[string]any{
         "input": "hello",
     })
-    if err != nil { return err }
+    if err != nil {
+        __out = err
+        return __out
+    }
 
 2. Read chunks in a loop:
     var items []any

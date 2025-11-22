@@ -112,6 +112,25 @@ func TestCodeMode_Execute_Timeout(t *testing.T) {
 	}
 }
 
+func TestCodeMode_Execute_ReturnWalrus(t *testing.T) {
+	mock := &mockUTCP{}
+	cm := NewCodeModeUTCP(mock, nil)
+
+	res, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `
+            return __out := 123
+        `,
+		Timeout: 2000,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if res.Value != 123 {
+		t.Fatalf("expected 123, got %#v", res.Value)
+	}
+}
+
 func TestCodeMode_Execute_CallTool(t *testing.T) {
 	mock := &mockUTCP{
 		callToolFn: func(name string, args map[string]any) (any, error) {
@@ -267,5 +286,24 @@ func TestCodeMode_Execute_CallToolStream(t *testing.T) {
 
 	if res.Value != "helloworld" {
 		t.Fatalf("expected 'helloworld', got %#v", res.Value)
+	}
+}
+
+func TestCodeMode_Execute_FmtAvailable(t *testing.T) {
+	mock := &mockUTCP{}
+	cm := NewCodeModeUTCP(mock, nil)
+
+	res, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `
+			msg := fmt.Sprintf("num:%d", 7)
+			__out = msg
+		`,
+		Timeout: 2000,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Value != "num:7" {
+		t.Fatalf("expected formatted string, got %#v", res.Value)
 	}
 }

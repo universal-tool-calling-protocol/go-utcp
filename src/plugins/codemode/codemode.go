@@ -153,12 +153,33 @@ func preprocessUserCode(code string) string {
 	}
 
 	code = stripPackageAndImports(code)
-	code = convertOutWalrus(code) // This now handles all __out assignment conversions
-	code = fixBareReturn(code)    // 👈 ADD THIS LINE
+	code = fixReturnWalrus(code) // Fix 'return x := y' patterns
+	code = fixSingleValueCallTool(code)
+	code = fixIfAssignment(code) // Fix 'if x, ok = ...' → 'if x, ok := ...'
+	code = convertOutWalrus(code)
+	code = fixVarWalrus(code)     // Fix 'var x := y' forms
+	code = fixRedeclaredErr(code) // Fix 'x, err := ...' followed by 'y, err := ...'
+	code = fixBareReturn(code)
 	code = ensureOutAssigned(code)
 	return code
 }
 
+func fixRedeclaredErr(code string) string {
+	// This function attempts to fix the common "no new variables on left side of :="
+	// error when 'err' is redeclared in subsequent tool calls.
+	// It finds the first assignment like `_, err := ...` and then replaces
+	// all following instances of `:=` with `=` on lines containing `, err`.
+	re := regexp.MustCompile(`(?m)^.*,\s*err\s*:=.*$`)
+	firstMatchIndex := re.FindStringIndex(code)
+
+	if firstMatchIndex == nil {
+		return code // No 'err' redeclaration pattern found
+	}
+
+	restOfCode := code[firstMatchIndex[1]:]
+	restOfCode = strings.ReplaceAll(restOfCode, ", err :=", ", err =")
+	return code[:firstMatchIndex[1]] + restOfCode
+}
 func jsonToGoLiteral(s string) string {
 	var v any
 	if err := json.Unmarshal([]byte(s), &v); err != nil {
@@ -209,6 +230,32 @@ func fixBareReturn(code string) string {
 	return re.ReplaceAllString(code, "return __out")
 }
 
+func fixIfAssignment(code string) string {
+	// Fix 'if x, ok = someFunc()' → 'if x, ok := someFunc()'
+	// This is safe because 'if' starts a new scope
+	re := regexp.MustCompile(`if\s+(\w+)\s*,\s*(\w+)\s*=\s*`)
+	return re.ReplaceAllString(code, "if $1, $2 := ")
+}
+
+func fixReturnWalrus(code string) string {
+	// Fix invalid short declarations in returns: `return x := y`
+	re := regexp.MustCompile(`(?m)^(\s*)return\s+([A-Za-z_]\w*)\s*:=\s*(.+)$`)
+
+	return re.ReplaceAllStringFunc(code, func(line string) string {
+		m := re.FindStringSubmatch(line)
+		if len(m) != 4 {
+			return line
+		}
+		indent, lhs, rhs := m[1], m[2], strings.TrimSpace(m[3])
+
+		if lhs == "__out" {
+			return fmt.Sprintf("%s__out = %s\n%sreturn __out", indent, rhs, indent)
+		}
+
+		return fmt.Sprintf("%s%s := %s\n%s__out = %s\n%sreturn __out", indent, lhs, rhs, indent, lhs, indent)
+	})
+}
+
 func convertOutWalrus(code string) string {
 	// Only convert `__out :=` when __out is the sole variable being declared
 	// This avoids breaking multi-variable declarations like `result, err := ...`
@@ -216,6 +263,30 @@ func convertOutWalrus(code string) string {
 	// Use capture groups to preserve both leading whitespace and spacing before :=
 	re := regexp.MustCompile(`(?m)^(\s*)__out(\s*):=`)
 	return re.ReplaceAllString(code, "${1}__out${2}=")
+}
+
+func fixVarWalrus(code string) string {
+	// Fix 'var x := y' → 'var x = y'
+	// Also handles 'var x int := y' and 'var x, y := 1, 2'
+	// Limit the match to a single line to avoid consuming following statements
+	re := regexp.MustCompile(`(?m)^\s*var\s+([^\n=;]+):=`)
+	return re.ReplaceAllString(code, "var $1=")
+}
+
+func fixSingleValueCallTool(code string) string {
+	// Convert single-value CallTool usage into two-value form that ignores the error.
+	// Handles walrus assign, equals assign, and bare return.
+
+	reWalrus := regexp.MustCompile(`(?m)^(\s*)([A-Za-z_]\w*)\s*:=\s*codemode\.CallTool\s*\(`)
+	code = reWalrus.ReplaceAllString(code, "${1}${2}, _ := codemode.CallTool(")
+
+	reEquals := regexp.MustCompile(`(?m)^(\s*)([A-Za-z_]\w*)\s*=\s*codemode\.CallTool\s*\(`)
+	code = reEquals.ReplaceAllString(code, "${1}${2}, _ = codemode.CallTool(")
+
+	reReturn := regexp.MustCompile(`(?m)^(\s*)return\s+codemode\.CallTool\s*\((.*)\)\s*$`)
+	code = reReturn.ReplaceAllString(code, "${1}__tmp, _ := codemode.CallTool($2)\n${1}__out = __tmp\n${1}return __out")
+
+	return code
 }
 func stripPackageAndImports(code string) string {
 	// Remove package declaration
@@ -231,11 +302,41 @@ func stripPackageAndImports(code string) string {
 }
 
 func ensureOutAssigned(code string) string {
-	if !strings.Contains(code, "__out") {
-		trim := strings.TrimSpace(code)
-		return "__out = " + trim
+	if strings.Contains(code, "__out") {
+		return code
 	}
-	return code
+
+	trim := strings.TrimSpace(code)
+
+	// If we have a single-line var declaration, reuse that identifier
+	reVar := regexp.MustCompile(`(?m)^\s*var\s+([A-Za-z_]\w*)\s*=`)
+	if m := reVar.FindStringSubmatch(trim); m != nil {
+		return code + "\n__out = " + m[1]
+	}
+
+	// If it's a single-line assignment (with = or :=), set __out to first LHS identifier
+	reAssign := regexp.MustCompile(`(?m)^\s*([A-Za-z_]\w*)(?:\s*,.*)?\s*[:=]=`)
+	if m := reAssign.FindStringSubmatch(trim); m != nil {
+		return code + "\n__out = " + m[1]
+	}
+
+	// If it's a simple single-line expression, assign directly
+	if !strings.Contains(trim, "\n") {
+		keywords := []string{"var ", "const ", "for ", "if ", "switch ", "select ", "type ", "func ", "go ", "defer ", "return "}
+		isKeyword := false
+		for _, kw := range keywords {
+			if strings.HasPrefix(trim, kw) {
+				isKeyword = true
+				break
+			}
+		}
+		if !isKeyword {
+			return "__out = " + trim
+		}
+	}
+
+	// Fallback: preserve code and set __out to a neutral value
+	return code + "\n__out = nil"
 }
 
 // injectHelpers makes UTCP client functions available to the Yaegi interpreter.
@@ -249,6 +350,7 @@ func wrapIntoProgram(clean string) string {
 import (
 	"context/context"
 	codemode "codemode_helpers/codemode_helpers"
+	"fmt/fmt"
 )
 
 func run() any {

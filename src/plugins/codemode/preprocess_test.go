@@ -68,6 +68,31 @@ func TestPreprocessUserCode(t *testing.T) {
 			input:    "__out, err := codemode.CallTool(\"test\", nil)\nif err != nil { }",
 			expected: "__out, err := codemode.CallTool(\"test\", nil)\nif err != nil { }",
 		},
+		{
+			name:     "return with walrus assignment",
+			input:    "return __out := 10",
+			expected: "__out = 10\nreturn __out",
+		},
+		{
+			name:     "var walrus converted",
+			input:    "var result := 5",
+			expected: "var result = 5\n__out = result",
+		},
+		{
+			name:     "single-value CallTool walrus assignment",
+			input:    "result := codemode.CallTool(\"tool\", nil)",
+			expected: "result, _ := codemode.CallTool(\"tool\", nil)\n__out = result",
+		},
+		{
+			name:     "return single-value CallTool",
+			input:    "return codemode.CallTool(\"tool\", nil)",
+			expected: "__tmp, _ := codemode.CallTool(\"tool\", nil)\n__out = __tmp\nreturn __out",
+		},
+		{
+			name:     "if assignment corrected",
+			input:    "if v, ok = m[\"k\"] { __out = v }",
+			expected: "if v, ok := m[\"k\"] { __out = v }",
+		},
 	}
 
 	for _, tc := range tests {
