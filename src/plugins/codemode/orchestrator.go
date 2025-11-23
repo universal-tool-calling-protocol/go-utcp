@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
@@ -287,6 +288,13 @@ func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 }
 
 func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
+	// Check cache first
+	if a.cache != nil {
+		if cached := a.cache.GetToolSpecs(); cached != nil {
+			return cached
+		}
+	}
+
 	var allSpecs []tools.Tool
 	seen := make(map[string]bool)
 
@@ -319,6 +327,12 @@ func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
 			}
 		}
 	}
+
+	// Store in cache
+	if a.cache != nil {
+		a.cache.SetToolSpecs(allSpecs)
+	}
+
 	return allSpecs
 }
 
@@ -463,6 +477,13 @@ func (cm *CodeModeUTCP) selectTools(
 	tools string,
 ) ([]string, error) {
 
+	// Check cache first
+	if cm.cache != nil {
+		if cached := cm.cache.GetSelectedTools(query, tools); cached != nil {
+			return cached, nil
+		}
+	}
+
 	prompt := fmt.Sprintf(`
 Select ALL UTCP tools that match the user's intent.
 
@@ -498,5 +519,52 @@ Rules:
 	}
 
 	_ = json.Unmarshal([]byte(jsonStr), &resp)
+
+	// Store in cache
+	if cm.cache != nil && resp.Tools != nil {
+		cm.cache.SetSelectedTools(query, tools, resp.Tools)
+	}
+
 	return resp.Tools, nil
+}
+
+// ───────────────────────────────────────────────────────────
+//   Cache Management Methods
+// ───────────────────────────────────────────────────────────
+
+// InvalidateToolSpecsCache clears the cached tool specifications
+func (cm *CodeModeUTCP) InvalidateToolSpecsCache() {
+	if cm.cache != nil {
+		cm.cache.InvalidateToolSpecs()
+	}
+}
+
+// InvalidateSelectionsCache clears all cached tool selection results
+func (cm *CodeModeUTCP) InvalidateSelectionsCache() {
+	if cm.cache != nil {
+		cm.cache.InvalidateSelections()
+	}
+}
+
+// InvalidateAllCaches clears all caches (tool specs and selections)
+func (cm *CodeModeUTCP) InvalidateAllCaches() {
+	if cm.cache != nil {
+		cm.cache.InvalidateAll()
+	}
+}
+
+// CacheStats returns performance statistics for the tool cache
+func (cm *CodeModeUTCP) CacheStats() CacheStats {
+	if cm.cache == nil {
+		return CacheStats{}
+	}
+	return cm.cache.Stats()
+}
+
+// StartCacheCleanup starts a background routine to clean expired cache entries
+// Call this with a context to control the cleanup lifecycle
+func (cm *CodeModeUTCP) StartCacheCleanup(ctx context.Context, interval time.Duration) {
+	if cm.cache != nil {
+		cm.cache.StartCleanupRoutine(ctx, interval)
+	}
 }

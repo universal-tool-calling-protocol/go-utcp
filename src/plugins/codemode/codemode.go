@@ -72,12 +72,18 @@ type CodeModeUTCP struct {
 	}
 	// For testing purposes, to mock the Execute method.
 	executeFunc func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error)
+	// Cache for tool specs and selection results
+	cache *ToolCache
 }
 
 func NewCodeModeUTCP(client utcp.UtcpClientInterface, model interface {
 	Generate(ctx context.Context, prompt string) (any, error)
 }) *CodeModeUTCP {
-	return &CodeModeUTCP{client: client, model: model}
+	return &CodeModeUTCP{
+		client: client,
+		model:  model,
+		cache:  NewToolCache(),
+	}
 }
 
 //
