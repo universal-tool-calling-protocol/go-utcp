@@ -29,7 +29,9 @@ type InMemoryToolRepository struct {
 	mu        sync.RWMutex        // for concurrent access
 }
 
-func (r InMemoryToolRepository) GetProvider(ctx context.Context, providerName string) (*Provider, error) {
+func (r *InMemoryToolRepository) GetProvider(ctx context.Context, providerName string) (*Provider, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	provider, ok := r.Providers[providerName]
 	if !ok {
 		return nil, nil
@@ -37,7 +39,9 @@ func (r InMemoryToolRepository) GetProvider(ctx context.Context, providerName st
 	return &provider, nil
 }
 
-func (r InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, error) {
+func (r *InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	var providers []Provider
 	for _, p := range r.Providers {
 		providers = append(providers, p)
@@ -45,7 +49,9 @@ func (r InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, e
 	return providers, nil
 }
 
-func (r InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*Tool, error) {
+func (r *InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*Tool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	for _, tools := range r.Tools {
 		for _, tool := range tools {
 			if tool.Name == toolName {
@@ -56,7 +62,9 @@ func (r InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*
 	return nil, nil
 }
 
-func (r InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
+func (r *InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	var all []Tool
 	for _, tools := range r.Tools {
 		all = append(all, tools...)
@@ -64,7 +72,9 @@ func (r InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
 	return all, nil
 }
 
-func (r InMemoryToolRepository) GetToolsByProvider(ctx context.Context, providerName string) ([]Tool, error) {
+func (r *InMemoryToolRepository) GetToolsByProvider(ctx context.Context, providerName string) ([]Tool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	tools, ok := r.Tools[providerName]
 	if !ok {
 		return nil, fmt.Errorf("no tools found for provider %s", providerName)
@@ -72,7 +82,9 @@ func (r InMemoryToolRepository) GetToolsByProvider(ctx context.Context, provider
 	return tools, nil
 }
 
-func (r InMemoryToolRepository) RemoveProvider(ctx context.Context, providerName string) error {
+func (r *InMemoryToolRepository) RemoveProvider(ctx context.Context, providerName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, ok := r.Providers[providerName]; !ok {
 		return fmt.Errorf("provider not found: %s", providerName)
 	}
@@ -81,7 +93,9 @@ func (r InMemoryToolRepository) RemoveProvider(ctx context.Context, providerName
 	return nil
 }
 
-func (r InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string) error {
+func (r *InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for providerName, tools := range r.Tools {
 		for i, tool := range tools {
 			if tool.Name == toolName {
@@ -99,6 +113,8 @@ func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, prov
 		return ctx.Err()
 	default:
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var providerName string
 	switch p := provider.(type) {
 	case *CliProvider:
