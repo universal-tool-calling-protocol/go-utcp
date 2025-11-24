@@ -458,13 +458,33 @@ func extractJSON(response string) string {
 }
 
 func isValidSnippet(code string) bool {
-	// invalid if LLM emits standalone maps like: map[value:hello world]
+	// Disallow package or import statements
+	if strings.Contains(code, "package ") || strings.Contains(code, "import ") {
+		return false
+	}
+
+	// Disallow map literals like map[value:...]
 	if strings.Contains(code, "map[value:") {
 		return false
 	}
 
-	// invalid if no __out assignment exists
-	if !strings.Contains(code, "__out") {
+	// Disallow declaring __out as a variable
+	if strings.Contains(code, "var __out") {
+		return false
+	}
+
+	// Ensure __out is assigned using '=' not ':=' unless '__out, err :=' pattern
+	if strings.Contains(code, "__out :=") && !strings.Contains(code, "__out, err :=") {
+		return false
+	}
+
+	// Ensure there is at least one assignment to __out using '=' or '__out, err :='
+	if !strings.Contains(code, "__out =") && !strings.Contains(code, "__out, err :=") {
+		return false
+	}
+
+	// Disallow raw backticks which could break JSON
+	if strings.Contains(code, "`") {
 		return false
 	}
 
