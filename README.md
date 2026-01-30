@@ -163,41 +163,6 @@ cm := codemode.NewCodeModeUTCP(client, llmodel)
 
 // LLm model must satisfy interface from NewCodeModeUTCP
 
----
-
-### UtcpChainClient (ChainMode)
-
-ChainMode provides a Go-native interface for executing multi-step UTCP tool chains. A chain consists of sequential `ChainStep` structures:
-
-```go
-type ChainStep struct {
-    ID          string         `json:"id,omitempty"`
-    ToolName    string         `json:"tool_name"`
-    Inputs      map[string]any `json:"inputs,omitempty"`
-    UsePrevious bool           `json:"use_previous,omitempty"`
-    Stream      bool           `json:"stream,omitempty"`
-}
-```
-
-The UtcpChainClient takes these steps and executes them in order, automatically passing outputs when `UsePrevious` is true.
-
-Features:
-
-* Supports streaming tool steps.
-* Allows mixing local and remote UTCP providers.
-* Enables LLM-driven chain planning.
-
-Example:
-
-```go
-steps := []chain.ChainStep{
-    {ToolName: "http.math.add", Inputs: map[string]any{"a": 2, "b": 3}},
-    {ToolName: "http.string.concat", UsePrevious: true, Inputs: map[string]any{"prefix": "sum:"}},
-}
-out, err := chainClient.CallToolChain(ctx, steps, 20000)
-```
-
-
 ## Further Reading
 
 - [DeepWiki: Universal Tool Calling Protocol (go-utcp)](https://deepwiki.com/universal-tool-calling-protocol/go-utcp)
