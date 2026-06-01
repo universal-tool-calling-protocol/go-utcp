@@ -133,6 +133,24 @@
         },
         "required": ["query"]
       }
+    },
+    {
+      "name": "fs.patch",
+      "description": "Replace the first occurrence of a string in a file inside the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.patch", "-root", "${FS_ROOT}", "-allow-write", "-path", "${path}", "-old", "${old}", "-new", "${new}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Relative path to the file to patch." },
+          "old": { "type": "string", "description": "Exact string to find and replace." },
+          "new": { "type": "string", "description": "Replacement string." }
+        },
+        "required": ["path", "old", "new"]
+      }
     }
   ]
 }

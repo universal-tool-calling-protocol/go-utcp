@@ -97,6 +97,71 @@ func TestDeleteDisabled(t *testing.T) {
 	}
 }
 
+func TestPatch(t *testing.T) {
+	ctx := context.Background()
+
+	svc, err := New(Config{
+		RootDir:    t.TempDir(),
+		AllowWrite: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Write(ctx, "hello.txt", "hello world\ngoodbye world"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Patch(ctx, "hello.txt", "hello world", "hi world"); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := svc.Read(ctx, "hello.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content != "hi world\ngoodbye world" {
+		t.Fatalf("unexpected content after patch: %q", content)
+	}
+}
+
+func TestPatchOldNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	svc, err := New(Config{
+		RootDir:    t.TempDir(),
+		AllowWrite: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Write(ctx, "f.txt", "abc"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = svc.Patch(ctx, "f.txt", "xyz", "123")
+	if !errors.Is(err, ErrOldNotFound) {
+		t.Fatalf("expected ErrOldNotFound, got %v", err)
+	}
+}
+
+func TestPatchDisabled(t *testing.T) {
+	ctx := context.Background()
+
+	svc, err := New(Config{
+		RootDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = svc.Patch(ctx, "f.txt", "old", "new")
+	if err == nil {
+		t.Fatal("expected write-disabled error")
+	}
+}
+
 func TestMaxReadBytes(t *testing.T) {
 	ctx := context.Background()
 

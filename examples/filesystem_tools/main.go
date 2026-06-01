@@ -16,6 +16,8 @@ func main() {
 		tool        = flag.String("tool", "", "tool name")
 		path        = flag.String("path", "", "filesystem path")
 		content     = flag.String("content", "", "content for write/append")
+		oldStr      = flag.String("old", "", "old string to replace (for fs.patch)")
+		newStr      = flag.String("new", "", "new string to substitute (for fs.patch)")
 		query       = flag.String("query", "", "search query")
 		maxResults  = flag.Int("max-results", 50, "maximum search results")
 		maxRead     = flag.Int64("max-read-bytes", 1<<20, "maximum readable file size")
@@ -61,6 +63,9 @@ func main() {
 		result, err = svc.Stat(ctx, *path)
 	case "fs.search":
 		result, err = svc.Search(ctx, *query, *maxResults)
+	case "fs.patch":
+		err = svc.Patch(ctx, *path, *oldStr, *newStr)
+		result = map[string]any{"ok": err == nil}
 	default:
 		exitErr(fmt.Errorf("unknown or missing tool: %s", *tool))
 	}

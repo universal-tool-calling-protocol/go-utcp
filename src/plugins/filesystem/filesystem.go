@@ -335,6 +335,45 @@ func (s *Service) Search(ctx context.Context, query string, maxResults int) ([]S
 	return matches, nil
 }
 
+var ErrOldNotFound = errors.New("filesystem: old string not found in file")
+
+func (s *Service) Patch(ctx context.Context, path string, old string, new string) error {
+	if !s.allowWrite {
+		return errors.New("filesystem: writes are disabled")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	full, _, err := s.resolve(path)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(full)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("filesystem: %q is a directory", path)
+	}
+	if info.Size() > s.maxReadBytes {
+		return ErrFileTooLarge
+	}
+
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return err
+	}
+
+	src := string(data)
+	if !strings.Contains(src, old) {
+		return ErrOldNotFound
+	}
+
+	return os.WriteFile(full, []byte(strings.Replace(src, old, new, 1)), 0o644)
+}
+
 func (s *Service) resolve(path string) (string, string, error) {
 	clean := filepath.Clean(path)
 	if clean == "." || clean == string(filepath.Separator) {
