@@ -1,0 +1,65 @@
+{
+  "name": "git",
+  "version": "0.1.0",
+  "description": "Git operation tools for UTCP agents.",
+  "tools": [
+    {
+      "name": "git.diff",
+      "description": "Return the unified diff for the working tree or staged changes.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "git.diff", "-repo", "${GIT_REPO}", "-path", "${path}", "-staged", "${staged}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path":   { "type": "string",  "description": "Restrict diff to this file path (optional).", "default": "" },
+          "staged": { "type": "boolean", "description": "Show staged (index) diff instead of working-tree diff.", "default": false }
+        }
+      }
+    },
+    {
+      "name": "git.status",
+      "description": "Return the short-format working tree status.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "git.status", "-repo", "${GIT_REPO}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "git.apply_patch",
+      "description": "Apply a unified diff patch to the repository.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "git.apply_patch", "-repo", "${GIT_REPO}", "-patch", "${patch}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "patch": { "type": "string", "description": "Unified diff content to apply." }
+        },
+        "required": ["patch"]
+      }
+    },
+    {
+      "name": "git.commit_message",
+      "description": "Inspect staged changes and return a conventional-commit suggestion, affected files, and diff stats.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "git.commit_message", "-repo", "${GIT_REPO}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

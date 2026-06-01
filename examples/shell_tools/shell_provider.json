@@ -1,0 +1,33 @@
+{
+  "name": "shell",
+  "version": "0.1.0",
+  "description": "Run allowlisted shell commands via UTCP agents.",
+  "tools": [
+    {
+      "name": "shell.run",
+      "description": "Execute a command from the configured allowlist and return stdout, stderr, and exit code.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": [
+          "run", ".",
+          "-tool",    "shell.run",
+          "-allow",   "${allow}",
+          "-workdir", "${workdir}",
+          "-command", "${command}",
+          "-args",    "${args}"
+        ]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "allow":   { "type": "string",  "description": "Comma-separated list of permitted command names, e.g. 'ls,grep,cat'." },
+          "workdir": { "type": "string",  "description": "Working directory for the command.", "default": "." },
+          "command": { "type": "string",  "description": "Command name to execute (must be in the allowlist)." },
+          "args":    { "type": "string",  "description": "JSON array of arguments, e.g. '[\"-la\",\"/tmp\"]'.", "default": "[]" }
+        },
+        "required": ["allow", "command"]
+      }
+    }
+  ]
+}
