@@ -1,0 +1,138 @@
+{
+  "name": "filesystem",
+  "version": "0.1.0",
+  "description": "Sandboxed local filesystem tools for UTCP agents.",
+  "tools": [
+    {
+      "name": "fs.list",
+      "description": "List files and directories under the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.list", "-root", "${FS_ROOT}", "-path", "${path}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Relative path inside sandbox root." }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "fs.read",
+      "description": "Read a UTF-8 text file from the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.read", "-root", "${FS_ROOT}", "-path", "${path}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "fs.write",
+      "description": "Write a UTF-8 text file inside the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.write", "-root", "${FS_ROOT}", "-allow-write", "-path", "${path}", "-content", "${content}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "content": { "type": "string" }
+        },
+        "required": ["path", "content"]
+      }
+    },
+    {
+      "name": "fs.append",
+      "description": "Append UTF-8 text to a file inside the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.append", "-root", "${FS_ROOT}", "-allow-write", "-path", "${path}", "-content", "${content}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "content": { "type": "string" }
+        },
+        "required": ["path", "content"]
+      }
+    },
+    {
+      "name": "fs.mkdir",
+      "description": "Create a directory inside the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.mkdir", "-root", "${FS_ROOT}", "-allow-write", "-path", "${path}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "fs.remove",
+      "description": "Remove a file or directory inside the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.remove", "-root", "${FS_ROOT}", "-allow-delete", "-path", "${path}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "fs.stat",
+      "description": "Return metadata for a file or directory inside the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.stat", "-root", "${FS_ROOT}", "-path", "${path}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "fs.search",
+      "description": "Search text files inside the sandbox root.",
+      "provider": {
+        "type": "cli",
+        "command": "go",
+        "args": ["run", ".", "-tool", "fs.search", "-root", "${FS_ROOT}", "-query", "${query}", "-max-results", "${max_results}"]
+      },
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "max_results": { "type": "integer", "default": 50 }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
