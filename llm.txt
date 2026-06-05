@@ -1,0 +1,214 @@
+# go-utcp — LLM Context File
+
+Repository: https://github.com/universal-tool-calling-protocol/go-utcp
+Module: github.com/universal-tool-calling-protocol/go-utcp
+Language: Go
+License: MPL-2.0
+Project status: Official Go implementation of UTCP.
+
+## Purpose
+
+go-utcp implements the Universal Tool Calling Protocol (UTCP) in Go. UTCP is a protocol for defining, discovering, and calling tools across different communication protocols without requiring every tool to be proxied through a single middleware server.
+
+Use this repository when building Go agents, tool clients, provider integrations, transport plugins, OpenAPI-to-tool converters, or bridges between UTCP and other tool-calling protocols such as MCP.
+
+## Core idea
+
+UTCP treats a tool definition as a description of how to call an existing endpoint directly. A provider manual describes available tools, input schemas, output behavior, auth, and transport details. The Go client loads provider manuals, discovers tools, and dispatches calls through the correct transport implementation.
+
+## Main capabilities
+
+- Create a UTCP client with `utcp.NewUTCPClient`.
+- Load providers from a providers JSON file via `UtcpClientConfig.ProvidersFilePath`.
+- Search discovered tools with `client.SearchTools(query, limit)`.
+- Call tools with `client.CallTool(ctx, toolName, input)`.
+- Store providers and tools in an in-memory repository.
+- Substitute variables from environment variables or `.env` files using `UtcpDotEnv`.
+- Convert OpenAPI definitions into UTCP manuals using `OpenApiConverter`.
+- Use CodeMode to let LLMs compose tools with small Go-like snippets instead of large JSON plans.
+
+## Supported transports and provider styles
+
+The repository includes built-in support and/or examples for:
+
+- HTTP
+- Server-Sent Events / SSE
+- Streaming HTTP
+- CLI
+- WebSocket
+- gRPC
+- GraphQL
+- TCP
+- UDP
+- WebRTC
+- MCP
+- Text/template-style local tools
+
+When adding a new transport, follow the existing transport/provider pattern under `src/transports` and `src/providers`, add examples under `examples`, and include focused tests.
+
+## Important repository layout
+
+- `utcp_client.go` — top-level UTCP client behavior.
+- `utcp_client_config.go` — client configuration.
+- `src/auth` — auth helpers and auth model handling.
+- `src/providers` — provider definitions and provider-specific behavior.
+- `src/transports` — transport implementations.
+- `src/tools` — tool model types.
+- `src/manual` — UTCP manual-related models/parsing.
+- `src/repository` — runtime provider/tool repository implementations.
+- `src/openapi` — OpenAPI conversion utilities.
+- `src/plugins/codemode` — CodeMode plugin for LLM-driven tool orchestration.
+- `examples` — standalone Go modules demonstrating clients and transports.
+
+## Install
+
+```bash
+go get github.com/universal-tool-calling-protocol/go-utcp@latest
+```
+
+## Minimal client usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    utcp "github.com/universal-tool-calling-protocol/go-utcp"
+)
+
+func main() {
+    ctx := context.Background()
+
+    client, err := utcp.NewUTCPClient(ctx, &utcp.UtcpClientConfig{
+        ProvidersFilePath: "providers.json",
+    }, nil, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    tools, err := client.SearchTools("", 10)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if len(tools) == 0 {
+        log.Fatal("no tools discovered")
+    }
+
+    result, err := client.CallTool(ctx, tools[0].Name, map[string]any{
+        "name": "Kamil",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("result: %#v\n", result)
+}
+```
+
+## Running examples
+
+Examples are standalone Go modules. From the repository root, disable the workspace when running an example:
+
+```bash
+GOWORK=off go run ./examples/cli_transport
+```
+
+Replace `cli_transport` with another example directory such as `http_client`, `grpc_client`, `websocket_client`, `mcp_client`, `sse_client`, `graphql_client`, `tcp_client`, `udp_client`, `webrtc_client`, or `text_client`.
+
+## CodeMode plugin
+
+Primary constructor to include in CodeMode-focused LLM context:
+
+```go
+func NewCodeModeUTCP(client utcp.UtcpClientInterface, model interface {
+	Generate(ctx context.Context, prompt string) (any, error)
+}) *CodeModeUTCP {
+	return &CodeModeUTCP{
+		client: client,
+		model:  model,
+		cache:  NewToolCache(),
+	}
+}
+```
+
+`NewCodeModeUTCP` is the main entry point for wiring CodeMode to an existing UTCP client and an LLM model adapter. The model only needs to implement `Generate(ctx context.Context, prompt string) (any, error)`. The returned `CodeModeUTCP` keeps the client, stores the model, and initializes a fresh `ToolCache`.
+
+CodeMode lets an LLM produce short Go-like snippets for multi-step tool workflows. It provides helper functions such as:
+
+```go
+codemode.CallTool("http.echo", map[string]any{"message": "hi"})
+codemode.CallToolStream("stream.tool", map[string]any{"input": "value"})
+codemode.SearchTools("echo", 10)
+```
+
+Use CodeMode when the workflow needs loops, branches, intermediate values, chained tool calls, or dynamic orchestration.
+
+`NewCodeModeUTCP` creates a CodeMode orchestrator from an existing UTCP client and an LLM model adapter. The model must expose `Generate(ctx, prompt)` and return generated content as `any`. The constructor stores the UTCP client, stores the model adapter, and initializes the internal tool cache with `NewToolCache()`. Use `CallTool(ctx, prompt)` for natural-language orchestration and `Execute(ctx, CodeModeArgs{...})` for direct Go-like snippet execution.
+
+## Development guidance for LLM agents
+
+When modifying this repository:
+
+1. Keep changes idiomatic Go: simple interfaces, explicit errors, context-aware APIs, and small focused packages.
+2. Preserve transport abstraction boundaries. Do not leak HTTP-specific, gRPC-specific, or MCP-specific details into generic client logic unless there is already an established model for it.
+3. Add tests for every behavior change. Prefer table-driven tests where useful.
+4. Add or update examples when adding a transport, provider shape, auth mode, or user-facing API.
+5. Keep provider/manual parsing strict enough to catch invalid config, but avoid breaking existing valid manuals without migration notes.
+6. Prefer standard library first. Add dependencies only when the benefit is clear.
+7. Keep concurrency context-aware. Propagate `context.Context`, respect cancellation, and avoid goroutine leaks in streaming transports.
+8. For streaming transports, test normal completion, partial data, cancellation, remote close, and error propagation.
+9. For auth changes, avoid logging secrets and keep environment substitution safe.
+10. Keep README and examples synchronized with public API changes.
+
+## Good tasks for this repo
+
+- Add a new transport plugin.
+- Improve provider manual validation.
+- Expand OpenAPI conversion coverage.
+- Add auth modes or improve secret handling.
+- Harden streaming behavior and cancellation.
+- Add tests around tool discovery, provider loading, and transport-specific call behavior.
+- Improve CodeMode examples for multi-tool workflows.
+- Add examples showing UTCP with real Go services.
+
+## Things to avoid
+
+- Do not turn UTCP into a mandatory proxy architecture; the protocol is meant to describe direct calls to native endpoints.
+- Do not put provider-specific behavior into the generic client unless necessary.
+- Do not introduce global mutable state for transports or providers.
+- Do not hide errors behind vague messages; preserve enough context for debugging.
+- Do not log API keys, bearer tokens, provider secrets, or resolved `.env` values.
+- Do not make examples depend on external services unless the setup is clearly documented.
+
+## Suggested `providers.json` mental model
+
+A provider file should describe one or more providers and the tools each provider exposes. The client loads the file, registers provider definitions in the repository, discovers tools, and chooses the matching transport when `CallTool` is invoked.
+
+When generating provider files for examples:
+
+- Use clear tool names, usually namespaced by provider or domain.
+- Keep schemas small and explicit.
+- Include only the auth fields required by the transport.
+- Prefer local demo servers for examples.
+- Document required environment variables.
+
+## Quality checklist before opening a PR
+
+```bash
+go test ./...
+go test -race ./...
+go vet ./...
+```
+
+For examples:
+
+```bash
+GOWORK=off go run ./examples/<example_name>
+```
+
+## One-sentence summary
+
+go-utcp is the official Go SDK for UTCP: it lets Go applications and AI agents discover and call tools across HTTP, SSE, streaming HTTP, CLI, WebSocket, gRPC, GraphQL, TCP, UDP, WebRTC, MCP, and local text providers through a unified client API.
