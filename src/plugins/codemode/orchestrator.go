@@ -461,32 +461,6 @@ func extractJSON(response string) string {
 	return ""
 }
 
-func normalizeSnippet(code string) string {
-	code = strings.TrimSpace(code)
-
-	// CodeMode snippets are statements executed by the runtime. Some models still
-	// emit return __out because older prompts suggested it. A plain return is the
-	// valid early-exit form for snippets that already assigned __out.
-	code = strings.ReplaceAll(code, "return __out", "return")
-	code = strings.ReplaceAll(code, "return nil", "return")
-
-	// Do not allow invented helpers from the prompt to leak into executable code.
-	code = strings.ReplaceAll(code, "codemode.Sprintf(\"/main\")", "\"/main\"")
-	code = strings.ReplaceAll(code, "\".\" + codemode.Sprintf(\"/main\")", "\"./main\"")
-	code = strings.ReplaceAll(code, "codemode.Errorf(\"Compilation failed: %s\", stderr)", "map[string]any{\"error\": \"Compilation failed\", \"stderr\": stderr}")
-
-	// Gemini often uses command with []string. The shell provider schema in the
-	// harness uses argv, so repair the common invalid shape.
-	code = strings.ReplaceAll(code, "\"command\": []string{", "\"argv\": []string{")
-
-	// Repair common CallTool assignment shapes. The strict validator/runtime does
-	// better with named variables than blank identifiers for generated snippets.
-	code = strings.ReplaceAll(code, "_, err := codemode.CallTool", "result, err := codemode.CallTool")
-	code = strings.ReplaceAll(code, "_, err = codemode.CallTool", "result, err := codemode.CallTool")
-
-	return strings.TrimSpace(code)
-}
-
 func isValidSnippet(code string) bool {
 	trimmed := strings.TrimSpace(code)
 	if trimmed == "" {
