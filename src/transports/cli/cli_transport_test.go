@@ -61,7 +61,7 @@ func TestExtractManual(t *testing.T) {
 
 	t.Run("full manual", func(t *testing.T) {
 		jsonBlob := `{"tools":[{"name":"hello","description":"desc"}]}`
-		tools := tr.extractManual(jsonBlob, "dummy-provider")
+		tools, _ := tr.extractManual(jsonBlob, "dummy-provider")
 		if len(tools) != 1 || tools[0].Name != "hello" {
 			t.Fatalf("unexpected tools: %+v", tools)
 		}
@@ -72,7 +72,7 @@ func TestExtractManual(t *testing.T) {
 			"some log before",
 			`{"name":"world","description":"desc"}`,
 			"after noise"}, "\n")
-		tools := tr.extractManual(noisy, "dummy-provider")
+		tools, _ := tr.extractManual(noisy, "dummy-provider")
 		if len(tools) != 1 || tools[0].Name != "world" {
 			t.Fatalf("unexpected tools from noisy output: %+v", tools)
 		}

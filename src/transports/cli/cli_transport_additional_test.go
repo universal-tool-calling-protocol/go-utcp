@@ -37,7 +37,7 @@ func TestExtractManualAdditional(t *testing.T) {
 	mixed := `line
 {"tools":[{"name":"a","description":"d"}]}
 other`
-	tools := tr.extractManual(mixed, "p")
+	tools, _ := tr.extractManual(mixed, "p")
 	if len(tools) != 1 || tools[0].Name != "a" {
 		t.Fatalf("unexpected tools: %+v", tools)
 	}
