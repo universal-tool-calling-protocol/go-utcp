@@ -484,7 +484,9 @@ func isValidSnippet(code string) bool {
 		}
 		break
 	}
-
+	if containsBareCallTool(trimmed) {
+		return false
+	}
 	// Disallow map literals printed with fmt as map[value:...].
 	if strings.Contains(trimmed, "map[value:") {
 		return false
@@ -604,4 +606,34 @@ func (cm *CodeModeUTCP) StartCacheCleanup(ctx context.Context, interval time.Dur
 	if cm.cache != nil {
 		cm.cache.StartCleanupRoutine(ctx, interval)
 	}
+}
+
+func containsBareCallTool(code string) bool {
+	badForms := []string{
+		"CallTool(",
+		"CallToolStream(",
+	}
+
+	for _, bad := range badForms {
+		idx := strings.Index(code, bad)
+		for idx >= 0 {
+			before := ""
+			if idx >= len("codemode.") {
+				before = code[idx-len("codemode.") : idx]
+			}
+
+			if before != "codemode." {
+				return true
+			}
+
+			nextStart := idx + len(bad)
+			next := strings.Index(code[nextStart:], bad)
+			if next < 0 {
+				break
+			}
+			idx = nextStart + next
+		}
+	}
+
+	return false
 }
