@@ -182,11 +182,8 @@ func BenchmarkCallTool_WithCache(b *testing.B) {
 
 	mockModel := &mockModel{
 		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			// Simulate different responses for different stages
-			if stringContains(prompt, "Decide if") {
-				return `{"needs": true}`, nil
-			}
-			if stringContains(prompt, "Select ALL UTCP tools") {
+			// Tool selection also determines whether tools are needed.
+			if stringContains(prompt, "Select the UTCP tools required") {
 				return `{"tools": ["test.tool1"]}`, nil
 			}
 			if stringContains(prompt, "Generate a Go snippet") {

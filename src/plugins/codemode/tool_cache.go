@@ -17,6 +17,7 @@ type ToolCache struct {
 	// Tool specs cache
 	toolSpecsMu    sync.RWMutex
 	toolSpecsCache []tools.Tool
+	toolCatalog    string
 	toolSpecsTime  time.Time
 	toolSpecsTTL   time.Duration
 
@@ -90,7 +91,52 @@ func (tc *ToolCache) SetToolSpecs(specs []tools.Tool) {
 	// Store a copy to prevent external modifications
 	tc.toolSpecsCache = make([]tools.Tool, len(specs))
 	copy(tc.toolSpecsCache, specs)
+	tc.toolCatalog = ""
 	tc.toolSpecsTime = time.Now()
+}
+
+// GetToolSpecsAndCatalog returns cached tool specs and their compact prompt
+// catalog. Both values share a TTL so callers never use a stale catalog.
+func (tc *ToolCache) GetToolSpecsAndCatalog() ([]tools.Tool, string) {
+	tc.toolSpecsMu.RLock()
+	defer tc.toolSpecsMu.RUnlock()
+
+	if time.Since(tc.toolSpecsTime) > tc.toolSpecsTTL || tc.toolSpecsCache == nil {
+		tc.statsMu.Lock()
+		tc.specsMisses++
+		tc.statsMu.Unlock()
+		return nil, ""
+	}
+
+	tc.statsMu.Lock()
+	tc.specsHits++
+	tc.statsMu.Unlock()
+
+	result := make([]tools.Tool, len(tc.toolSpecsCache))
+	copy(result, tc.toolSpecsCache)
+	return result, tc.toolCatalog
+}
+
+// SetToolSpecsAndCatalog stores a spec snapshot and the catalog derived from it
+// atomically, avoiding repeated rendering on the orchestration hot path.
+func (tc *ToolCache) SetToolSpecsAndCatalog(specs []tools.Tool, catalog string) {
+	tc.toolSpecsMu.Lock()
+	defer tc.toolSpecsMu.Unlock()
+
+	tc.toolSpecsCache = make([]tools.Tool, len(specs))
+	copy(tc.toolSpecsCache, specs)
+	tc.toolCatalog = catalog
+	tc.toolSpecsTime = time.Now()
+}
+
+// SetToolCatalog attaches a catalog to the current cached spec snapshot.
+func (tc *ToolCache) SetToolCatalog(catalog string) {
+	tc.toolSpecsMu.Lock()
+	defer tc.toolSpecsMu.Unlock()
+
+	if tc.toolSpecsCache != nil && time.Since(tc.toolSpecsTime) <= tc.toolSpecsTTL {
+		tc.toolCatalog = catalog
+	}
 }
 
 // GetSelectedTools retrieves cached tool selection for a query
@@ -150,6 +196,7 @@ func (tc *ToolCache) InvalidateToolSpecs() {
 	defer tc.toolSpecsMu.Unlock()
 
 	tc.toolSpecsCache = nil
+	tc.toolCatalog = ""
 	tc.toolSpecsTime = time.Time{}
 }
 

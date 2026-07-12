@@ -17,43 +17,29 @@ func (cm *CodeModeUTCP) CallTool(
 	ctx context.Context,
 	prompt string,
 ) (bool, any, error) {
+	toolSpecs, catalog := cm.toolSpecsAndCatalog()
 
-	toolSpecs := cm.ToolSpecs()
-	detailed := renderUtcpToolsForPrompt(toolSpecs)
-
-	// --------------------------------------------
-	// 1) Decide whether tools are needed
-	// --------------------------------------------
-	need, err := cm.decideIfToolsNeeded(ctx, prompt, detailed)
+	// A selection of zero tools also answers the former "are tools needed?"
+	// question, saving one model round trip for every request.
+	selected, err := cm.selectTools(ctx, prompt, catalog)
 	if err != nil {
 		return false, "", err
-	}
-	if !need {
-		return false, "", nil
-	}
-
-	// --------------------------------------------
-	// 2) Select tools (exact names)
-	// --------------------------------------------
-	selected, err := cm.selectTools(ctx, prompt, detailed)
-	if err != nil {
-		return true, "", err
 	}
 	if len(selected) == 0 {
 		return false, "", nil
 	}
 
-	// --------------------------------------------
-	// 3) Generate snippet using chosen tools only
-	// --------------------------------------------
-	snippet, ok, err := cm.generateSnippet(ctx, prompt, selected, detailed)
+	selectedSpecs := selectedToolSpecs(toolSpecs, selected)
+	if len(selectedSpecs) == 0 {
+		return false, "", nil
+	}
+
+	selected = toolNames(selectedSpecs)
+	snippet, ok, err := cm.generateSnippet(ctx, prompt, selected, renderUtcpToolsForPrompt(selectedSpecs))
 	if err != nil && !ok {
 		return true, "", err
 	}
 
-	// --------------------------------------------
-	// 4) Execute snippet via CodeMode UTCP
-	// --------------------------------------------
 	timeout := 20000
 	raw, err := cm.Execute(ctx, CodeModeArgs{
 		Code:    snippet,
@@ -64,6 +50,36 @@ func (cm *CodeModeUTCP) CallTool(
 	}
 
 	return true, raw, nil
+}
+
+func selectedToolSpecs(specs []tools.Tool, selected []string) []tools.Tool {
+	byName := make(map[string]tools.Tool, len(specs))
+	for _, spec := range specs {
+		byName[spec.Name] = spec
+	}
+
+	result := make([]tools.Tool, 0, len(selected))
+	seen := make(map[string]struct{}, len(selected))
+	for _, name := range selected {
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		spec, ok := byName[name]
+		if !ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, spec)
+	}
+	return result
+}
+
+func toolNames(specs []tools.Tool) []string {
+	names := make([]string, len(specs))
+	for i, spec := range specs {
+		names[i] = spec.Name
+	}
+	return names
 }
 
 func (cm *CodeModeUTCP) generateSnippet(
@@ -99,7 +115,7 @@ SNIPPET RULES
 - No imports, no package declarations — ONLY Go statements.
 - It is OK for string literals to contain Go source text such as package main and import "fmt".
 - Do not declare var __out.
-- Use plain return only. NEVER use return __out or return nil.
+- For early exits, use return __out. NEVER use return nil.
 - Always assign the final result to __out using =, not :=.
 - For shell.run, if the schema contains argv, use:
       map[string]any{"argv": []string{"go", "run", "main.go"}}
@@ -291,6 +307,42 @@ func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 	return sb.String()
 }
 
+func renderUtcpToolCatalog(specs []tools.Tool) string {
+	var sb strings.Builder
+
+	sb.WriteString("AVAILABLE UTCP TOOLS:\n")
+	for _, t := range specs {
+		sb.WriteString("- ")
+		sb.WriteString(t.Name)
+		if t.Description != "" {
+			sb.WriteString(": ")
+			sb.WriteString(t.Description)
+		}
+		sb.WriteByte('\n')
+	}
+
+	return sb.String()
+}
+
+func (cm *CodeModeUTCP) toolSpecsAndCatalog() ([]tools.Tool, string) {
+	if cm.cache != nil {
+		if specs, catalog := cm.cache.GetToolSpecsAndCatalog(); specs != nil {
+			if catalog == "" {
+				catalog = renderUtcpToolCatalog(specs)
+				cm.cache.SetToolCatalog(catalog)
+			}
+			return specs, catalog
+		}
+	}
+
+	specs := cm.loadToolSpecs()
+	catalog := renderUtcpToolCatalog(specs)
+	if cm.cache != nil {
+		cm.cache.SetToolSpecsAndCatalog(specs, catalog)
+	}
+	return specs, catalog
+}
+
 func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
 	// Check cache first
 	if a.cache != nil {
@@ -299,6 +351,17 @@ func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
 		}
 	}
 
+	allSpecs := a.loadToolSpecs()
+
+	// Store in cache
+	if a.cache != nil {
+		a.cache.SetToolSpecs(allSpecs)
+	}
+
+	return allSpecs
+}
+
+func (a *CodeModeUTCP) loadToolSpecs() []tools.Tool {
 	var allSpecs []tools.Tool
 	seen := make(map[string]bool)
 
@@ -330,11 +393,6 @@ func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
 				seen[key] = true
 			}
 		}
-	}
-
-	// Store in cache
-	if a.cache != nil {
-		a.cache.SetToolSpecs(allSpecs)
 	}
 
 	return allSpecs
@@ -524,7 +582,7 @@ func (cm *CodeModeUTCP) selectTools(
 	}
 
 	prompt := fmt.Sprintf(`
-Select ALL UTCP tools that match the user's intent.
+Select the UTCP tools required to fulfill the user's intent.
 
 USER QUERY:
 %q
@@ -540,7 +598,8 @@ Respond ONLY in JSON:
 Rules:
 - Use ONLY names listed above.
 - NO modifications, NO guessing.
-- If multiple tools apply, include all.
+- Include every tool required for the request, and no unrelated tools.
+- If no available tool is required, return an empty array: {"tools": []}.
 `, query, tools)
 
 	raw, err := cm.model.Generate(ctx, prompt)

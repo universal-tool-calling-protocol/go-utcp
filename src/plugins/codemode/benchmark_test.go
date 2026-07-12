@@ -1,6 +1,7 @@
 package codemode
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -51,7 +52,7 @@ func BenchmarkInjectHelpers(b *testing.B) {
 		// The closures capture `client`. They don't access it until called.
 		// So nil should be fine.
 
-		_ = injectHelpers(in, nil)
+		_ = injectHelpers(in, nil, context.Background(), false)
 	}
 }
 
@@ -67,7 +68,7 @@ func BenchmarkExecuteSimple(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		interp := interp.New(interp.Options{})
-		_ = injectHelpers(interp, nil)
+		_ = injectHelpers(interp, nil, context.Background(), false)
 
 		// We need to wrap the code
 		// But wrapIntoProgram is a method of CodeModeUTCP? No, it's a standalone function in the file but might be unexported.
@@ -93,7 +94,7 @@ func TestFmtUsage(t *testing.T) {
 
 	// We need to replicate the execution logic
 	interp := interp.New(interp.Options{})
-	_ = injectHelpers(interp, nil)
+	_ = injectHelpers(interp, nil, context.Background(), true)
 
 	processed := preprocessUserCode(code)
 	// processed will be `fmt.Println("hello")` (imports stripped if any, but here none)

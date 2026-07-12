@@ -15,12 +15,11 @@ CodeMode UTCP bridges an LLM's understanding of tool semantics with dynamic code
 
 ### 1. Tool Decision Pipeline
 
-When `CallTool()` is invoked with a user prompt, the orchestrator executes four steps:
+When `CallTool()` is invoked with a user prompt, the orchestrator executes three steps:
 
-1. **Decide if tools are needed** – LLM determines whether UTCP tools are relevant
-2. **Select appropriate tools** – LLM identifies which tool names match the intent
-3. **Generate Go snippet** – LLM writes Go code using only the selected tools
-4. **Execute and return** – CodeMode runs the snippet and returns the result
+1. **Select appropriate tools** – The LLM identifies the exact tool names required; an empty selection means no tools are needed
+2. **Generate Go snippet** – The LLM writes Go code using only the selected tools and their schemas
+3. **Execute and return** – CodeMode runs the snippet and returns the result
 
 ### 2. Code Generation
 
@@ -240,9 +239,6 @@ This enables the LLM to make precise tool calls without guessing or inventing fi
 
 ```
 User: "Search for Python tutorials and summarize the top 3 results"
-       ↓
-Orchestrator (decide) → Yes, tools needed
-       ↓
 Orchestrator (select) → ["search.web", "text.summarize"]
        ↓
 Orchestrator (generate) → Code snippet that searches, extracts, and summarizes
@@ -258,6 +254,7 @@ User receives aggregated summary
 - Timeout prevents infinite loops (default 3s, configurable)
 - No filesystem access unless explicitly provided via helpers
 - Concurrent tool calls must be coordinated within the single-threaded Go snippet
+- The DSL loads `fmt` only when a snippet references it; other direct standard-library packages are not available by default
 
 ## License
 

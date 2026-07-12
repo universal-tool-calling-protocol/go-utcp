@@ -235,8 +235,7 @@ func TestCallTool_NoToolsNeeded(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockModel{
 		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			// This is for decideIfToolsNeeded
-			return `{"needs": false}`, nil
+			return `{"tools": []}`, nil
 		},
 	}
 	cm := &CodeModeUTCP{model: mock}
@@ -250,15 +249,14 @@ func TestCallTool_NoToolsNeeded(t *testing.T) {
 
 func TestCallTool_ToolsNeededAndExecuted(t *testing.T) {
 	ctx := context.Background()
+	modelCalls := 0
 
-	// 1. Mock LLM responses for each step of the orchestration
 	mock := &mockModel{
 		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
+			modelCalls++
 			switch {
-			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
-				return `{"needs": true}`, nil
-			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
-				return `{"tools": ["test.tool"]}`, nil
+			case strings.Contains(prompt, "Select the UTCP tools required to fulfill the user's intent"):
+				return `{"tools": ["codemode.run_code"]}`, nil
 			case strings.Contains(prompt, "Generate a Go snippet"):
 				return `{"code": "__out = \"success\""}`, nil
 			default:
@@ -267,23 +265,57 @@ func TestCallTool_ToolsNeededAndExecuted(t *testing.T) {
 		},
 	}
 
-	// 2. Create a CodeModeUTCP instance with the mock model and a mock Execute function
 	cm := &CodeModeUTCP{
 		model: mock,
-		// We override the Execute method for this test to avoid using the real interpreter.
-		// This is a common testing pattern, but in a real-world scenario,
-		// using an interface for the executor would be a cleaner approach.
 		executeFunc: func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
 			require.Equal(t, `__out = "success"`, args.Code, "Code passed to Execute should match the generated snippet")
 			return CodeModeResult{Value: "execution result"}, nil
 		},
 	}
 
-	// 3. Call the function and assert the results
 	needed, result, err := cm.CallTool(ctx, "a prompt that needs tools")
 	require.NoError(t, err)
 	assert.True(t, needed, "Should indicate that tools were needed")
 	assert.Equal(t, "execution result", result.(CodeModeResult).Value, "Should return the result from the mocked Execute function")
+	assert.Equal(t, 2, modelCalls, "selection and code generation should be the only model calls")
+}
+
+func TestCallTool_GeneratesWithSelectedToolSpecsOnly(t *testing.T) {
+	ctx := context.Background()
+	client := &mockUTCP{
+		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {
+			return []tools.Tool{
+				{Name: "selected.tool", Description: "Use this tool", Inputs: tools.ToolInputOutputSchema{Properties: map[string]any{"input": map[string]any{"type": "string"}}}},
+				{Name: "unselected.tool", Description: "Do not include this tool", Inputs: tools.ToolInputOutputSchema{Properties: map[string]any{"secret": map[string]any{"type": "string"}}}},
+			}, nil
+		},
+	}
+
+	mock := &mockModel{
+		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
+			switch {
+			case strings.Contains(prompt, "Select the UTCP tools required to fulfill the user's intent"):
+				assert.Contains(t, prompt, "selected.tool: Use this tool")
+				assert.NotContains(t, prompt, "\"secret\"")
+				return `{"tools": ["selected.tool"]}`, nil
+			case strings.Contains(prompt, "Generate a Go snippet"):
+				assert.Contains(t, prompt, "TOOL: selected.tool")
+				assert.NotContains(t, prompt, "TOOL: unselected.tool")
+				return `{"code": "__out = \"success\""}`, nil
+			default:
+				return nil, fmt.Errorf("unexpected prompt: %s", prompt)
+			}
+		},
+	}
+
+	cm := NewCodeModeUTCP(client, mock)
+	cm.executeFunc = func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
+		return CodeModeResult{Value: "execution result"}, nil
+	}
+
+	needed, _, err := cm.CallTool(ctx, "use the selected tool")
+	require.NoError(t, err)
+	assert.True(t, needed)
 }
 
 func TestCallTool_MultiStepExecution(t *testing.T) {
@@ -305,10 +337,8 @@ if err != nil {
 	mock := &mockModel{
 		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
 			switch {
-			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
-				return `{"needs": true}`, nil
-			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
-				return `{"tools": ["tool1", "tool2"]}`, nil
+			case strings.Contains(prompt, "Select the UTCP tools required to fulfill the user's intent"):
+				return `{"tools": ["codemode.run_code"]}`, nil
 			case strings.Contains(prompt, "Generate a Go snippet"):
 				return fmt.Sprintf(`{"code": %q}`, generatedCode), nil
 			default:
@@ -320,7 +350,7 @@ if err != nil {
 	cm := &CodeModeUTCP{
 		model: mock,
 		executeFunc: func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
-			assert.Equal(t, generatedCode, args.Code)
+			assert.Equal(t, strings.TrimSpace(generatedCode), args.Code)
 			return CodeModeResult{Value: "tool2 result"}, nil
 		},
 	}
@@ -358,10 +388,8 @@ if err != nil {
 	mock := &mockModel{
 		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
 			switch {
-			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
-				return `{"needs": true}`, nil
-			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
-				return `{"tools": ["tool1", "tool2"]}`, nil
+			case strings.Contains(prompt, "Select the UTCP tools required to fulfill the user's intent"):
+				return `{"tools": ["codemode.run_code"]}`, nil
 			case strings.Contains(prompt, "Generate a Go snippet"):
 				return fmt.Sprintf(`{"code": %q}`, generatedCode), nil
 			default:
@@ -373,7 +401,7 @@ if err != nil {
 	cm := &CodeModeUTCP{
 		model: mock,
 		executeFunc: func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
-			assert.Equal(t, generatedCode, args.Code)
+			assert.Equal(t, strings.TrimSpace(generatedCode), args.Code)
 			return CodeModeResult{Value: "tool2 stream result"}, nil
 		},
 	}
@@ -389,9 +417,7 @@ func TestCallTool_NoToolsSelected(t *testing.T) {
 	mock := &mockModel{
 		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
 			switch {
-			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
-				return `{"needs": true}`, nil
-			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
+			case strings.Contains(prompt, "Select the UTCP tools required to fulfill the user's intent"):
 				return `{"tools": []}`, nil // No tools selected
 			default:
 				return nil, fmt.Errorf("unexpected prompt: %s", prompt)
@@ -414,10 +440,8 @@ func TestCallTool_GenerateSnippetFails(t *testing.T) {
 	mock := &mockModel{
 		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
 			switch {
-			case strings.Contains(prompt, "Decide if the following user query requires using ANY UTCP tools"):
-				return `{"needs": true}`, nil
-			case strings.Contains(prompt, "Select ALL UTCP tools that match the user's intent"):
-				return `{"tools": ["test.tool"]}`, nil
+			case strings.Contains(prompt, "Select the UTCP tools required to fulfill the user's intent"):
+				return `{"tools": ["codemode.run_code"]}`, nil
 			case strings.Contains(prompt, "Generate a Go snippet"):
 				return nil, errors.New("snippet generation failed") // Simulate snippet generation failure
 			default:

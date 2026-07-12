@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/traefik/yaegi/interp"
@@ -28,31 +27,23 @@ import (
 
 const CodeModeToolName = "codemode.run_code"
 
-// Cached minimal stdlib to avoid rebuilding on every execution
 var (
-	minimalStdlibOnce  sync.Once
-	minimalStdlibCache map[string]map[string]reflect.Value
+	redeclaredErrRE       = regexp.MustCompile(`(?m)^.*,\s*err\s*:=.*$`)
+	bareReturnRE          = regexp.MustCompile(`(?m)^\s*return\s*$`)
+	ifAssignmentRE        = regexp.MustCompile(`if\s+(\w+)\s*,\s*(\w+)\s*=\s*`)
+	returnWalrusRE        = regexp.MustCompile(`(?m)^(\s*)return\s+([A-Za-z_]\w*)\s*:=\s*(.+)$`)
+	outWalrusRE           = regexp.MustCompile(`(?m)^(\s*)__out(\s*):=`)
+	varWalrusRE           = regexp.MustCompile(`(?m)^\s*var\s+([^\n=;]+):=`)
+	singleValueCallToolRE = regexp.MustCompile(`(?m)^(\s*)([A-Za-z_]\w*)\s*:=\s*codemode\.CallTool\s*\(`)
+	assignedCallToolRE    = regexp.MustCompile(`(?m)^(\s*)([A-Za-z_]\w*)\s*=\s*codemode\.CallTool\s*\(`)
+	returnCallToolRE      = regexp.MustCompile(`(?m)^(\s*)return\s+codemode\.CallTool\s*\((.*)\)\s*$`)
+	packageDeclRE         = regexp.MustCompile(`(?m)^\s*package\s+\w+\s*$`)
+	importSingleRE        = regexp.MustCompile(`(?m)^\s*import\s+(".*"|\w+\s+".*"|\(.*\))\s*$`)
+	importMultiRE         = regexp.MustCompile(`(?s)^\s*import\s*\((.*?)\)\s*$`)
+	varDeclarationRE      = regexp.MustCompile(`(?m)^\s*var\s+([A-Za-z_]\w*)\s*=`)
+	assignmentRE          = regexp.MustCompile(`(?m)^\s*([A-Za-z_]\w*)(?:\s*,.*)?\s*[:=]=`)
+	fmtReferenceRE        = regexp.MustCompile(`\bfmt\s*\.`)
 )
-
-func getMinimalStdlib() map[string]map[string]reflect.Value {
-	minimalStdlibOnce.Do(func() {
-		minimalStdlibCache = map[string]map[string]reflect.Value{}
-
-		// Only load packages that are actually needed by codemode
-		neededPackages := []string{
-			"context/context",
-			"fmt/fmt",
-			"reflect/reflect",
-		}
-
-		for _, pkg := range neededPackages {
-			if symbols, ok := stdlib.Symbols[pkg]; ok {
-				minimalStdlibCache[pkg] = symbols
-			}
-		}
-	})
-	return minimalStdlibCache
-}
 
 type CodeModeArgs struct {
 	Code    string `json:"code"`
@@ -148,11 +139,10 @@ func newInterpreter() (*interp.Interpreter, *bytes.Buffer, *bytes.Buffer) {
 func normalizeSnippet(code string) string {
 	code = strings.TrimSpace(code)
 
-	// CodeMode snippets are statements executed by the runtime. Some models still
-	// emit return __out because older prompts suggested it. A plain return is the
-	// valid early-exit form for snippets that already assigned __out.
-	code = strings.ReplaceAll(code, "return __out", "return")
-	code = strings.ReplaceAll(code, "return nil", "return")
+	// The generated code is wrapped in a function that returns a value, so every
+	// early exit must return __out. preprocessUserCode converts bare returns;
+	// normalize explicit `return nil` forms for older prompts as well.
+	code = strings.ReplaceAll(code, "return nil", "return __out")
 
 	// Do not allow invented helpers from the prompt to leak into executable code.
 	code = strings.ReplaceAll(code, "codemode.Sprintf(\"/main\")", "\"/main\"")
@@ -200,8 +190,7 @@ func fixRedeclaredErr(code string) string {
 	// error when 'err' is redeclared in subsequent tool calls.
 	// It finds the first assignment like `_, err := ...` and then replaces
 	// all following instances of `:=` with `=` on lines containing `, err`.
-	re := regexp.MustCompile(`(?m)^.*,\s*err\s*:=.*$`)
-	firstMatchIndex := re.FindStringIndex(code)
+	firstMatchIndex := redeclaredErrRE.FindStringIndex(code)
 
 	if firstMatchIndex == nil {
 		return code // No 'err' redeclaration pattern found
@@ -257,23 +246,19 @@ func toGoLiteral(v any) string {
 
 func fixBareReturn(code string) string {
 	// replace any `return` followed by end-of-line or `}` with `return __out`
-	re := regexp.MustCompile(`(?m)^\s*return\s*$`)
-	return re.ReplaceAllString(code, "return __out")
+	return bareReturnRE.ReplaceAllString(code, "return __out")
 }
 
 func fixIfAssignment(code string) string {
 	// Fix 'if x, ok = someFunc()' → 'if x, ok := someFunc()'
 	// This is safe because 'if' starts a new scope
-	re := regexp.MustCompile(`if\s+(\w+)\s*,\s*(\w+)\s*=\s*`)
-	return re.ReplaceAllString(code, "if $1, $2 := ")
+	return ifAssignmentRE.ReplaceAllString(code, "if $1, $2 := ")
 }
 
 func fixReturnWalrus(code string) string {
 	// Fix invalid short declarations in returns: `return x := y`
-	re := regexp.MustCompile(`(?m)^(\s*)return\s+([A-Za-z_]\w*)\s*:=\s*(.+)$`)
-
-	return re.ReplaceAllStringFunc(code, func(line string) string {
-		m := re.FindStringSubmatch(line)
+	return returnWalrusRE.ReplaceAllStringFunc(code, func(line string) string {
+		m := returnWalrusRE.FindStringSubmatch(line)
 		if len(m) != 4 {
 			return line
 		}
@@ -292,43 +277,33 @@ func convertOutWalrus(code string) string {
 	// This avoids breaking multi-variable declarations like `result, err := ...`
 	// Pattern: __out followed by optional whitespace, :=, but NOT preceded by comma
 	// Use capture groups to preserve both leading whitespace and spacing before :=
-	re := regexp.MustCompile(`(?m)^(\s*)__out(\s*):=`)
-	return re.ReplaceAllString(code, "${1}__out${2}=")
+	return outWalrusRE.ReplaceAllString(code, "${1}__out${2}=")
 }
 
 func fixVarWalrus(code string) string {
 	// Fix 'var x := y' → 'var x = y'
 	// Also handles 'var x int := y' and 'var x, y := 1, 2'
 	// Limit the match to a single line to avoid consuming following statements
-	re := regexp.MustCompile(`(?m)^\s*var\s+([^\n=;]+):=`)
-	return re.ReplaceAllString(code, "var $1=")
+	return varWalrusRE.ReplaceAllString(code, "var $1=")
 }
 
 func fixSingleValueCallTool(code string) string {
 	// Convert single-value CallTool usage into two-value form that ignores the error.
 	// Handles walrus assign, equals assign, and bare return.
 
-	reWalrus := regexp.MustCompile(`(?m)^(\s*)([A-Za-z_]\w*)\s*:=\s*codemode\.CallTool\s*\(`)
-	code = reWalrus.ReplaceAllString(code, "${1}${2}, _ := codemode.CallTool(")
-
-	reEquals := regexp.MustCompile(`(?m)^(\s*)([A-Za-z_]\w*)\s*=\s*codemode\.CallTool\s*\(`)
-	code = reEquals.ReplaceAllString(code, "${1}${2}, _ = codemode.CallTool(")
-
-	reReturn := regexp.MustCompile(`(?m)^(\s*)return\s+codemode\.CallTool\s*\((.*)\)\s*$`)
-	code = reReturn.ReplaceAllString(code, "${1}__tmp, _ := codemode.CallTool($2)\n${1}__out = __tmp\n${1}return __out")
+	code = singleValueCallToolRE.ReplaceAllString(code, "${1}${2}, _ := codemode.CallTool(")
+	code = assignedCallToolRE.ReplaceAllString(code, "${1}${2}, _ = codemode.CallTool(")
+	code = returnCallToolRE.ReplaceAllString(code, "${1}__tmp, _ := codemode.CallTool($2)\n${1}__out = __tmp\n${1}return __out")
 
 	return code
 }
 func stripPackageAndImports(code string) string {
 	// Remove package declaration
-	rePackage := regexp.MustCompile(`(?m)^\s*package\s+\w+\s*$`)
-	code = rePackage.ReplaceAllString(code, "")
+	code = packageDeclRE.ReplaceAllString(code, "")
 
 	// Remove import declarations (single line and multi-line)
-	reImportSingle := regexp.MustCompile(`(?m)^\s*import\s+(".*"|\w+\s+".*"|\(.*\))\s*$`)
-	code = reImportSingle.ReplaceAllString(code, "")
-	reImportMulti := regexp.MustCompile(`(?s)^\s*import\s*\((.*?)\)\s*$`)
-	code = reImportMulti.ReplaceAllString(code, "")
+	code = importSingleRE.ReplaceAllString(code, "")
+	code = importMultiRE.ReplaceAllString(code, "")
 	return code
 }
 
@@ -340,14 +315,12 @@ func ensureOutAssigned(code string) string {
 	trim := strings.TrimSpace(code)
 
 	// If we have a single-line var declaration, reuse that identifier
-	reVar := regexp.MustCompile(`(?m)^\s*var\s+([A-Za-z_]\w*)\s*=`)
-	if m := reVar.FindStringSubmatch(trim); m != nil {
+	if m := varDeclarationRE.FindStringSubmatch(trim); m != nil {
 		return code + "\n__out = " + m[1]
 	}
 
 	// If it's a single-line assignment (with = or :=), set __out to first LHS identifier
-	reAssign := regexp.MustCompile(`(?m)^\s*([A-Za-z_]\w*)(?:\s*,.*)?\s*[:=]=`)
-	if m := reAssign.FindStringSubmatch(trim); m != nil {
+	if m := assignmentRE.FindStringSubmatch(trim); m != nil {
 		return code + "\n__out = " + m[1]
 	}
 
@@ -376,12 +349,15 @@ type codeModeStream struct {
 }
 
 func wrapIntoProgram(clean string) string {
+	imports := `codemode "codemode_helpers/codemode_helpers"`
+	if fmtReferenceRE.MatchString(clean) {
+		imports += "\n\t\"fmt/fmt\""
+	}
+
 	return fmt.Sprintf(`package main
 
 import (
-	"context/context"
-	codemode "codemode_helpers/codemode_helpers"
-	"fmt/fmt"
+%s
 )
 
 func run() any {
@@ -393,7 +369,7 @@ func run() any {
 
     return __out
 }
-`, indent(clean, "    "))
+`, imports, indent(clean, "    "))
 }
 
 func indent(s, prefix string) string {
@@ -419,15 +395,14 @@ func (c *CodeModeUTCP) Execute(ctx context.Context, args CodeModeArgs) (CodeMode
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 
-	i, stdout, stderr := newInterpreter()
-
-	if err := injectHelpers(i, c.client); err != nil {
-		return CodeModeResult{}, fmt.Errorf("failed to inject helpers: %w", err)
-	}
-
 	wrapped, err := c.prepareWrappedProgram(args.Code)
 	if err != nil {
 		return CodeModeResult{}, fmt.Errorf("failed to prepare program: %w", err)
+	}
+
+	i, stdout, stderr := newInterpreter()
+	if err := injectHelpers(i, c.client, ctx, strings.Contains(wrapped, `"fmt/fmt"`)); err != nil {
+		return CodeModeResult{}, fmt.Errorf("failed to inject helpers: %w", err)
 	}
 
 	// 2. Structure for async result handling
@@ -499,11 +474,15 @@ func (s *codeModeStream) Next() (any, error) {
 	return s.next()
 }
 
-func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface) error {
-	// OPTIMIZATION: Use cached minimal stdlib instead of loading all stdlib.Symbols
-	// This reduces initialization time from ~1.5ms to ~20μs (75x faster)
-	if err := i.Use(getMinimalStdlib()); err != nil {
-		return fmt.Errorf("failed to load minimal stdlib: %w", err)
+func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface, ctx context.Context, usesFmt bool) error {
+	// Most generated snippets only call codemode helpers. Avoid loading Yaegi's
+	// standard library unless a snippet explicitly references fmt.
+	if usesFmt {
+		if err := i.Use(map[string]map[string]reflect.Value{
+			"fmt/fmt": stdlib.Symbols["fmt/fmt"],
+		}); err != nil {
+			return fmt.Errorf("failed to load fmt stdlib: %w", err)
+		}
 	}
 
 	exports := interp.Exports{
@@ -514,7 +493,7 @@ func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface) error
 			"Sprintf": reflect.ValueOf(fmt.Sprintf),
 
 			"CallTool": reflect.ValueOf(func(name string, args map[string]any) (any, error) {
-				return client.CallTool(context.Background(), name, args)
+				return client.CallTool(ctx, name, args)
 			}),
 
 			"SearchTools": reflect.ValueOf(func(query string, limit int) ([]tools.Tool, error) {
@@ -522,7 +501,7 @@ func injectHelpers(i *interp.Interpreter, client utcp.UtcpClientInterface) error
 			}),
 
 			"CallToolStream": reflect.ValueOf(func(name string, args map[string]any) (*codeModeStream, error) {
-				stream, err := client.CallToolStream(context.Background(), name, args)
+				stream, err := client.CallToolStream(ctx, name, args)
 				if err != nil {
 					return nil, fmt.Errorf("CallToolStream failed: %w", err)
 				}

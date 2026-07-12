@@ -1,5 +1,7 @@
 # CodeMode Optimization Summary
 
+> Historical note: the measurements below describe the original minimal-stdlib optimization. For current benchmarks and the latest orchestration changes, see [PERFORMANCE.md](PERFORMANCE.md).
+
 ## ✅ Completed Optimizations
 
 ### 1. Performance Optimization (40% faster)

@@ -42,6 +42,32 @@ func TestToolCache_ToolSpecs(t *testing.T) {
 	}
 }
 
+func TestToolCache_ToolSpecsAndCatalog(t *testing.T) {
+	cache := NewToolCache()
+	specs := []tools.Tool{{Name: "test.tool"}}
+	cache.SetToolSpecsAndCatalog(specs, "- test.tool: description\n")
+
+	cached, catalog := cache.GetToolSpecsAndCatalog()
+	if len(cached) != 1 || cached[0].Name != "test.tool" {
+		t.Fatalf("unexpected cached specs: %#v", cached)
+	}
+	if catalog != "- test.tool: description\n" {
+		t.Fatalf("unexpected catalog: %q", catalog)
+	}
+
+	cached[0].Name = "modified"
+	cachedAgain, _ := cache.GetToolSpecsAndCatalog()
+	if cachedAgain[0].Name == "modified" {
+		t.Fatal("catalog cache returned the original spec slice")
+	}
+
+	cache.InvalidateToolSpecs()
+	cached, catalog = cache.GetToolSpecsAndCatalog()
+	if cached != nil || catalog != "" {
+		t.Fatalf("expected invalidated cache, got specs=%#v catalog=%q", cached, catalog)
+	}
+}
+
 func TestToolCache_ToolSpecs_Expiration(t *testing.T) {
 	// Set very short TTL
 	os.Setenv("UTCP_TOOL_SPECS_CACHE_TTL", "100ms")
