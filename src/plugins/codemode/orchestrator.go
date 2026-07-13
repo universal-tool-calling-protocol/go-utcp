@@ -43,7 +43,9 @@ func (cm *CodeModeUTCP) CallTool(
 		renderUtcpToolsForPrompt(candidates),
 	)
 	if err != nil {
-		return false, "", err
+		// Planning was attempted, so mark the request as handled and preserve
+		// the underlying error for callers and errors.Is/errors.As checks.
+		return true, "", fmt.Errorf("CodeMode plan generation failed: %w", err)
 	}
 
 	usedTools := extractGeneratedToolNames(plan.Code)
