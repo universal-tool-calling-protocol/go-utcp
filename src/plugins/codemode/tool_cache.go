@@ -3,10 +3,10 @@ package codemode
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
@@ -26,12 +26,11 @@ type ToolCache struct {
 	selectionCache map[string]*selectionCacheEntry
 	selectionTTL   time.Duration
 
-	// Stats for monitoring
-	statsMu         sync.RWMutex
-	specsHits       int64
-	specsMisses     int64
-	selectionHits   int64
-	selectionMisses int64
+	// Stats are atomic so cache hits never contend on a separate mutex.
+	specsHits       atomic.Int64
+	specsMisses     atomic.Int64
+	selectionHits   atomic.Int64
+	selectionMisses atomic.Int64
 }
 
 type selectionCacheEntry struct {
@@ -60,22 +59,16 @@ func (tc *ToolCache) GetToolSpecs() []tools.Tool {
 	defer tc.toolSpecsMu.RUnlock()
 
 	if time.Since(tc.toolSpecsTime) > tc.toolSpecsTTL {
-		tc.statsMu.Lock()
-		tc.specsMisses++
-		tc.statsMu.Unlock()
+		tc.specsMisses.Add(1)
 		return nil
 	}
 
 	if tc.toolSpecsCache == nil {
-		tc.statsMu.Lock()
-		tc.specsMisses++
-		tc.statsMu.Unlock()
+		tc.specsMisses.Add(1)
 		return nil
 	}
 
-	tc.statsMu.Lock()
-	tc.specsHits++
-	tc.statsMu.Unlock()
+	tc.specsHits.Add(1)
 
 	// Return a copy to prevent external modifications
 	result := make([]tools.Tool, len(tc.toolSpecsCache))
@@ -102,15 +95,11 @@ func (tc *ToolCache) GetToolSpecsAndCatalog() ([]tools.Tool, string) {
 	defer tc.toolSpecsMu.RUnlock()
 
 	if time.Since(tc.toolSpecsTime) > tc.toolSpecsTTL || tc.toolSpecsCache == nil {
-		tc.statsMu.Lock()
-		tc.specsMisses++
-		tc.statsMu.Unlock()
+		tc.specsMisses.Add(1)
 		return nil, ""
 	}
 
-	tc.statsMu.Lock()
-	tc.specsHits++
-	tc.statsMu.Unlock()
+	tc.specsHits.Add(1)
 
 	result := make([]tools.Tool, len(tc.toolSpecsCache))
 	copy(result, tc.toolSpecsCache)
@@ -148,24 +137,17 @@ func (tc *ToolCache) GetSelectedTools(query string, availableTools string) []str
 	tc.selectionMu.RUnlock()
 
 	if !exists {
-		tc.statsMu.Lock()
-		tc.selectionMisses++
-		tc.statsMu.Unlock()
+		tc.selectionMisses.Add(1)
 		return nil
 	}
 
 	if time.Since(entry.timestamp) > tc.selectionTTL {
-		// Expired - clean up in background
-		go tc.removeExpiredSelection(key)
-		tc.statsMu.Lock()
-		tc.selectionMisses++
-		tc.statsMu.Unlock()
+		tc.removeExpiredSelection(key, entry)
+		tc.selectionMisses.Add(1)
 		return nil
 	}
 
-	tc.statsMu.Lock()
-	tc.selectionHits++
-	tc.statsMu.Unlock()
+	tc.selectionHits.Add(1)
 
 	// Return a copy to prevent external modifications
 	result := make([]string, len(entry.tools))
@@ -229,14 +211,11 @@ func (tc *ToolCache) CleanExpired() {
 
 // Stats returns cache performance statistics
 func (tc *ToolCache) Stats() CacheStats {
-	tc.statsMu.RLock()
-	defer tc.statsMu.RUnlock()
-
 	return CacheStats{
-		SpecsHits:       tc.specsHits,
-		SpecsMisses:     tc.specsMisses,
-		SelectionHits:   tc.selectionHits,
-		SelectionMisses: tc.selectionMisses,
+		SpecsHits:       tc.specsHits.Load(),
+		SpecsMisses:     tc.specsMisses.Load(),
+		SelectionHits:   tc.selectionHits.Load(),
+		SelectionMisses: tc.selectionMisses.Load(),
 		SelectionSize:   tc.getSelectionCacheSize(),
 	}
 }
@@ -271,17 +250,20 @@ func (cs CacheStats) SelectionHitRate() float64 {
 // cacheKey creates a hash-based cache key from query and available tools
 func (tc *ToolCache) cacheKey(query string, availableTools string) string {
 	hasher := sha256.New()
-	hasher.Write([]byte(query))
-	hasher.Write([]byte("\n---\n"))
-	hasher.Write([]byte(availableTools))
-	return hex.EncodeToString(hasher.Sum(nil))
+	_, _ = hasher.Write([]byte(query))
+	_, _ = hasher.Write([]byte{0})
+	_, _ = hasher.Write([]byte(availableTools))
+	var sum [sha256.Size]byte
+	return string(hasher.Sum(sum[:0]))
 }
 
 // removeExpiredSelection removes a specific cache entry
-func (tc *ToolCache) removeExpiredSelection(key string) {
+func (tc *ToolCache) removeExpiredSelection(key string, expired *selectionCacheEntry) {
 	tc.selectionMu.Lock()
 	defer tc.selectionMu.Unlock()
-	delete(tc.selectionCache, key)
+	if tc.selectionCache[key] == expired {
+		delete(tc.selectionCache, key)
+	}
 }
 
 // getSelectionCacheSize returns the current size of selection cache

@@ -1,17 +1,20 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/auth"
+	"github.com/universal-tool-calling-protocol/go-utcp/src/openapi"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
@@ -19,13 +22,14 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 // HttpClientTransport implements ClientTransportInterface for HTTP-based tool providers.
 type HttpClientTransport struct {
 	httpClient  *http.Client
 	oauthTokens map[string]map[string]interface{}
+	oauthMu     sync.RWMutex
 	logger      func(format string, args ...interface{})
 }
 
@@ -77,17 +81,24 @@ func (t *HttpClientTransport) applyAuth(req *http.Request, provider *HttpProvide
 
 // handleOAuth2 performs client credentials flow for OAuth2.
 func (t *HttpClientTransport) handleOAuth2(ctx context.Context, oauth *OAuth2Auth) (string, error) {
+	t.oauthMu.RLock()
 	if tokenData, ok := t.oauthTokens[oauth.ClientID]; ok {
 		if access, exists := tokenData["access_token"].(string); exists {
+			t.oauthMu.RUnlock()
 			return access, nil
 		}
+	}
+	t.oauthMu.RUnlock()
+	scope := ""
+	if oauth.Scope != nil {
+		scope = *oauth.Scope
 	}
 	// Try credentials in body
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("client_id", oauth.ClientID)
 	form.Set("client_secret", oauth.ClientSecret)
-	form.Set("scope", *oauth.Scope)
+	form.Set("scope", scope)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oauth.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -95,18 +106,24 @@ func (t *HttpClientTransport) handleOAuth2(ctx context.Context, oauth *OAuth2Aut
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := t.httpClient.Do(req)
-	if err == nil && resp.StatusCode < 300 {
-		defer resp.Body.Close()
+	if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		var data map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&data); err == nil {
+			resp.Body.Close()
+			t.oauthMu.Lock()
 			t.oauthTokens[oauth.ClientID] = data
+			t.oauthMu.Unlock()
 			if tok, ok := data["access_token"].(string); ok {
 				return tok, nil
 			}
 		}
 	}
+	if err == nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
 	// Fallback: Basic Auth header
-	req2, err := http.NewRequestWithContext(ctx, http.MethodPost, oauth.TokenURL, strings.NewReader("grant_type=client_credentials&scope="+url.QueryEscape(*oauth.Scope)))
+	req2, err := http.NewRequestWithContext(ctx, http.MethodPost, oauth.TokenURL, strings.NewReader("grant_type=client_credentials&scope="+url.QueryEscape(scope)))
 	if err != nil {
 		return "", err
 	}
@@ -117,11 +134,17 @@ func (t *HttpClientTransport) handleOAuth2(ctx context.Context, oauth *OAuth2Aut
 		return "", err
 	}
 	defer resp2.Body.Close()
+	if resp2.StatusCode < 200 || resp2.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp2.Body, 4<<10))
+		return "", fmt.Errorf("OAuth2 token endpoint returned %s: %s", resp2.Status, body)
+	}
 	var data2 map[string]interface{}
 	if err := json.NewDecoder(resp2.Body).Decode(&data2); err != nil {
 		return "", err
 	}
+	t.oauthMu.Lock()
 	t.oauthTokens[oauth.ClientID] = data2
+	t.oauthMu.Unlock()
 	if tok, ok := data2["access_token"].(string); ok {
 		return tok, nil
 	}
@@ -166,36 +189,36 @@ func (t *HttpClientTransport) RegisterToolProvider(ctx context.Context, p Provid
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
 		t.logger("Error connecting to %s: %v", hp.Name, err)
-		return nil, nil
+		return nil, fmt.Errorf("connect to provider %q: %w", hp.Name, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		t.logger("Error response from %s: %s", hp.Name, resp.Status)
-		return nil, nil
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return nil, fmt.Errorf("provider %q returned %s: %s", hp.Name, resp.Status, body)
 	}
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	var raw interface{}
+	var raw map[string]interface{}
 	ct := resp.Header.Get("Content-Type")
 	if strings.Contains(ct, "yaml") || strings.HasSuffix(urlStr, ".yaml") || strings.HasSuffix(urlStr, ".yml") {
-		yaml.Unmarshal(bodyBytes, &raw)
+		if err := yaml.Unmarshal(bodyBytes, &raw); err != nil {
+			return nil, fmt.Errorf("decode provider %q YAML: %w", hp.Name, err)
+		}
 	} else {
-		json.Unmarshal(bodyBytes, &raw)
-	}
-	// Parse UTCP manual
-	var manual UtcpManual
-	mmap, ok := raw.(map[string]interface{})
-	if ok {
-		if _, hasVer := mmap["version"]; hasVer {
-			manual = NewUtcpManualFromMap(mmap)
-		} else {
-			converter := NewOpenAPIConverter(raw, hp.URL, hp.Name)
-			manual = converter.Convert()
+		if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+			return nil, fmt.Errorf("decode provider %q JSON: %w", hp.Name, err)
 		}
 	}
-	return manual.Tools, nil
+	if _, isUTCPManual := raw["version"]; isUTCPManual {
+		return NewUtcpManualFromMap(raw).Tools, nil
+	}
+	specURL := urlStr
+	if resp.Request != nil && resp.Request.URL != nil {
+		specURL = resp.Request.URL.String()
+	}
+	return openapi.NewConverter(raw, specURL, hp.Name).Convert().Tools, nil
 }
 
 // CallTool calls a specific tool on the HTTP provider.
@@ -205,15 +228,25 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 		return nil, errors.New("HttpTransport can only be used with HttpProvider")
 	}
 
-	// Use the URL as-is from the provider - this allows flexibility in URL patterns
 	urlTemplate := hp.URL
-
-	// Handle URL template substitution for path parameters
+	var pathArguments map[string]struct{}
 	for key, val := range args {
-		placeholder := fmt.Sprintf("{%s}", key)
+		placeholder := "{" + key + "}"
 		if strings.Contains(urlTemplate, placeholder) {
-			urlTemplate = strings.ReplaceAll(urlTemplate, placeholder, fmt.Sprintf("%v", val))
-			delete(args, key)
+			urlTemplate = strings.ReplaceAll(urlTemplate, placeholder, fmt.Sprint(val))
+			if pathArguments == nil {
+				pathArguments = make(map[string]struct{})
+			}
+			pathArguments[key] = struct{}{}
+		}
+	}
+	requestArgs := args
+	if len(pathArguments) > 0 {
+		requestArgs = make(map[string]any, len(args)-len(pathArguments))
+		for key, value := range args {
+			if _, usedInPath := pathArguments[key]; !usedInPath {
+				requestArgs[key] = value
+			}
 		}
 	}
 
@@ -225,13 +258,13 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 	var req *http.Request
 
 	// Determine request method and body based on remaining args and HTTP method
-	if len(args) > 0 && hp.HTTPMethod == "POST" {
+	if len(requestArgs) > 0 && hp.HTTPMethod == http.MethodPost {
 		// POST with JSON body
-		jsonData, err := json.Marshal(args)
+		jsonData, err := json.Marshal(requestArgs)
 		if err != nil {
 			return nil, err
 		}
-		req, err = http.NewRequestWithContext(ctx, hp.HTTPMethod, u.String(), strings.NewReader(string(jsonData)))
+		req, err = http.NewRequestWithContext(ctx, hp.HTTPMethod, u.String(), bytes.NewReader(jsonData))
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +273,7 @@ func (t *HttpClientTransport) CallTool(ctx context.Context, toolName string, arg
 	} else {
 		// GET or POST with query parameters
 		q := u.Query()
-		for k, v := range args {
+		for k, v := range requestArgs {
 			q.Set(k, fmt.Sprintf("%v", v))
 		}
 		u.RawQuery = q.Encode()

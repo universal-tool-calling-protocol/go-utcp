@@ -139,21 +139,32 @@ func (t *SSEClientTransport) CallTool(ctx context.Context, toolName string, args
 
 // handleSSEStream creates a streaming result using NewChannelStreamResult
 func (t *SSEClientTransport) handleSSEStream(ctx context.Context, body io.ReadCloser) (transports.StreamResult, error) {
-	eventChan := make(chan any, 10) // buffered channel to prevent blocking
+	streamCtx, cancel := context.WithCancel(ctx)
+	eventChan := make(chan any, 10)
 
-	// Start a goroutine to read SSE events and send them to the channel
 	go func() {
 		defer close(eventChan)
 		defer body.Close()
+		defer cancel()
+		send := func(value any) bool {
+			select {
+			case eventChan <- value:
+				return true
+			case <-streamCtx.Done():
+				return false
+			}
+		}
 
 		reader := bufio.NewReader(body)
 		var dataBuf strings.Builder
 
 		for {
 			select {
-			case <-ctx.Done():
-				// Context cancelled, send error and return
-				eventChan <- ctx.Err()
+			case <-streamCtx.Done():
+				select {
+				case eventChan <- streamCtx.Err():
+				default:
+				}
 				return
 			default:
 			}
@@ -163,7 +174,7 @@ func (t *SSEClientTransport) handleSSEStream(ctx context.Context, body io.ReadCl
 				if err == io.EOF {
 					return
 				}
-				eventChan <- err
+				send(err)
 				return
 			}
 			line = strings.TrimRight(line, "\r\n")
@@ -181,11 +192,13 @@ func (t *SSEClientTransport) handleSSEStream(ctx context.Context, body io.ReadCl
 					var evt interface{}
 					if err := json.Unmarshal([]byte(dataBuf.String()), &evt); err != nil {
 						t.logger("failed to unmarshal SSE data: %v", err)
-						eventChan <- err
+						send(err)
 						return
 					} else {
 						t.logger("Received SSE event: %v", evt)
-						eventChan <- evt
+						if !send(evt) {
+							return
+						}
 					}
 					dataBuf.Reset()
 				}
@@ -202,13 +215,10 @@ func (t *SSEClientTransport) handleSSEStream(ctx context.Context, body io.ReadCl
 		}
 	}()
 
-	// Create a close function that will close the body if needed
-	closeFn := func() error {
-		// The body will be closed by the goroutine, but we can cancel context here if needed
-		return nil
-	}
-
-	return transports.NewChannelStreamResult(eventChan, closeFn), nil
+	return transports.NewChannelStreamResult(eventChan, func() error {
+		cancel()
+		return body.Close()
+	}), nil
 }
 
 // Legacy method for backward compatibility - now returns slice from stream
@@ -267,5 +277,12 @@ func (t *SSEClientTransport) CallToolStream(
 	args map[string]any,
 	p Provider,
 ) (transports.StreamResult, error) {
-	return nil, errors.New("streaming is supported by SSEClientTransport, use CallTool")
+	result, err := t.CallTool(ctx, toolName, args, p, nil)
+	if err != nil {
+		return nil, err
+	}
+	if stream, ok := result.(transports.StreamResult); ok {
+		return stream, nil
+	}
+	return transports.NewSliceStreamResult([]any{result}, nil), nil
 }
