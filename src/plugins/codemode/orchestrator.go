@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,65 +14,346 @@ import (
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
+type generatedPlan struct {
+	Tools  []string `json:"tools"`
+	Code   string   `json:"code"`
+	Stream bool     `json:"stream"`
+}
+
+type scoredTool struct {
+	tool  tools.Tool
+	score int
+	index int
+}
+
 func (cm *CodeModeUTCP) CallTool(
 	ctx context.Context,
 	prompt string,
 ) (bool, any, error) {
-	toolSpecs, catalog := cm.toolSpecsAndCatalog()
+	toolSpecs, _ := cm.toolSpecsAndCatalog()
+	candidates := rankToolSpecs(prompt, toolSpecs, codeModeCandidateLimit())
+	if len(candidates) == 0 {
+		return false, "", nil
+	}
 
-	// A selection of zero tools also answers the former "are tools needed?"
-	// question, saving one model round trip for every request.
-	selected, err := cm.selectTools(ctx, prompt, catalog)
+	plan, err := cm.planAndGenerate(
+		ctx,
+		prompt,
+		candidates,
+		renderUtcpToolsForPrompt(candidates),
+	)
 	if err != nil {
 		return false, "", err
 	}
-	if len(selected) == 0 {
+
+	usedTools := extractGeneratedToolNames(plan.Code)
+	if len(usedTools) == 0 {
 		return false, "", nil
 	}
-
-	selectedSpecs := selectedToolSpecs(toolSpecs, selected)
-	if len(selectedSpecs) == 0 {
-		return false, "", nil
-	}
-
-	selected = toolNames(selectedSpecs)
-	snippet, ok, err := cm.generateSnippet(ctx, prompt, selected, renderUtcpToolsForPrompt(selectedSpecs))
-	if err != nil && !ok {
+	if err := validateGeneratedPlan(plan, usedTools, toolNames(candidates)); err != nil {
 		return true, "", err
 	}
 
-	timeout := 20000
 	raw, err := cm.Execute(ctx, CodeModeArgs{
-		Code:    snippet,
-		Timeout: timeout,
+		Code:    plan.Code,
+		Timeout: 20000,
 	})
 	if err != nil {
-		return false, "", err
+		return true, "", err
 	}
 
 	return true, raw, nil
 }
 
-func selectedToolSpecs(specs []tools.Tool, selected []string) []tools.Tool {
-	byName := make(map[string]tools.Tool, len(specs))
-	for _, spec := range specs {
-		byName[spec.Name] = spec
+func (cm *CodeModeUTCP) planAndGenerate(
+	ctx context.Context,
+	query string,
+	candidates []tools.Tool,
+	toolSpecs string,
+) (generatedPlan, error) {
+	candidateNames := toolNames(candidates)
+	toolsJSON, err := json.Marshal(candidateNames)
+	if err != nil {
+		return generatedPlan{}, fmt.Errorf("marshal candidate tools: %w", err)
 	}
 
-	result := make([]tools.Tool, 0, len(selected))
-	seen := make(map[string]struct{}, len(selected))
-	for _, name := range selected {
-		if _, duplicate := seen[name]; duplicate {
+	prompt := fmt.Sprintf(`
+Decide which UTCP tools are required and generate the complete CodeMode Go snippet in this same response.
+
+USER QUERY:
+%q
+
+AVAILABLE TOOLS:
+%s
+
+TOOL SPECS:
+%s
+
+------------------------------------------------------------
+SELECTION AND SNIPPET RULES
+------------------------------------------------------------
+- If no available tool is required, return exactly:
+  {"tools":[],"code":"","stream":false}
+- Use ONLY tool names listed in AVAILABLE TOOLS.
+- The "tools" array must contain every tool called by the snippet and no unused tools.
+- Use EXACT input keys from the tool schemas. Do NOT invent fields.
+- Use ONLY these helper functions:
+  - codemode.CallTool(name, args)
+  - codemode.CallToolStream(name, args)
+- NEVER use codemode.SearchTools, codemode.Sprintf, codemode.Errorf, fmt.Sprintf, or fmt.Errorf.
+- No imports and no package declaration. Return ONLY Go statements in "code".
+- String literals may contain Go source such as package main or import "fmt".
+- Do not declare var __out.
+- For early exits, assign __out and use return __out. NEVER use return nil.
+- Always assign the final result to __out using =, not :=.
+- For shell.run, when the schema contains argv, use:
+      map[string]any{"argv": []string{"go", "run", "main.go"}}
+- Set "stream" to true when any codemode.CallToolStream call is used.
+
+------------------------------------------------------------
+NON-STREAMING CALL EXAMPLE
+------------------------------------------------------------
+r1, err := codemode.CallTool("<tool_name>", map[string]any{
+    "field": "value",
+})
+if err != nil {
+    __out = err
+    return __out
+}
+__out = r1
+
+------------------------------------------------------------
+CHAINING
+------------------------------------------------------------
+r1, err := codemode.CallTool("<first_tool>", map[string]any{
+    "a": 5,
+})
+if err != nil {
+    __out = err
+    return __out
+}
+
+var value any
+if m, ok := r1.(map[string]any); ok {
+    value = m["result"]
+}
+
+r2, err := codemode.CallTool("<second_tool>", map[string]any{
+    "value": value,
+})
+if err != nil {
+    __out = err
+    return __out
+}
+__out = r2
+
+------------------------------------------------------------
+STREAMING
+------------------------------------------------------------
+stream, err := codemode.CallToolStream("<stream_tool>", map[string]any{
+    "input": "hello",
+})
+if err != nil {
+    __out = err
+    return __out
+}
+var items []any
+for {
+    chunk, err := stream.Next()
+    if err != nil {
+        break
+    }
+    items = append(items, chunk)
+}
+__out = items
+
+Respond ONLY with one JSON object:
+{
+  "tools": ["provider.tool"],
+  "code": "<Go statements>",
+  "stream": false
+}
+`, query, string(toolsJSON), toolSpecs)
+
+	raw, err := cm.model.Generate(ctx, prompt)
+	if err != nil {
+		return generatedPlan{}, err
+	}
+
+	jsonStr := extractJSON(fmt.Sprint(raw))
+	if jsonStr == "" {
+		return generatedPlan{}, fmt.Errorf("plan generation returned no JSON")
+	}
+
+	var plan generatedPlan
+	if err := json.Unmarshal([]byte(jsonStr), &plan); err != nil {
+		return generatedPlan{}, fmt.Errorf("decode generated plan: %w", err)
+	}
+
+	plan.Code = normalizeSnippet(plan.Code)
+	if strings.TrimSpace(plan.Code) == "" {
+		if len(plan.Tools) == 0 {
+			return generatedPlan{}, nil
+		}
+		return generatedPlan{}, fmt.Errorf("generated plan selected tools but returned empty code")
+	}
+
+	if !isValidSnippet(plan.Code) {
+		log.Println("Skipping invalid snippet after normalization:", plan.Code)
+		return generatedPlan{}, fmt.Errorf("snippet validation failed")
+	}
+
+	return plan, nil
+}
+
+func validateGeneratedPlan(plan generatedPlan, usedTools, allowedTools []string) error {
+	allowed := make(map[string]struct{}, len(allowedTools))
+	for _, name := range allowedTools {
+		allowed[name] = struct{}{}
+	}
+
+	declared := make(map[string]struct{}, len(plan.Tools))
+	for _, name := range plan.Tools {
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("generated plan selected unavailable tool %q", name)
+		}
+		declared[name] = struct{}{}
+	}
+
+	for _, name := range usedTools {
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("generated code references unavailable tool %q", name)
+		}
+		if _, ok := declared[name]; !ok {
+			return fmt.Errorf("generated code references tool %q missing from tools list", name)
+		}
+	}
+
+	for name := range declared {
+		found := false
+		for _, used := range usedTools {
+			if used == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("generated plan declared unused tool %q", name)
+		}
+	}
+
+	usesStream := strings.Contains(plan.Code, "codemode.CallToolStream(")
+	if usesStream != plan.Stream {
+		return fmt.Errorf("generated stream flag does not match generated code")
+	}
+
+	return nil
+}
+
+func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
+	if limit <= 0 {
+		limit = 16
+	}
+
+	queryLower := strings.ToLower(query)
+	terms := toolQueryTerms(queryLower)
+	scored := make([]scoredTool, 0, len(specs))
+
+	for index, spec := range specs {
+		if spec.Name == CodeModeToolName {
 			continue
 		}
-		spec, ok := byName[name]
-		if !ok {
-			continue
+
+		name := strings.ToLower(spec.Name)
+		description := strings.ToLower(spec.Description)
+		tags := strings.ToLower(strings.Join(spec.Tags, " "))
+		score := 0
+
+		if name != "" && strings.Contains(queryLower, name) {
+			score += 200
 		}
-		seen[name] = struct{}{}
-		result = append(result, spec)
+		if provider, _, ok := strings.Cut(name, "."); ok && strings.Contains(queryLower, provider) {
+			score += 30
+		}
+
+		for _, term := range terms {
+			if strings.Contains(name, term) {
+				score += 20
+			}
+			if strings.Contains(tags, term) {
+				score += 8
+			}
+			if strings.Contains(description, term) {
+				score += 4
+			}
+			for field := range spec.Inputs.Properties {
+				if strings.Contains(strings.ToLower(field), term) {
+					score += 6
+				}
+			}
+		}
+
+		scored = append(scored, scoredTool{tool: spec, score: score, index: index})
+	}
+
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score == scored[j].score {
+			return scored[i].index < scored[j].index
+		}
+		return scored[i].score > scored[j].score
+	})
+
+	if limit > len(scored) {
+		limit = len(scored)
+	}
+	result := make([]tools.Tool, limit)
+	for i := 0; i < limit; i++ {
+		result[i] = scored[i].tool
 	}
 	return result
+}
+
+func toolQueryTerms(query string) []string {
+	parts := strings.FieldsFunc(query, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-'
+	})
+
+	stopWords := map[string]struct{}{
+		"a": {}, "an": {}, "and": {}, "are": {}, "as": {}, "at": {},
+		"be": {}, "by": {}, "for": {}, "from": {}, "in": {}, "is": {},
+		"it": {}, "of": {}, "on": {}, "or": {}, "the": {}, "to": {},
+		"use": {}, "using": {}, "with": {},
+	}
+
+	terms := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		if len(part) < 2 {
+			continue
+		}
+		if _, stop := stopWords[part]; stop {
+			continue
+		}
+		if _, duplicate := seen[part]; duplicate {
+			continue
+		}
+		seen[part] = struct{}{}
+		terms = append(terms, part)
+	}
+	return terms
+}
+
+func codeModeCandidateLimit() int {
+	const defaultLimit = 16
+	value := os.Getenv("UTCP_CODEMODE_CANDIDATE_LIMIT")
+	if value == "" {
+		return defaultLimit
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit <= 0 {
+		return defaultLimit
+	}
+	return limit
 }
 
 func toolNames(specs []tools.Tool) []string {
@@ -82,159 +364,12 @@ func toolNames(specs []tools.Tool) []string {
 	return names
 }
 
-func (cm *CodeModeUTCP) generateSnippet(
-	ctx context.Context,
-	query string,
-	tools []string,
-	toolSpecs string,
-) (string, bool, error) {
-
-	toolsJSON, _ := json.Marshal(tools)
-
-	prompt := fmt.Sprintf(`
-Generate a Go snippet that uses ONLY the following UTCP tools:
-
-%v
-
-USER QUERY:
-%q
-
-TOOL SPECS:
-%s
-
-------------------------------------------------------------
-SNIPPET RULES
-------------------------------------------------------------
-- Use ONLY the tool names listed above.
-- Use EXACT input keys from the tool schemas. Do NOT invent new fields.
-- Use ONLY these helper functions:
-  - codemode.CallTool(name, args)
-  - codemode.CallToolStream(name, args)
-  - codemode.SearchTools(query, limit)
-- NEVER use codemode.Sprintf, codemode.Errorf, fmt.Sprintf, or fmt.Errorf.
-- No imports, no package declarations — ONLY Go statements.
-- It is OK for string literals to contain Go source text such as package main and import "fmt".
-- Do not declare var __out.
-- For early exits, use return __out. NEVER use return nil.
-- Always assign the final result to __out using =, not :=.
-- For shell.run, if the schema contains argv, use:
-      map[string]any{"argv": []string{"go", "run", "main.go"}}
-- If ANY streaming tool is used, set "stream": true.
-
-------------------------------------------------------------
-CHAINING (NON-STREAMING) — STRICT RULES
-------------------------------------------------------------
-To pass output of one tool into another:
-
-1. Call the tool:
-    r1, err := codemode.CallTool("<tool_name>", map[string]any{
-        "a": 5,
-        "b": 7,
-    })
-    if err != nil {
-        __out = err
-        return
-    }
-
-2. Extract value using EXACT output-schema keys:
-    var sum any
-    if m, ok := r1.(map[string]any); ok {
-        sum = m["result"]   // key MUST match schema
-    }
-
-3. Use this value as input to the next tool:
-    r2, err := codemode.CallTool("<another_tool_name>", map[string]any{
-        "a": sum,
-        "b": 3,
-    })
-    if err != nil {
-        __out = err
-        return
-    }
-
-4. The final line must set:
-    __out = map[string]any{ // USE = NOT :=
-        "sum": sum,
-        "product": r2,
-    }
-
-------------------------------------------------------------
-AGENT TOOLS (e.g. 'specialist.specialist') — STRICT RULES
-------------------------------------------------------------
-Agent tools ALWAYS require an 'instruction' key.
-
-    fact, err := codemode.CallTool("specialist.specialist", map[string]any{
-        "instruction": "Tell me a fun fact about the Eiffel Tower.",
-    })
-------------------------------------------------------------
-STREAMING TOOLS — STRICT RULES
-------------------------------------------------------------
-When calling a streaming tool:
-
-1. Start the stream:
-    stream, err := codemode.CallToolStream("<stream_tool>", map[string]any{
-        "input": "hello",
-    })
-    if err != nil {
-        __out = err
-        return
-    }
-
-2. Read chunks in a loop:
-    var items []any
-    for {
-        chunk, err := stream.Next()
-        if err != nil {
-            break
-        }
-        items = append(items, chunk)
-    }
-
-3. You may chain streaming results into non-streaming tools:
-    r2, err := codemode.CallTool("provider.summarize", map[string]any{
-        "values": items,
-    })
-
-4. Or output directly:
-    __out = items
-
-------------------------------------------------------------
-Respond ONLY in JSON:
-{
-  "code": "<go snippet>",
-  "stream": false
-}
-`, string(toolsJSON), query, toolSpecs)
-
-	raw, err := cm.model.Generate(ctx, prompt)
-	if err != nil {
-		return "", false, err
-	}
-
-	jsonStr := extractJSON(fmt.Sprint(raw))
-	if jsonStr == "" {
-		return "", false, fmt.Errorf("snippet empty")
-	}
-
-	var resp struct {
-		Code   string `json:"code"`
-		Stream bool   `json:"stream"`
-	}
-
-	if err := json.Unmarshal([]byte(jsonStr), &resp); err != nil {
-		return "", false, err
-	}
-
-	resp.Code = normalizeSnippet(resp.Code)
-	if !isValidSnippet(resp.Code) {
-		log.Println("Skipping invalid snippet after normalization:", resp.Code)
-		return "", false, fmt.Errorf("snippet validation failed")
-	}
-
-	return resp.Code, resp.Stream, nil
-}
-
 func renderUtcpToolsForPrompt(specs []tools.Tool) string {
+	ordered := append([]tools.Tool(nil), specs...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].Name < ordered[j].Name
+	})
+
 	var sb strings.Builder
 
 	sb.WriteString("------------------------------------------------------------\n")
@@ -242,7 +377,7 @@ func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 	sb.WriteString("Use EXACT field names listed below. Do NOT invent new keys.\n")
 	sb.WriteString("------------------------------------------------------------\n\n")
 
-	for _, t := range specs {
+	for _, t := range ordered {
 
 		sb.WriteString(fmt.Sprintf("TOOL: %s\n", t.Name))
 		sb.WriteString(fmt.Sprintf("DESCRIPTION: %s\n\n", t.Description))
@@ -255,7 +390,13 @@ func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 		if len(t.Inputs.Properties) == 0 {
 			sb.WriteString("- (no fields)\n")
 		} else {
-			for key, raw := range t.Inputs.Properties {
+			keys := make([]string, 0, len(t.Inputs.Properties))
+			for key := range t.Inputs.Properties {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				raw := t.Inputs.Properties[key]
 
 				// Try to extract "type" from nested schema if present
 				propType := "any"
@@ -308,10 +449,15 @@ func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 }
 
 func renderUtcpToolCatalog(specs []tools.Tool) string {
+	ordered := append([]tools.Tool(nil), specs...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].Name < ordered[j].Name
+	})
+
 	var sb strings.Builder
 
 	sb.WriteString("AVAILABLE UTCP TOOLS:\n")
-	for _, t := range specs {
+	for _, t := range ordered {
 		sb.WriteString("- ")
 		sb.WriteString(t.Name)
 		if t.Description != "" {
@@ -396,46 +542,6 @@ func (a *CodeModeUTCP) loadToolSpecs() []tools.Tool {
 	}
 
 	return allSpecs
-}
-
-func (cm *CodeModeUTCP) decideIfToolsNeeded(
-	ctx context.Context,
-	query string,
-	tools string,
-) (bool, error) {
-
-	prompt := fmt.Sprintf(`
-Decide if the following user query requires using ANY UTCP tools.
-
-USER QUERY:
-%q
-
-AVAILABLE UTCP TOOLS:
-%s
-
-Respond ONLY in JSON:
-{ "needs": true } or { "needs": false }
-`, query, tools)
-
-	raw, err := cm.model.Generate(ctx, prompt)
-	if err != nil {
-		return false, err
-	}
-
-	jsonStr := extractJSON(fmt.Sprint(raw))
-	if jsonStr == "" {
-		return false, nil
-	}
-
-	var resp struct {
-		Needs bool `json:"needs"`
-	}
-
-	if err := json.Unmarshal([]byte(jsonStr), &resp); err != nil {
-		return false, nil
-	}
-
-	return resp.Needs, nil
 }
 
 func extractJSON(response string) string {
@@ -566,64 +672,6 @@ func isValidSnippet(code string) bool {
 	}
 
 	return true
-}
-
-func (cm *CodeModeUTCP) selectTools(
-	ctx context.Context,
-	query string,
-	tools string,
-) ([]string, error) {
-
-	// Check cache first
-	if cm.cache != nil {
-		if cached := cm.cache.GetSelectedTools(query, tools); cached != nil {
-			return cached, nil
-		}
-	}
-
-	prompt := fmt.Sprintf(`
-Select the UTCP tools required to fulfill the user's intent.
-
-USER QUERY:
-%q
-
-AVAILABLE UTCP TOOLS:
-%s
-
-Respond ONLY in JSON:
-{
-  "tools": ["provider.tool", ...]
-}
-
-Rules:
-- Use ONLY names listed above.
-- NO modifications, NO guessing.
-- Include every tool required for the request, and no unrelated tools.
-- If no available tool is required, return an empty array: {"tools": []}.
-`, query, tools)
-
-	raw, err := cm.model.Generate(ctx, prompt)
-	if err != nil {
-		return nil, err
-	}
-
-	jsonStr := extractJSON(fmt.Sprint(raw))
-	if jsonStr == "" {
-		return nil, nil
-	}
-
-	var resp struct {
-		Tools []string `json:"tools"`
-	}
-
-	_ = json.Unmarshal([]byte(jsonStr), &resp)
-
-	// Store in cache
-	if cm.cache != nil && resp.Tools != nil {
-		cm.cache.SetSelectedTools(query, tools, resp.Tools)
-	}
-
-	return resp.Tools, nil
 }
 
 // ───────────────────────────────────────────────────────────

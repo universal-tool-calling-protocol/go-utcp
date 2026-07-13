@@ -2,35 +2,37 @@ package codemode
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
-// Benchmark tool specs without cache
+func benchmarkTools(count int) []tools.Tool {
+	result := make([]tools.Tool, count)
+	for i := 0; i < count; i++ {
+		result[i] = tools.Tool{
+			Name:        fmt.Sprintf("test.tool%d", i),
+			Description: fmt.Sprintf("Test tool %d for memory search and processing", i),
+			Tags:        []string{"test", "memory"},
+			Inputs: tools.ToolInputOutputSchema{
+				Properties: map[string]any{
+					"query": map[string]any{"type": "string"},
+				},
+			},
+		}
+	}
+	return result
+}
+
+// Benchmark tool specs without cache.
 func BenchmarkToolSpecs_NoCache(b *testing.B) {
 	mock := &mockUTCP{
-		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {
-			// Simulate SearchTools returning a large list
-			result := make([]tools.Tool, 50)
-			for i := 0; i < 50; i++ {
-				result[i] = tools.Tool{
-					Name:        "test.tool" + string(rune(i)),
-					Description: "Test tool " + string(rune(i)),
-				}
-			}
-			return result, nil
+		searchToolsFn: func(string, int) ([]tools.Tool, error) {
+			return benchmarkTools(50), nil
 		},
 	}
-
-	mockModel := &mockModel{
-		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			return "{}", nil
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, mockModel)
-	// Disable cache to benchmark without caching
+	cm := NewCodeModeUTCP(mock, &mockModel{})
 	cm.cache = nil
 
 	b.ResetTimer()
@@ -39,59 +41,31 @@ func BenchmarkToolSpecs_NoCache(b *testing.B) {
 	}
 }
 
-// Benchmark tool specs with cache (first call - miss)
+// Benchmark tool specs with a fresh cache on every iteration.
 func BenchmarkToolSpecs_WithCache_Miss(b *testing.B) {
 	mock := &mockUTCP{
-		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {
-			result := make([]tools.Tool, 50)
-			for i := 0; i < 50; i++ {
-				result[i] = tools.Tool{
-					Name:        "test.tool" + string(rune(i)),
-					Description: "Test tool " + string(rune(i)),
-				}
-			}
-			return result, nil
-		},
-	}
-
-	mockModel := &mockModel{
-		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			return "{}", nil
+		searchToolsFn: func(string, int) ([]tools.Tool, error) {
+			return benchmarkTools(50), nil
 		},
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		cm := NewCodeModeUTCP(mock, mockModel)
+		cm := NewCodeModeUTCP(mock, &mockModel{})
 		b.StartTimer()
 		_ = cm.ToolSpecs()
 	}
 }
 
-// Benchmark tool specs with cache (subsequent calls - hits)
+// Benchmark tool specs after the cache has been populated.
 func BenchmarkToolSpecs_WithCache_Hit(b *testing.B) {
 	mock := &mockUTCP{
-		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {
-			result := make([]tools.Tool, 50)
-			for i := 0; i < 50; i++ {
-				result[i] = tools.Tool{
-					Name:        "test.tool" + string(rune(i)),
-					Description: "Test tool " + string(rune(i)),
-				}
-			}
-			return result, nil
+		searchToolsFn: func(string, int) ([]tools.Tool, error) {
+			return benchmarkTools(50), nil
 		},
 	}
-
-	mockModel := &mockModel{
-		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			return "{}", nil
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, mockModel)
-	// Warm up cache
+	cm := NewCodeModeUTCP(mock, &mockModel{})
 	_ = cm.ToolSpecs()
 
 	b.ResetTimer()
@@ -100,126 +74,72 @@ func BenchmarkToolSpecs_WithCache_Hit(b *testing.B) {
 	}
 }
 
-// Benchmark selectTools without cache
-func BenchmarkSelectTools_NoCache(b *testing.B) {
-	mock := &mockUTCP{}
-	mockModel := &mockModel{
-		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			return `{"tools": ["test.tool1", "test.tool2"]}`, nil
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, mockModel)
-	// Disable cache
-	cm.cache = nil
-
-	ctx := context.Background()
-	query := "find memory tools"
-	toolsStr := "test.tool1, test.tool2, test.tool3"
+// Benchmark the deterministic local candidate-ranking stage.
+func BenchmarkRankToolSpecs(b *testing.B) {
+	specs := benchmarkTools(100)
+	query := "search memory and process the result"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = cm.selectTools(ctx, query, toolsStr)
+		_ = rankToolSpecs(query, specs, 16)
 	}
 }
 
-// Benchmark selectTools with cache (first call - miss)
-func BenchmarkSelectTools_WithCache_Miss(b *testing.B) {
-	mock := &mockUTCP{}
+// Benchmark one combined selection-and-generation model call with a mock model.
+func BenchmarkPlanAndGenerate_OneRoundTrip(b *testing.B) {
+	candidates := benchmarkTools(16)
+	toolSpecs := renderUtcpToolsForPrompt(candidates)
+	response := `{"tools":["test.tool1"],"code":"result, err := codemode.CallTool(\"test.tool1\", map[string]any{\"query\": \"memory\"})\nif err != nil {\n__out = err\nreturn __out\n}\n__out = result","stream":false}`
 	mockModel := &mockModel{
-		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			return `{"tools": ["test.tool1", "test.tool2"]}`, nil
+		GenerateFunc: func(context.Context, string) (any, error) {
+			return response, nil
 		},
 	}
-
+	cm := NewCodeModeUTCP(&mockUTCP{}, mockModel)
 	ctx := context.Background()
-	query := "find memory tools"
-	toolsStr := "test.tool1, test.tool2, test.tool3"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		b.StopTimer()
-		cm := NewCodeModeUTCP(mock, mockModel)
-		b.StartTimer()
-		_, _ = cm.selectTools(ctx, query, toolsStr)
+		_, _ = cm.planAndGenerate(ctx, "search memory", candidates, toolSpecs)
 	}
 }
 
-// Benchmark selectTools with cache (subsequent calls - hits)
-func BenchmarkSelectTools_WithCache_Hit(b *testing.B) {
-	mock := &mockUTCP{}
-	mockModel := &mockModel{
-		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			return `{"tools": ["test.tool1", "test.tool2"]}`, nil
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, mockModel)
-
-	ctx := context.Background()
-	query := "find memory tools"
-	toolsStr := "test.tool1, test.tool2, test.tool3"
-
-	// Warm up cache
-	_, _ = cm.selectTools(ctx, query, toolsStr)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = cm.selectTools(ctx, query, toolsStr)
-	}
-}
-
-// Benchmark full CallTool workflow with cache
-func BenchmarkCallTool_WithCache(b *testing.B) {
+// Benchmark the full orchestration path. Tool specs are cached, while each
+// request intentionally performs exactly one model roundtrip.
+func BenchmarkCallTool_OneRoundTrip(b *testing.B) {
 	mock := &mockUTCP{
-		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {
+		searchToolsFn: func(string, int) ([]tools.Tool, error) {
 			return []tools.Tool{
-				{Name: "test.tool1", Description: "Test tool 1"},
-				{Name: "test.tool2", Description: "Test tool 2"},
+				{
+					Name:        "test.tool1",
+					Description: "Search memory",
+					Inputs: tools.ToolInputOutputSchema{
+						Properties: map[string]any{"query": map[string]any{"type": "string"}},
+					},
+				},
+				{Name: "test.tool2", Description: "Another tool"},
 			}, nil
 		},
 	}
-
+	response := `{"tools":["test.tool1"],"code":"result, err := codemode.CallTool(\"test.tool1\", map[string]any{\"query\": \"memory\"})\nif err != nil {\n__out = err\nreturn __out\n}\n__out = result","stream":false}`
 	mockModel := &mockModel{
-		GenerateFunc: func(ctx context.Context, prompt string) (any, error) {
-			// Tool selection also determines whether tools are needed.
-			if stringContains(prompt, "Select the UTCP tools required") {
-				return `{"tools": ["test.tool1"]}`, nil
-			}
-			if stringContains(prompt, "Generate a Go snippet") {
-				return `{"code": "__out = map[string]any{\"result\": \"test\"}", "stream": false}`, nil
-			}
-			return "{}", nil
+		GenerateFunc: func(context.Context, string) (any, error) {
+			return response, nil
 		},
 	}
-
 	cm := NewCodeModeUTCP(mock, mockModel)
-	// Mock execute to avoid actual code execution
-	cm.executeFunc = func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error) {
+	cm.executeFunc = func(context.Context, CodeModeArgs) (CodeModeResult, error) {
 		return CodeModeResult{Value: "mocked result"}, nil
 	}
-
 	ctx := context.Background()
-	query := "test query"
+	query := "search memory"
 
-	// First call to warm up cache
-	_, _, _ = cm.CallTool(ctx, query)
+	// Warm only the tool-spec/catalog cache. The generated plan is deliberately
+	// not cached, so one model call remains part of every benchmark iteration.
+	_, _ = cm.toolSpecsAndCatalog()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _, _ = cm.CallTool(ctx, query)
 	}
-}
-
-// Helper function
-func stringContains(s, substr string) bool {
-	if len(s) < len(substr) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

@@ -1,4 +1,3 @@
-// path: codemode/codemode_utcp.go
 package codemode
 
 import (
@@ -43,6 +42,7 @@ var (
 	varDeclarationRE      = regexp.MustCompile(`(?m)^\s*var\s+([A-Za-z_]\w*)\s*=`)
 	assignmentRE          = regexp.MustCompile(`(?m)^\s*([A-Za-z_]\w*)(?:\s*,.*)?\s*[:=]=`)
 	fmtReferenceRE        = regexp.MustCompile(`\bfmt\s*\.`)
+	generatedToolCallRE   = regexp.MustCompile(`codemode\.CallTool(?:Stream)?\s*\(\s*"([^"]+)"`)
 )
 
 type CodeModeArgs struct {
@@ -63,7 +63,7 @@ type CodeModeUTCP struct {
 	}
 	// For testing purposes, to mock the Execute method.
 	executeFunc func(ctx context.Context, args CodeModeArgs) (CodeModeResult, error)
-	// Cache for tool specs and selection results
+	// Cache for tool specs and legacy selection results
 	cache *ToolCache
 }
 
@@ -160,6 +160,28 @@ func normalizeSnippet(code string) string {
 
 	return strings.TrimSpace(code)
 }
+func extractGeneratedToolNames(code string) []string {
+	matches := generatedToolCallRE.FindAllStringSubmatch(code, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		if len(match) != 2 || match[1] == "" {
+			continue
+		}
+		if _, duplicate := seen[match[1]]; duplicate {
+			continue
+		}
+		seen[match[1]] = struct{}{}
+		names = append(names, match[1])
+	}
+
+	return names
+}
+
 func (c *CodeModeUTCP) prepareWrappedProgram(code string) (string, error) {
 	processed := preprocessUserCode(code)
 	clean := normalizeSnippet(processed)
