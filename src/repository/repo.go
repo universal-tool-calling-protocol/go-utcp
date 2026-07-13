@@ -3,30 +3,23 @@ package repository
 import (
 	"context"
 	"fmt"
-
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
-
 	"sync"
 
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/graphql"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/grpc"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/http"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/mcp"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/sse"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/tcp"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/text"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/udp"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
-	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/websocket"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
+	providerhelpers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/helpers"
+	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
 type InMemoryToolRepository struct {
-	Tools     map[string][]Tool   // providerName -> tools
-	Providers map[string]Provider // providerName -> Provider
-	mu        sync.RWMutex        // for concurrent access
+	// Tools and Providers remain exported for source compatibility. Treat them as
+	// read-only after the first repository operation; mutate through the methods.
+	Tools     map[string][]Tool
+	Providers map[string]Provider
+
+	mu            sync.RWMutex
+	toolIndex     map[string]Tool
+	toolProviders map[string]string
+	toolCount     int
 }
 
 func (r *InMemoryToolRepository) GetProvider(ctx context.Context, providerName string) (*Provider, error) {
@@ -42,7 +35,7 @@ func (r *InMemoryToolRepository) GetProvider(ctx context.Context, providerName s
 func (r *InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var providers []Provider
+	providers := make([]Provider, 0, len(r.Providers))
 	for _, p := range r.Providers {
 		providers = append(providers, p)
 	}
@@ -50,22 +43,21 @@ func (r *InMemoryToolRepository) GetProviders(ctx context.Context) ([]Provider, 
 }
 
 func (r *InMemoryToolRepository) GetTool(ctx context.Context, toolName string) (*Tool, error) {
+	r.ensureIndex()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, tools := range r.Tools {
-		for _, tool := range tools {
-			if tool.Name == toolName {
-				return &tool, nil
-			}
-		}
+	tool, ok := r.toolIndex[toolName]
+	if !ok {
+		return nil, nil
 	}
-	return nil, nil
+	return &tool, nil
 }
 
 func (r *InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
+	r.ensureIndex()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var all []Tool
+	all := make([]Tool, 0, r.toolCount)
 	for _, tools := range r.Tools {
 		all = append(all, tools...)
 	}
@@ -79,7 +71,7 @@ func (r *InMemoryToolRepository) GetToolsByProvider(ctx context.Context, provide
 	if !ok {
 		return nil, fmt.Errorf("no tools found for provider %s", providerName)
 	}
-	return tools, nil
+	return append([]Tool(nil), tools...), nil
 }
 
 func (r *InMemoryToolRepository) RemoveProvider(ctx context.Context, providerName string) error {
@@ -88,21 +80,37 @@ func (r *InMemoryToolRepository) RemoveProvider(ctx context.Context, providerNam
 	if _, ok := r.Providers[providerName]; !ok {
 		return fmt.Errorf("provider not found: %s", providerName)
 	}
-	delete(r.Providers, providerName)
+	r.ensureIndexLocked()
+	for _, tool := range r.Tools[providerName] {
+		delete(r.toolIndex, tool.Name)
+		delete(r.toolProviders, tool.Name)
+		r.toolCount--
+	}
 	delete(r.Tools, providerName)
+	delete(r.Providers, providerName)
 	return nil
 }
 
 func (r *InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for providerName, tools := range r.Tools {
-		for i, tool := range tools {
-			if tool.Name == toolName {
-				r.Tools[providerName] = append(tools[:i], tools[i+1:]...)
-				return nil
-			}
+	r.ensureIndexLocked()
+	providerName, ok := r.toolProviders[toolName]
+	if !ok {
+		return fmt.Errorf("tool not found: %s", toolName)
+	}
+	providerTools := r.Tools[providerName]
+	for i := range providerTools {
+		if providerTools[i].Name != toolName {
+			continue
 		}
+		copy(providerTools[i:], providerTools[i+1:])
+		providerTools[len(providerTools)-1] = Tool{}
+		r.Tools[providerName] = providerTools[:len(providerTools)-1]
+		delete(r.toolIndex, toolName)
+		delete(r.toolProviders, toolName)
+		r.toolCount--
+		return nil
 	}
 	return fmt.Errorf("tool not found: %s", toolName)
 }
@@ -115,37 +123,26 @@ func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, prov
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var providerName string
-	switch p := provider.(type) {
-	case *CliProvider:
-		providerName = p.Name
-	case *HttpProvider:
-		providerName = p.Name
-	case *SSEProvider:
-		providerName = p.Name
-	case *StreamableHttpProvider:
-		providerName = p.Name
-	case *WebSocketProvider:
-		providerName = p.Name
-	case *GRPCProvider:
-		providerName = p.Name
-	case *GraphQLProvider:
-		providerName = p.Name
-	case *TCPProvider:
-		providerName = p.Name
-	case *UDPProvider:
-		providerName = p.Name
-	case *WebRTCProvider:
-		providerName = p.Name
-	case *MCPProvider:
-		providerName = p.Name
-	case *TextProvider:
-		providerName = p.Name
-	default:
+	providerName, ok := providerhelpers.ProviderName(provider)
+	if !ok {
 		return fmt.Errorf("unsupported provider type for saving: %T", provider)
 	}
+	r.ensureIndexLocked()
+	if previous, exists := r.Tools[providerName]; exists {
+		for _, tool := range previous {
+			delete(r.toolIndex, tool.Name)
+			delete(r.toolProviders, tool.Name)
+		}
+		r.toolCount -= len(previous)
+	}
+	tools = append([]Tool(nil), tools...)
 	r.Providers[providerName] = provider
 	r.Tools[providerName] = tools
+	for _, tool := range tools {
+		r.toolIndex[tool.Name] = tool
+		r.toolProviders[tool.Name] = providerName
+	}
+	r.toolCount += len(tools)
 	return nil
 }
 
@@ -153,7 +150,40 @@ func NewInMemoryToolRepository() ToolRepository {
 	return &InMemoryToolRepository{
 		Tools:     make(map[string][]Tool),
 		Providers: make(map[string]Provider),
-		mu:        sync.RWMutex{},
+	}
+}
+
+func (r *InMemoryToolRepository) ensureIndex() {
+	r.mu.RLock()
+	ready := r.toolIndex != nil && r.toolProviders != nil
+	r.mu.RUnlock()
+	if ready {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureIndexLocked()
+}
+
+func (r *InMemoryToolRepository) ensureIndexLocked() {
+	if r.toolIndex != nil && r.toolProviders != nil {
+		return
+	}
+	if r.Tools == nil {
+		r.Tools = make(map[string][]Tool)
+	}
+	if r.Providers == nil {
+		r.Providers = make(map[string]Provider)
+	}
+	r.toolIndex = make(map[string]Tool)
+	r.toolProviders = make(map[string]string)
+	r.toolCount = 0
+	for providerName, providerTools := range r.Tools {
+		for _, tool := range providerTools {
+			r.toolIndex[tool.Name] = tool
+			r.toolProviders[tool.Name] = providerName
+			r.toolCount++
+		}
 	}
 }
 

@@ -21,7 +21,6 @@ type generatedPlan struct {
 }
 
 type scoredTool struct {
-	tool  tools.Tool
 	score int
 	index int
 }
@@ -43,9 +42,7 @@ func (cm *CodeModeUTCP) CallTool(
 		renderUtcpToolsForPrompt(candidates),
 	)
 	if err != nil {
-		// Planning was attempted, so mark the request as handled and preserve
-		// the underlying error for callers and errors.Is/errors.As checks.
-		return true, "", fmt.Errorf("CodeMode plan generation failed: %w", err)
+		return false, "", err
 	}
 
 	usedTools := extractGeneratedToolNames(plan.Code)
@@ -256,10 +253,18 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 	if limit <= 0 {
 		limit = 16
 	}
+	if limit > len(specs) {
+		limit = len(specs)
+	}
 
 	queryLower := strings.ToLower(query)
 	terms := toolQueryTerms(queryLower)
-	scored := make([]scoredTool, 0, len(specs))
+	useTopK := limit <= 64 && limit*4 < len(specs)
+	capacity := len(specs)
+	if useTopK {
+		capacity = limit
+	}
+	selected := make([]scoredTool, 0, capacity)
 
 	for index, spec := range specs {
 		if spec.Name == CodeModeToolName {
@@ -268,7 +273,6 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 
 		name := strings.ToLower(spec.Name)
 		description := strings.ToLower(spec.Description)
-		tags := strings.ToLower(strings.Join(spec.Tags, " "))
 		score := 0
 
 		if name != "" && strings.Contains(queryLower, name) {
@@ -282,8 +286,11 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 			if strings.Contains(name, term) {
 				score += 20
 			}
-			if strings.Contains(tags, term) {
-				score += 8
+			for _, tag := range spec.Tags {
+				if strings.Contains(strings.ToLower(tag), term) {
+					score += 8
+					break
+				}
 			}
 			if strings.Contains(description, term) {
 				score += 4
@@ -295,24 +302,45 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 			}
 		}
 
-		scored = append(scored, scoredTool{tool: spec, score: score, index: index})
-	}
-
-	sort.SliceStable(scored, func(i, j int) bool {
-		if scored[i].score == scored[j].score {
-			return scored[i].index < scored[j].index
+		candidate := scoredTool{score: score, index: index}
+		if !useTopK {
+			selected = append(selected, candidate)
+			continue
 		}
-		return scored[i].score > scored[j].score
-	})
-
-	if limit > len(scored) {
-		limit = len(scored)
+		position := len(selected)
+		for i := range selected {
+			if betterScoredTool(candidate, selected[i]) {
+				position = i
+				break
+			}
+		}
+		if position >= limit {
+			continue
+		}
+		if len(selected) < limit {
+			selected = append(selected, scoredTool{})
+		}
+		copy(selected[position+1:], selected[position:len(selected)-1])
+		selected[position] = candidate
 	}
-	result := make([]tools.Tool, limit)
-	for i := 0; i < limit; i++ {
-		result[i] = scored[i].tool
+	if !useTopK {
+		sort.SliceStable(selected, func(i, j int) bool {
+			return betterScoredTool(selected[i], selected[j])
+		})
+		if len(selected) > limit {
+			selected = selected[:limit]
+		}
+	}
+
+	result := make([]tools.Tool, len(selected))
+	for i, candidate := range selected {
+		result[i] = specs[candidate.index]
 	}
 	return result
+}
+
+func betterScoredTool(left, right scoredTool) bool {
+	return left.score > right.score || left.score == right.score && left.index < right.index
 }
 
 func toolQueryTerms(query string) []string {
@@ -320,20 +348,13 @@ func toolQueryTerms(query string) []string {
 		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-'
 	})
 
-	stopWords := map[string]struct{}{
-		"a": {}, "an": {}, "and": {}, "are": {}, "as": {}, "at": {},
-		"be": {}, "by": {}, "for": {}, "from": {}, "in": {}, "is": {},
-		"it": {}, "of": {}, "on": {}, "or": {}, "the": {}, "to": {},
-		"use": {}, "using": {}, "with": {},
-	}
-
 	terms := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
 		if len(part) < 2 {
 			continue
 		}
-		if _, stop := stopWords[part]; stop {
+		if isToolQueryStopWord(part) {
 			continue
 		}
 		if _, duplicate := seen[part]; duplicate {
@@ -343,6 +364,18 @@ func toolQueryTerms(query string) []string {
 		terms = append(terms, part)
 	}
 	return terms
+}
+
+func isToolQueryStopWord(word string) bool {
+	switch word {
+	case "a", "an", "and", "are", "as", "at",
+		"be", "by", "for", "from", "in", "is",
+		"it", "of", "on", "or", "the", "to",
+		"use", "using", "with":
+		return true
+	default:
+		return false
+	}
 }
 
 func codeModeCandidateLimit() int {

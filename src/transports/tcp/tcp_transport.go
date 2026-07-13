@@ -1,13 +1,13 @@
 package tcp
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"io"
 	"net"
+	"strconv"
 	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
@@ -38,7 +38,7 @@ func (t *TCPClientTransport) dial(ctx context.Context, prov *TCPProvider) (net.C
 		timeout = 30000
 	}
 	d := net.Dialer{Timeout: timeout * time.Millisecond}
-	return d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", prov.Host, prov.Port))
+	return d.DialContext(ctx, "tcp", net.JoinHostPort(prov.Host, strconv.Itoa(prov.Port)))
 }
 
 // RegisterToolProvider connects to the TCP provider and retrieves its manual.
@@ -59,7 +59,7 @@ func (t *TCPClientTransport) RegisterToolProvider(ctx context.Context, prov Prov
 		return nil, err
 	}
 	var resp map[string]interface{}
-	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&resp); err != nil {
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
 		return nil, err
 	}
 	manual := NewUtcpManualFromMap(resp)
@@ -95,7 +95,7 @@ func (t *TCPClientTransport) CallTool(ctx context.Context, toolName string, args
 	}
 
 	// Read the response
-	dec := json.NewDecoder(bufio.NewReader(conn))
+	dec := json.NewDecoder(conn)
 	var result any
 	if err := dec.Decode(&result); err != nil {
 		// If the peer just closed the socket without a payload, treat it as no result

@@ -1,7 +1,6 @@
 package streamable
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -22,18 +21,21 @@ import (
 // It can stream NDJSON or JSON Sequence responses, emitting each chunk via logger
 // and updating the last-chunk pointer if provided.
 type StreamableHTTPClientTransport struct {
-	client *http.Client
-	logger func(format string, args ...interface{})
+	client  *http.Client
+	logger  func(format string, args ...interface{})
+	logging bool
 }
 
 // NewStreamableHTTPTransport constructs a new StreamableHTTPClientTransport.
 func NewStreamableHTTPTransport(logger func(format string, args ...interface{})) *StreamableHTTPClientTransport {
+	logging := logger != nil
 	if logger == nil {
 		logger = func(format string, args ...interface{}) {}
 	}
 	return &StreamableHTTPClientTransport{
-		client: &http.Client{Timeout: 30 * time.Second},
-		logger: logger,
+		client:  &http.Client{Timeout: 30 * time.Second},
+		logger:  logger,
+		logging: logging,
 	}
 }
 
@@ -56,7 +58,11 @@ func (t *StreamableHTTPClientTransport) RegisterToolProvider(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return nil, fmt.Errorf("register provider %q: %s: %s", streamProv.Name, resp.Status, body)
+	}
 
 	return DecodeToolsResponse(resp.Body)
 }
@@ -95,79 +101,83 @@ func (t *StreamableHTTPClientTransport) CallTool(
 	if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return nil, fmt.Errorf("call tool %q: %s: %s", toolName, resp.Status, body)
+	}
 
-	// Use a buffered reader to handle NDJSON or JSON Sequence
-	reader := bufio.NewReader(resp.Body)
-	dec := json.NewDecoder(reader)
+	dec := json.NewDecoder(resp.Body)
+	streamCtx, cancel := context.WithCancel(ctx)
+	resultCh := make(chan any, 10)
 
-	// Create a channel for streaming results
-	resultCh := make(chan any, 10) // Buffer to prevent blocking
-
-	// Start a goroutine to process the stream
 	go func() {
 		defer close(resultCh)
 		defer resp.Body.Close()
+		defer cancel()
+		send := func(value any) bool {
+			select {
+			case resultCh <- value:
+				return true
+			case <-streamCtx.Done():
+				return false
+			}
+		}
 
 		for {
-			// Check if context is cancelled
 			select {
-			case <-ctx.Done():
-				resultCh <- ctx.Err()
+			case <-streamCtx.Done():
+				select {
+				case resultCh <- streamCtx.Err():
+				default:
+				}
 				return
 			default:
 			}
 
-			// Peek to see if there's any data left
-			b, err := reader.Peek(1)
-			if err == io.EOF {
-				break
-			} else if err != nil {
-				resultCh <- err
-				return
-			}
-			// Skip empty whitespace
-			if len(b) == 1 && (b[0] == '\n' || b[0] == ' ' || b[0] == '\t' || b[0] == '\r') {
-				reader.ReadByte()
-				continue
-			}
-
-			var raw json.RawMessage
-			if err := dec.Decode(&raw); err != nil {
-				if err == io.EOF {
-					break
-				}
-				resultCh <- err
-				return
-			}
-
-			// Log the raw JSON chunk
-			rawStr := string(bytes.TrimSpace(raw))
-			t.logger("received chunk: %s", rawStr)
-			if l != nil {
-				*l = rawStr
-			}
-
-			// Unmarshal into interface{}
 			var obj interface{}
-			if err := json.Unmarshal(raw, &obj); err != nil {
-				resultCh <- err
+			if t.logging || l != nil {
+				var raw json.RawMessage
+				if err := dec.Decode(&raw); err != nil {
+					if err == io.EOF {
+						return
+					}
+					send(err)
+					return
+				}
+				rawString := string(bytes.TrimSpace(raw))
+				if t.logging {
+					t.logger("received chunk: %s", rawString)
+				}
+				if l != nil {
+					*l = rawString
+				}
+				if err := json.Unmarshal(raw, &obj); err != nil {
+					send(err)
+					return
+				}
+			} else if err := dec.Decode(&obj); err != nil {
+				if err == io.EOF {
+					return
+				}
+				send(err)
 				return
 			}
-			resultCh <- obj
+			if !send(obj) {
+				return
+			}
 		}
 	}()
 
-	// Return a ChannelStreamResult
 	streamResult := transports.NewChannelStreamResult(resultCh, func() error {
-		// The goroutine will handle closing the response body
-		return nil
+		cancel()
+		return resp.Body.Close()
 	})
 
 	return streamResult, nil
 }
 
-// CallToolStream is a new method that explicitly returns a StreamResult for streaming use cases.
-// This provides a cleaner API for consumers who want to handle streaming results.
+// CallToolStream invokes a tool and returns its streamed results.
 func (t *StreamableHTTPClientTransport) CallToolStream(
 	ctx context.Context,
 	toolName string,

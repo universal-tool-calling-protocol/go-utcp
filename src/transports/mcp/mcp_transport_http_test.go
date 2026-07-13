@@ -57,7 +57,7 @@ func TestMCPHTTPNonStreamReturnsMap(t *testing.T) {
 	}
 	log.Println(m)
 	content, ok := m["text"]
-	if !ok && content != "Hello, Go!" {
+	if !ok || content != "Hello, Go!" {
 		t.Fatalf("unexpected result: %#v", m)
 	}
 

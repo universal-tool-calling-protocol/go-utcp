@@ -3,9 +3,10 @@ package udp
 import (
 	"context"
 	"errors"
-	"fmt"
 	json "github.com/universal-tool-calling-protocol/go-utcp/src/json"
 	"net"
+	"strconv"
+	"sync"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/manual"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
@@ -20,7 +21,8 @@ import (
 
 // UDPTransport implements the ClientTransport interface over UDP.
 type UDPTransport struct {
-	logger func(format string, args ...interface{})
+	logger  func(format string, args ...interface{})
+	buffers sync.Pool
 }
 
 // NewUDPTransport constructs a UDPTransport with optional logging.
@@ -28,12 +30,17 @@ func NewUDPTransport(logger func(format string, args ...interface{})) *UDPTransp
 	if logger == nil {
 		logger = func(string, ...interface{}) {}
 	}
-	return &UDPTransport{logger: logger}
+	transport := &UDPTransport{logger: logger}
+	transport.buffers.New = func() any {
+		buffer := make([]byte, 65_535)
+		return &buffer
+	}
+	return transport
 }
 
 // writeAndRead sends a packet and waits for a response within timeout.
 func (t *UDPTransport) writeAndRead(ctx context.Context, addr string, timeout time.Duration, payload []byte) ([]byte, error) {
-	conn, err := net.Dial("udp", addr)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "udp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -46,12 +53,13 @@ func (t *UDPTransport) writeAndRead(ctx context.Context, addr string, timeout ti
 	if _, err := conn.Write(payload); err != nil {
 		return nil, err
 	}
-	buf := make([]byte, 65535)
-	n, err := conn.Read(buf)
+	buffer := t.buffers.Get().(*[]byte)
+	defer t.buffers.Put(buffer)
+	n, err := conn.Read(*buffer)
 	if err != nil {
 		return nil, err
 	}
-	return buf[:n], nil
+	return append([]byte(nil), (*buffer)[:n]...), nil
 }
 
 // RegisterToolProvider discovers tools by sending a DISCOVER message to the server.
@@ -60,7 +68,7 @@ func (t *UDPTransport) RegisterToolProvider(ctx context.Context, prov Provider) 
 	if !ok {
 		return nil, errors.New("UDPTransport can only be used with UDPProvider")
 	}
-	addr := fmt.Sprintf("%s:%d", p.Host, p.Port)
+	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
 	timeout := time.Duration(p.Timeout) * time.Millisecond
 	resp, err := t.writeAndRead(ctx, addr, timeout, []byte("DISCOVER"))
 	if err != nil {
@@ -87,7 +95,7 @@ func (t *UDPTransport) CallTool(ctx context.Context, toolName string, args map[s
 	if !ok {
 		return nil, errors.New("UDPTransport can only be used with UDPProvider")
 	}
-	addr := fmt.Sprintf("%s:%d", p.Host, p.Port)
+	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
 	timeout := time.Duration(p.Timeout) * time.Millisecond
 	payload, err := json.Marshal(map[string]any{"tool": toolName, "args": args})
 	if err != nil {

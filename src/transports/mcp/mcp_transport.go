@@ -894,8 +894,12 @@ func (t *MCPTransport) callHTTPTool(
 	if err != nil {
 		return nil, fmt.Errorf("HTTP call to tool '%s' failed: %w", toolName, err)
 	}
+	if len(res.Content) > 0 {
+		if content, err := contentAsMap(res.Content[0]); err == nil {
+			return content, nil
+		}
+	}
 
-	// Marshal the response to JSON bytes
 	raw, err := json.Marshal(res)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal response for tool '%s': %w", toolName, err)
@@ -915,6 +919,25 @@ func (t *MCPTransport) callHTTPTool(
 
 	// otherwise, fall back to the whole map
 	return respMap, nil
+}
+
+func contentAsMap(content mcpapi.Content) (map[string]any, error) {
+	switch value := content.(type) {
+	case mcpapi.TextContent:
+		return map[string]any{"type": value.Type, "text": value.Text}, nil
+	case *mcpapi.TextContent:
+		return map[string]any{"type": value.Type, "text": value.Text}, nil
+	}
+
+	raw, err := json.Marshal(content)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // extractContentMap unwraps a {"content":…} envelope and

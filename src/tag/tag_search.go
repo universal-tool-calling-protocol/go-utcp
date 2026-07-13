@@ -2,9 +2,9 @@ package tag
 
 import (
 	"context"
-	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
@@ -15,7 +15,6 @@ import (
 type TagSearchStrategy struct {
 	toolRepository    ToolRepository
 	descriptionWeight float64
-	wordRegex         *regexp.Regexp
 }
 
 // NewTagSearchStrategy creates a new TagSearchStrategy with the given repository and description weight.
@@ -23,94 +22,145 @@ func NewTagSearchStrategy(repo ToolRepository, descriptionWeight float64) *TagSe
 	return &TagSearchStrategy{
 		toolRepository:    repo,
 		descriptionWeight: descriptionWeight,
-		wordRegex:         regexp.MustCompile(`\w+`),
 	}
+}
+
+type scoredTool struct {
+	index int
+	score float64
 }
 
 // SearchTools returns tools ordered by relevance to the query, using explicit tags and description keywords.
 func (s *TagSearchStrategy) SearchTools(ctx context.Context, query string, limit int) ([]Tool, error) {
-	// Normalize query
 	queryLower := strings.ToLower(strings.TrimSpace(query))
-	words := s.wordRegex.FindAllString(queryLower, -1)
-	queryWordSet := make(map[string]struct{}, len(words))
-	for _, w := range words {
-		queryWordSet[w] = struct{}{}
-	}
+	queryWordSet := wordSet(queryLower)
 
-	// Retrieve all tools
-	tools, err := s.toolRepository.GetTools(context.Background())
+	tools, err := s.toolRepository.GetTools(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// Compute SUTCP score for each tool
-	type scoredTool struct {
-		tool  Tool
-		score float64
+	if len(tools) == 0 {
+		return nil, nil
 	}
-	var scored []scoredTool
 
-	for _, t := range tools {
+	resultLimit := limit
+	if resultLimit <= 0 || resultLimit > len(tools) {
+		resultLimit = len(tools)
+	}
+	useTopK := resultLimit <= 64 && resultLimit*4 < len(tools)
+	capacity := len(tools)
+	if useTopK {
+		capacity = resultLimit
+	}
+	selected := make([]scoredTool, 0, capacity)
+
+	for index, tool := range tools {
+		if index&63 == 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+		}
 		var score float64
 
-		// Match against tags
-		for _, tag := range t.Tags {
+		for _, tag := range tool.Tags {
 			tagLower := strings.ToLower(tag)
-
-			// Direct substring match
-			if strings.Contains(queryLower, tagLower) {
+			if tagLower != "" && strings.Contains(queryLower, tagLower) {
 				score += 1.0
 			}
-
-			// Word-level overlap
-			tagWords := s.wordRegex.FindAllString(tagLower, -1)
-			for _, w := range tagWords {
-				if _, ok := queryWordSet[w]; ok {
-					score += s.descriptionWeight
-				}
-			}
+			score += matchingWordScore(tagLower, queryWordSet, 0, s.descriptionWeight)
 		}
 
-		// Match against description
-		if t.Description != "" {
-			descWords := s.wordRegex.FindAllString(strings.ToLower(t.Description), -1)
-			for _, w := range descWords {
-				if len(w) > 2 {
-					if _, ok := queryWordSet[w]; ok {
-						score += s.descriptionWeight
-					}
-				}
-			}
+		if tool.Description != "" {
+			score += matchingWordScore(strings.ToLower(tool.Description), queryWordSet, 3, s.descriptionWeight)
 		}
 
-		scored = append(scored, scoredTool{tool: t, score: score})
-	}
-
-	// Sort descending by score
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].score > scored[j].score
-	})
-
-	// Collect only positive matches
-	var result []Tool
-	for _, st := range scored {
-		if st.score > 0 {
-			result = append(result, st.tool)
-			if len(result) >= limit {
+		if score <= 0 {
+			continue
+		}
+		candidate := scoredTool{index: index, score: score}
+		if !useTopK {
+			selected = append(selected, candidate)
+			continue
+		}
+		position := len(selected)
+		for i := range selected {
+			if betterScoredTool(candidate, selected[i]) {
+				position = i
 				break
 			}
 		}
+		if position >= resultLimit {
+			continue
+		}
+		if len(selected) < resultLimit {
+			selected = append(selected, scoredTool{})
+		}
+		copy(selected[position+1:], selected[position:len(selected)-1])
+		selected[position] = candidate
 	}
 
-	// If no matches, fallback to top N (for discoverability)
-	if len(result) == 0 && len(scored) > 0 {
-		for i, st := range scored {
-			if i >= limit {
-				break
-			}
-			result = append(result, st.tool)
+	if len(selected) == 0 {
+		return append([]Tool(nil), tools[:resultLimit]...), nil
+	}
+	if !useTopK {
+		sort.SliceStable(selected, func(i, j int) bool {
+			return betterScoredTool(selected[i], selected[j])
+		})
+		if len(selected) > resultLimit {
+			selected = selected[:resultLimit]
 		}
+	}
+
+	result := make([]Tool, len(selected))
+	for i, candidate := range selected {
+		result[i] = tools[candidate.index]
 	}
 
 	return result, nil
+}
+
+func betterScoredTool(left, right scoredTool) bool {
+	return left.score > right.score || left.score == right.score && left.index < right.index
+}
+
+func wordSet(value string) map[string]struct{} {
+	words := make(map[string]struct{})
+	forEachWord(value, func(word string) {
+		words[word] = struct{}{}
+	})
+	return words
+}
+
+func matchingWordScore(value string, queryWords map[string]struct{}, minLength int, weight float64) float64 {
+	var score float64
+	forEachWord(value, func(word string) {
+		if len(word) < minLength {
+			return
+		}
+		if _, ok := queryWords[word]; ok {
+			score += weight
+		}
+	})
+	return score
+}
+
+func forEachWord(value string, visit func(string)) {
+	start := -1
+	for index, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			if start < 0 {
+				start = index
+			}
+			continue
+		}
+		if start >= 0 {
+			visit(value[start:index])
+			start = -1
+		}
+	}
+	if start >= 0 {
+		visit(value[start:])
+	}
 }

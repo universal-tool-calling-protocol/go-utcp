@@ -41,12 +41,16 @@ func TestHttpTransport_CallTool_PathSub(t *testing.T) {
 	defer server.Close()
 	prov := &HttpProvider{BaseProvider: BaseProvider{Name: "h", ProviderType: ProviderHTTP}, HTTPMethod: http.MethodGet, URL: server.URL + "/{id}"}
 	tr := NewHttpClientTransport(nil)
-	res, err := tr.CallTool(context.Background(), "t", map[string]any{"id": 5}, prov, nil)
+	args := map[string]any{"id": 5}
+	res, err := tr.CallTool(context.Background(), "t", args, prov, nil)
 	if err != nil {
 		t.Fatalf("call error: %v", err)
 	}
 	if gotPath != "/5" {
 		t.Fatalf("path substitution failed: %s", gotPath)
+	}
+	if args["id"] != 5 {
+		t.Fatalf("CallTool mutated caller arguments: %#v", args)
 	}
 	m := res.(map[string]interface{})
 	if m["ok"] != true {

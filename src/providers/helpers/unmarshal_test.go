@@ -132,3 +132,37 @@ func TestUnmarshalAuth_Errors(t *testing.T) {
 		t.Fatalf("expected json error")
 	}
 }
+
+func TestNewProviderInitializesType(t *testing.T) {
+	providerTypes := []ProviderType{
+		ProviderHTTP,
+		ProviderSSE,
+		ProviderHTTPStream,
+		ProviderCLI,
+		ProviderWebSocket,
+		ProviderGRPC,
+		ProviderGraphQL,
+		ProviderTCP,
+		ProviderUDP,
+		ProviderWebRTC,
+		ProviderMCP,
+		ProviderText,
+	}
+
+	for _, providerType := range providerTypes {
+		providerType := providerType
+		t.Run(string(providerType), func(t *testing.T) {
+			provider, err := NewProvider(providerType)
+			if err != nil {
+				t.Fatalf("NewProvider(%q) returned error: %v", providerType, err)
+			}
+			if got := provider.Type(); got != providerType {
+				t.Fatalf("NewProvider(%q).Type() = %q, want %q", providerType, got, providerType)
+			}
+		})
+	}
+
+	if _, err := NewProvider(ProviderType("unknown")); err == nil {
+		t.Fatal("NewProvider accepted an unknown provider type")
+	}
+}

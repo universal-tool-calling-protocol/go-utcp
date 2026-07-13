@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/streamable"
@@ -77,6 +79,60 @@ func TestStreamableHTTPClientTransport_RegisterAndCall(t *testing.T) {
 	m, ok := result.(map[string]interface{})
 	if !ok || m["result"] != "hi" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+type closeCountingBody struct {
+	io.Reader
+	closed chan struct{}
+}
+
+func (b *closeCountingBody) Close() error {
+	b.closed <- struct{}{}
+	return nil
+}
+
+func TestStreamableCloseUnblocksFullBuffer(t *testing.T) {
+	closed := make(chan struct{}, 2)
+	body := &closeCountingBody{
+		Reader: strings.NewReader(strings.Repeat("{\"n\":1}\n", 32)),
+		closed: closed,
+	}
+	transport := NewStreamableHTTPTransport(nil)
+	transport.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       body,
+			Request:    request,
+		}, nil
+	})}
+	provider := &StreamableHttpProvider{
+		BaseProvider: BaseProvider{Name: "stream", ProviderType: ProviderHTTPStream},
+		URL:          "http://example.test",
+	}
+	result, err := transport.CallTool(context.Background(), "many", nil, provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := result.(transports.StreamResult)
+	time.Sleep(20 * time.Millisecond)
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-closed:
+		case <-time.After(time.Second):
+			t.Fatal("stream producer did not exit after Close")
+		}
 	}
 }
 
