@@ -1,27 +1,48 @@
-# CodeMode Performance
+# CodeMode Performance Report
 
-## Latest results
+- **Date:** 2026-07-14
+- **Baseline:** `ae717a6d715b` (`fix codemode/orchestrator isValidSnippet`)
+- **Current:** `78f597d45301` (`perf: optimize client repository and transports`)
+- **Environment:** Apple M2, Go 1.26.3, Darwin/arm64, `-count=3`
 
-Measured on an Apple M2 with `go test ./src/plugins/codemode -run '^$' -bench '^(BenchmarkInjectHelpers|BenchmarkExecuteSimple|BenchmarkToolSpecs_WithCache_Hit|BenchmarkCallTool_WithCache)$' -benchmem -count=5`.
+## Summary
 
-| Benchmark | Before | Current | Change |
+CodeMode execution is substantially faster after the optimization work:
+
+- Simple snippets are **23.9x faster** and use **95.8% less memory**.
+- A representative two-tool chain is **8.1x faster** and uses **92.0% less memory**.
+- The cached orchestration path is **3.4x faster** with **one** model round trip instead of two after selection caching.
+
+## Benchmark results
+
+Values are medians of three benchmark processes. `B/op` and `allocs/op` are per operation.
+
+| Path | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| Helper injection | 957 us, 1.25 MB, 14,030 allocs | 6.0 us, 18.6 KB, 102 allocs | 99% faster |
-| Simple execution | 1.14 ms, 1.40 MB, 15,329 allocs | 44 us, 59 KB, 747 allocs | 96% faster |
-| Cached orchestration (mock model) | 32.7 us, 19.7 KB, 106 allocs | 12.2 us, 9.1 KB, 40 allocs | 63% faster |
-| Cached tool-spec lookup | 3.8 us, 20 KB | 3.6 us, 20 KB | unchanged |
+| Helper injection | 910.8 us, 1.25 MB, 14,030 allocs | 6.2 us, 18.6 KB, 102 allocs | **146.8x faster**, 98.5% less memory |
+| Simple execution | 1.026 ms, 1.40 MB, 15,328 allocs | 42.9 us, 59.1 KB, 747 allocs | **23.9x faster**, 95.8% less memory |
+| Chained execution (two tools) | 1.108 ms, 1.46 MB, 16,143 allocs | 136.1 us, 116.9 KB, 1,562 allocs | **8.1x faster**, 92.0% less memory |
+| Cached tool-spec lookup | 3.38 us, 20.0 KB, 1 alloc | 3.79 us, 20.0 KB, 1 alloc | 12.3% slower |
+| Cached orchestration with mock model | 30.1 us, 19.7 KB, 106 allocs | 8.8 us, 12.3 KB, 69 allocs | **3.4x faster**, 37.4% less memory |
 
-The orchestration benchmark uses an in-process mock model, so it does not represent provider/network latency. In production, the request path now has two sequential model calls—tool selection and code generation—instead of three. A cached selection skips the first of those calls altogether.
+The small cached lookup regression is about 0.4 us and is outweighed by the execution and orchestration improvements.
 
-## What changed
+## What was measured
 
-1. Standard-library loading is now lazy. Most generated snippets only use CodeMode helpers, so Yaegi starts with no standard-library packages. `fmt` is loaded only for snippets that reference `fmt.`.
-2. Normalization regexes are compiled once at package initialization instead of on every execution.
-3. Tool selection uses a compact, cached name-and-description catalog rather than full input/output schemas.
-4. Code generation receives full schemas only for the selected tools.
-5. Selecting no tools replaces the separate tool-needed model decision, removing one model round trip.
-6. Helpers propagate the execution context to UTCP calls, allowing compatible clients to stop work when CodeMode times out or is cancelled.
+- **Simple execution** runs an arithmetic CodeMode snippet through Yaegi.
+- **Chained execution** calls local mock `math.add` and `math.multiply` tools in sequence, measuring interpreter, helper, and chaining overhead without network latency.
+- **Cached orchestration** uses cached tool metadata and an in-process mock model. The baseline performed a decision plus code-generation model call after its selection cache was warm; the current path plans and generates in one call.
 
-## Compatibility
+The orchestration benchmark intentionally excludes provider and network latency. Real model-backed requests should save the latency of one model round trip; remote tool-call latency will still dominate the chained-execution total when tools are network-bound.
 
-Generated CodeMode snippets retain access to all documented helpers. Explicit uses of `fmt` remain supported. Other direct Yaegi standard-library imports are not part of the CodeMode DSL and are intentionally not loaded by default.
+## Reproducing the current measurements
+
+Run the focused suite from the repository root:
+
+```sh
+go test ./src/plugins/codemode -run '^$' \
+  -bench '^(BenchmarkInjectHelpers|BenchmarkExecuteSimple|BenchmarkExecuteChainedToolCalls|BenchmarkToolSpecs_WithCache_Hit|BenchmarkPlanAndGenerate_OneRoundTrip|BenchmarkCallTool_OneRoundTrip)$' \
+  -benchmem -count=3
+```
+
+To reproduce the before values, run the matching benchmarks from a clean checkout of `ae717a6d715b`. `BenchmarkExecuteChainedToolCalls` was added with the optimization work; use the equivalent two-tool benchmark shown above when testing the baseline.
