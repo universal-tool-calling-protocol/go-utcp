@@ -91,6 +91,19 @@ func (tc *ToolCache) SetToolSpecs(specs []tools.Tool) {
 // GetToolSpecsAndCatalog returns cached tool specs and their compact prompt
 // catalog. Both values share a TTL so callers never use a stale catalog.
 func (tc *ToolCache) GetToolSpecsAndCatalog() ([]tools.Tool, string) {
+	specs, catalog := tc.getToolSpecsAndCatalogShared()
+	if specs == nil {
+		return nil, ""
+	}
+	result := make([]tools.Tool, len(specs))
+	copy(result, specs)
+	return result, catalog
+}
+
+// getToolSpecsAndCatalogShared returns the cache's immutable internal snapshot.
+// It is only used by CodeMode's read-only orchestration path; exported cache
+// accessors continue to return defensive copies.
+func (tc *ToolCache) getToolSpecsAndCatalogShared() ([]tools.Tool, string) {
 	tc.toolSpecsMu.RLock()
 	defer tc.toolSpecsMu.RUnlock()
 
@@ -100,10 +113,7 @@ func (tc *ToolCache) GetToolSpecsAndCatalog() ([]tools.Tool, string) {
 	}
 
 	tc.specsHits.Add(1)
-
-	result := make([]tools.Tool, len(tc.toolSpecsCache))
-	copy(result, tc.toolSpecsCache)
-	return result, tc.toolCatalog
+	return tc.toolSpecsCache, tc.toolCatalog
 }
 
 // SetToolSpecsAndCatalog stores a spec snapshot and the catalog derived from it

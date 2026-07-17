@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	providerhelpers "github.com/universal-tool-calling-protocol/go-utcp/src/providers/helpers"
@@ -20,6 +21,9 @@ type InMemoryToolRepository struct {
 	toolIndex     map[string]Tool
 	toolProviders map[string]string
 	toolCount     int
+	toolSnapshot  []Tool
+	snapshotReady bool
+	revision      atomic.Uint64
 }
 
 func (r *InMemoryToolRepository) GetProvider(ctx context.Context, providerName string) (*Provider, error) {
@@ -64,6 +68,30 @@ func (r *InMemoryToolRepository) GetTools(ctx context.Context) ([]Tool, error) {
 	return all, nil
 }
 
+// RangeTools visits a stable repository snapshot without first copying the
+// complete catalog. Returning false stops iteration early.
+func (r *InMemoryToolRepository) RangeTools(ctx context.Context, visit func(Tool) bool) error {
+	snapshot := r.snapshot()
+	for index, tool := range snapshot {
+		if index&63 == 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+		}
+		if !visit(tool) {
+			return nil
+		}
+	}
+	return nil
+}
+
+// ToolRevision returns the current catalog revision for search-index caches.
+func (r *InMemoryToolRepository) ToolRevision() uint64 {
+	return r.revision.Load()
+}
+
 func (r *InMemoryToolRepository) GetToolsByProvider(ctx context.Context, providerName string) ([]Tool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -88,6 +116,8 @@ func (r *InMemoryToolRepository) RemoveProvider(ctx context.Context, providerNam
 	}
 	delete(r.Tools, providerName)
 	delete(r.Providers, providerName)
+	r.invalidateSnapshotLocked()
+	r.revision.Add(1)
 	return nil
 }
 
@@ -110,6 +140,8 @@ func (r *InMemoryToolRepository) RemoveTool(ctx context.Context, toolName string
 		delete(r.toolIndex, toolName)
 		delete(r.toolProviders, toolName)
 		r.toolCount--
+		r.invalidateSnapshotLocked()
+		r.revision.Add(1)
 		return nil
 	}
 	return fmt.Errorf("tool not found: %s", toolName)
@@ -143,6 +175,8 @@ func (r *InMemoryToolRepository) SaveProviderWithTools(ctx context.Context, prov
 		r.toolProviders[tool.Name] = providerName
 	}
 	r.toolCount += len(tools)
+	r.invalidateSnapshotLocked()
+	r.revision.Add(1)
 	return nil
 }
 
@@ -185,6 +219,33 @@ func (r *InMemoryToolRepository) ensureIndexLocked() {
 			r.toolCount++
 		}
 	}
+}
+
+func (r *InMemoryToolRepository) snapshot() []Tool {
+	r.ensureIndex()
+	r.mu.RLock()
+	if r.snapshotReady {
+		snapshot := r.toolSnapshot
+		r.mu.RUnlock()
+		return snapshot
+	}
+	r.mu.RUnlock()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.snapshotReady {
+		r.toolSnapshot = make([]Tool, 0, r.toolCount)
+		for _, providerTools := range r.Tools {
+			r.toolSnapshot = append(r.toolSnapshot, providerTools...)
+		}
+		r.snapshotReady = true
+	}
+	return r.toolSnapshot
+}
+
+func (r *InMemoryToolRepository) invalidateSnapshotLocked() {
+	r.toolSnapshot = nil
+	r.snapshotReady = false
 }
 
 // TextTransport interface for setting base path

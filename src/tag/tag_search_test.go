@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/cli"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/repository"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
@@ -54,6 +55,30 @@ func TestTagSearchStrategy_UnlimitedAndCancelled(t *testing.T) {
 		t.Fatal("expected cancelled search to fail")
 	}
 }
+
+func TestTagSearchStrategy_InvalidatesIndexAfterRepositoryMutation(t *testing.T) {
+	repo := NewInMemoryToolRepository()
+	ctx := context.Background()
+	provider := &cli.CliProvider{BaseProvider: BaseProvider{Name: "p", ProviderType: ProviderCLI}}
+	if err := repo.SaveProviderWithTools(ctx, provider, []Tool{{Name: "p.alpha", Tags: []string{"alpha"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	strategy := NewTagSearchStrategy(repo, 0.5)
+	results, err := strategy.SearchTools(ctx, "alpha", 1)
+	if err != nil || len(results) != 1 || results[0].Name != "p.alpha" {
+		t.Fatalf("unexpected initial results: %#v, %v", results, err)
+	}
+
+	if err := repo.SaveProviderWithTools(ctx, provider, []Tool{{Name: "p.beta", Tags: []string{"beta"}}}); err != nil {
+		t.Fatal(err)
+	}
+	results, err = strategy.SearchTools(ctx, "beta", 1)
+	if err != nil || len(results) != 1 || results[0].Name != "p.beta" {
+		t.Fatalf("search index was not refreshed: %#v, %v", results, err)
+	}
+}
+
 func TestDecodeToolsResponse(t *testing.T) {
 	r := io.NopCloser(strings.NewReader(`{"tools":[{"name":"t"}]}`))
 	tools, err := DecodeToolsResponse(r)

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
@@ -272,7 +273,7 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 		}
 
 		name := strings.ToLower(spec.Name)
-		description := strings.ToLower(spec.Description)
+		description := spec.Description
 		score := 0
 
 		if name != "" && strings.Contains(queryLower, name) {
@@ -287,16 +288,16 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 				score += 20
 			}
 			for _, tag := range spec.Tags {
-				if strings.Contains(strings.ToLower(tag), term) {
+				if containsFoldASCII(tag, term) {
 					score += 8
 					break
 				}
 			}
-			if strings.Contains(description, term) {
+			if containsFoldASCII(description, term) {
 				score += 4
 			}
 			for field := range spec.Inputs.Properties {
-				if strings.Contains(strings.ToLower(field), term) {
+				if containsFoldASCII(field, term) {
 					score += 6
 				}
 			}
@@ -337,6 +338,35 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 		result[i] = specs[candidate.index]
 	}
 	return result
+}
+
+func containsFoldASCII(value, lowerNeedle string) bool {
+	if lowerNeedle == "" {
+		return true
+	}
+	if len(lowerNeedle) > len(value) {
+		return false
+	}
+	for start := 0; start <= len(value)-len(lowerNeedle); start++ {
+		matched := true
+		for offset := range len(lowerNeedle) {
+			char := value[start+offset]
+			if char >= utf8.RuneSelf {
+				return strings.Contains(strings.ToLower(value), lowerNeedle)
+			}
+			if char >= 'A' && char <= 'Z' {
+				char += 'a' - 'A'
+			}
+			if char != lowerNeedle[offset] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func betterScoredTool(left, right scoredTool) bool {
@@ -507,7 +537,7 @@ func renderUtcpToolCatalog(specs []tools.Tool) string {
 
 func (cm *CodeModeUTCP) toolSpecsAndCatalog() ([]tools.Tool, string) {
 	if cm.cache != nil {
-		if specs, catalog := cm.cache.GetToolSpecsAndCatalog(); specs != nil {
+		if specs, catalog := cm.cache.getToolSpecsAndCatalogShared(); specs != nil {
 			if catalog == "" {
 				catalog = renderUtcpToolCatalog(specs)
 				cm.cache.SetToolCatalog(catalog)

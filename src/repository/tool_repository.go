@@ -39,3 +39,18 @@ type ToolRepository interface {
 	// GetProviders returns all providers in the repository.
 	GetProviders(ctx context.Context) ([]Provider, error)
 }
+
+// ToolRepositoryIterator is an optional fast path for repositories that can
+// expose an immutable tool snapshot without allocating a full result slice.
+// Search strategies should fall back to ToolRepository.GetTools when it is not
+// implemented.
+type ToolRepositoryIterator interface {
+	RangeTools(ctx context.Context, visit func(Tool) bool) error
+}
+
+// ToolRepositoryRevision is implemented by repositories that can cheaply
+// identify changes to their visible tool catalog. The value must change after
+// every successful tool mutation performed through the repository.
+type ToolRepositoryRevision interface {
+	ToolRevision() uint64
+}
