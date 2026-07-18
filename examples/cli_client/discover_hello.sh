@@ -6,7 +6,7 @@ echo "[debug] action='$action'" >&2
 echo "[debug] all args: $@" >&2
 
 case "$action" in
-  discover)
+  discover|list-tools)
     echo "[debug] returning tools.json content" >&2
     cat tools.json
     ;;
@@ -25,7 +25,7 @@ case "$action" in
     ;;
 
   *)
-    echo "Usage: $0 [discover|call]" >&2
+    echo "Usage: $0 [discover|list-tools|call]" >&2
     exit 1
     ;;
 esac
