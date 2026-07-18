@@ -287,6 +287,14 @@ func (c *UtcpClient) CallTool(
 	toolName string,
 	args map[string]any,
 ) (any, error) {
+	// Registered tools live in an immutable snapshot. Keep the common dispatch
+	// path here so it does not pay for the resolver's cache-miss machinery.
+	if snapshot := c.cache.Load(); snapshot != nil {
+		if resolved := snapshot.tools[toolName]; resolved != nil {
+			return resolved.transport.CallTool(ctx, resolved.callName, args, resolved.provider, nil)
+		}
+	}
+
 	resolved, err := c.resolveTool(ctx, toolName)
 	if err != nil {
 		return nil, err
