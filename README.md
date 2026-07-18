@@ -6,32 +6,34 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/universal-tool-calling-protocol/go-utcp.svg)](https://pkg.go.dev/github.com/universal-tool-calling-protocol/go-utcp)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg)](LICENSE)
 
-`go-utcp` is a Go client for the [Universal Tool Calling Protocol (UTCP)](https://github.com/universal-tool-calling-protocol). It discovers tools from configured providers, keeps their metadata in a local repository, and exposes one API for searching, calling, and streaming tool results across different transports.
+**Discover and call tools over the protocols they already use.**
 
-## Features
+`go-utcp` is a Go client for the [Universal Tool Calling Protocol (UTCP)](https://github.com/universal-tool-calling-protocol). A provider describes its tools and how to reach them; the client discovers that metadata, indexes it locally, and dispatches calls over the provider's native transport.
 
-- One client API for tool discovery, invocation, and streaming.
-- Provider configuration through JSON or Go values.
-- Built-in HTTP, CLI, SSE, streamable HTTP, WebSocket, gRPC, GraphQL, TCP, UDP, WebRTC, MCP, and local text transports.
-- OpenAPI discovery for HTTP providers.
-- Runtime provider registration and deregistration.
-- `$VAR` and `${VAR}` substitution from explicit values, `.env` files, or the process environment.
-- An in-memory tool repository, with interfaces for custom repositories and search strategies.
-- CodeMode for composing several tool calls with a small Go-like program.
+The result is one API for tools exposed through HTTP, command-line programs, WebSockets, gRPC, GraphQL, MCP, and other transports.
 
-## Requirements
+## Why go-utcp?
+
+- **One client API:** discover, search, call, and stream tools without transport-specific application code.
+- **Native connectivity:** use existing APIs and services without moving them behind a single gateway.
+- **Local tool catalog:** keep discovered metadata in memory by default, or supply your own repository and search strategy.
+- **Flexible configuration:** load providers from JSON, register them at runtime, and inject secrets from explicit variables, `.env` files, or the environment.
+- **Broad transport support:** HTTP, CLI, SSE, streamable HTTP, WebSocket, gRPC/gNMI, GraphQL, TCP, UDP, WebRTC, MCP, and local text templates.
+- **Tool composition:** use CodeMode to orchestrate multi-step workflows with small Go-like programs.
+
+## Quick start
+
+### Requirements
 
 - Go 1.25 or newer
 
-## Install
+Install the module:
 
 ```sh
 go get github.com/universal-tool-calling-protocol/go-utcp@latest
 ```
 
-## Quick start
-
-Create `providers.json` with a local text-template provider. This transport needs no external service:
+Create a `providers.json` file. This example uses the local text transport, so it needs no server or credentials:
 
 ```json
 {
@@ -47,7 +49,7 @@ Create `providers.json` with a local text-template provider. This transport need
 }
 ```
 
-Load the provider, inspect its tools, and call `greetings.hello`:
+Create `main.go`:
 
 ```go
 package main
@@ -70,11 +72,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	tools, err := client.SearchTools("", 10)
+	discovered, err := client.SearchTools("", 10)
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, tool := range tools {
+	for _, tool := range discovered {
 		fmt.Printf("%s: %s\n", tool.Name, tool.Description)
 	}
 
@@ -89,48 +91,61 @@ func main() {
 }
 ```
 
+Run it:
+
 ```sh
 go run .
 ```
 
-Tools are qualified as `<provider>.<tool>`, which prevents collisions when several providers expose the same tool name.
+The client loads the provider during construction and qualifies every discovered tool as `<provider>.<tool>`:
 
-## Configure providers
+```text
+Successfully registered provider greetings (1 tools)
+greetings.hello: Text template tool
+Hello, UTCP!
+```
+
+## How it works
+
+1. **Configure providers.** Each provider specifies a transport, a name, and the connection details for discovery and invocation.
+2. **Discover tools.** `NewUTCPClient` loads configured providers; `RegisterToolProvider` can add more at runtime.
+3. **Search locally.** Discovered schemas are stored in the tool repository and searched without contacting every provider again.
+4. **Call by qualified name.** `CallTool` and `CallToolStream` resolve the provider and dispatch through the matching transport.
+
+## Provider configuration
 
 `ProvidersFilePath` accepts any of these JSON root shapes:
 
-- An array of provider objects.
-- A single provider object.
-- An object with a `providers` array or object.
+- An array of provider objects
+- A single provider object
+- An object whose `providers` field contains an array or one provider object
 
-Every provider needs a `provider_type`. The built-in values are:
+Every provider requires a `provider_type` (the `type` alias is also accepted). A `name` is strongly recommended because it becomes the prefix for all of that provider's tools.
 
-| Provider type | Transport |
+| `provider_type` | Connects to |
 | --- | --- |
-| `http` | HTTP/HTTPS, including OpenAPI discovery |
-| `cli` | Local command-line process |
-| `sse` | Server-Sent Events |
-| `http_stream` | Streamable HTTP |
-| `websocket` | WebSocket |
-| `grpc` | gRPC and gNMI |
+| `http` | UTCP manuals or OpenAPI documents over HTTP/HTTPS |
+| `cli` | Local command-line processes |
+| `sse` | Server-Sent Events endpoints |
+| `http_stream` | Streamable HTTP endpoints |
+| `websocket` | WebSocket services |
+| `grpc` | gRPC services and gNMI telemetry |
 | `graphql` | GraphQL queries and subscriptions |
-| `tcp` | Raw TCP |
-| `udp` | UDP |
-| `webrtc` | WebRTC data channel |
-| `mcp` | MCP over stdio or HTTP |
+| `tcp` | Raw TCP services |
+| `udp` | UDP services |
+| `webrtc` | WebRTC data channels |
+| `mcp` | MCP servers over stdio or HTTP |
 | `text` | Local Go text templates |
 
-Provider-specific fields and complete client/server pairs are available in [`examples/`](examples/README.md).
+Provider-specific fields and runnable client/transport pairs are documented in the [examples guide](examples/README.md).
 
 ### Variables and secrets
 
-Provider strings can reference `$NAME` or `${NAME}`. Values are resolved in this order:
+Any provider string can reference `$NAME` or `${NAME}`. Values are looked up in this order:
 
 1. `UtcpClientConfig.Variables`
-2. Entries in `UtcpClientConfig.LoadVariablesFrom`
+2. Loaders in `UtcpClientConfig.LoadVariablesFrom`
 3. Process environment variables
-
-For example:
 
 ```go
 cfg := &utcp.UtcpClientConfig{
@@ -144,6 +159,8 @@ cfg := &utcp.UtcpClientConfig{
 }
 ```
 
+The corresponding provider can keep credentials out of committed JSON:
+
 ```json
 {
   "provider_type": "http",
@@ -156,24 +173,38 @@ cfg := &utcp.UtcpClientConfig{
 }
 ```
 
-Keep secrets outside committed provider files.
+## Discover, search, and call
 
-## Client API
+`SearchTools(query, limit)` has three useful modes:
+
+| Query | Behavior |
+| --- | --- |
+| `""` | Return tools from the entire local catalog |
+| Exact provider name | Return only that provider's tools |
+| Any other text | Rank tools using the configured search strategy |
+
+The default strategy matches the query against tool tags and description words. A non-positive `limit` returns all matching tools.
+
+The core client interface is deliberately small:
 
 | Method | Purpose |
 | --- | --- |
-| `RegisterToolProvider` | Discover and store the tools exposed by a provider. |
-| `DeregisterToolProvider` | Remove a provider and its tools. |
-| `SearchTools` | List all tools or filter them by provider prefix. |
-| `CallTool` | Invoke a tool and return its result. |
-| `CallToolStream` | Invoke a streaming tool and return a `StreamResult`. |
-| `GetTransports` | Access the client's registered transport implementations. |
+| `RegisterToolProvider` | Discover and store tools from a provider |
+| `DeregisterToolProvider` | Remove a provider and its tools |
+| `SearchTools` | List, filter, or rank locally indexed tools |
+| `CallTool` | Invoke a tool and return its result |
+| `CallToolStream` | Invoke a streaming tool and return a `StreamResult` |
+| `GetTransports` | Access the registered client transports |
 
-Pass an empty prefix to `SearchTools` to list every registered tool, or pass a provider name to restrict the result to that provider.
+`NewUTCPClient` accepts optional repository and search-strategy arguments. Pass `nil` for the built-in in-memory repository and tag/description search:
 
-### Stream results
+```go
+client, err := utcp.NewUTCPClient(ctx, cfg, nil, nil)
+```
 
-Streaming calls return a `StreamResult`. Read until `io.EOF` and always close the stream:
+## Streaming results
+
+For transports and tools that support streaming, read from the returned `StreamResult` until `io.EOF` and always close it:
 
 ```go
 stream, err := client.CallToolStream(ctx, "events.watch", args)
@@ -194,43 +225,28 @@ for {
 }
 ```
 
-Streaming support depends on the selected transport and tool.
+Streaming availability depends on the provider transport.
 
 ## CodeMode
 
-CodeMode executes a constrained Go-like snippet with helpers for calling registered UTCP tools. It is useful for loops, branching, multi-tool composition, and processing intermediate results without serializing every step as a separate tool request.
+[CodeMode](src/plugins/codemode/README.md) lets an LLM or application compose registered tools with interpreted Go-like snippets. Snippets can branch, loop, process intermediate values, and use these helpers:
 
-```go
-import "github.com/universal-tool-calling-protocol/go-utcp/src/plugins/codemode"
+- `codemode.CallTool`
+- `codemode.CallToolStream`
+- `codemode.SearchTools`
 
-cm := codemode.NewCodeModeUTCP(client, nil)
-result, err := cm.Execute(ctx, codemode.CodeModeArgs{
-	Code: `
-		value, err := codemode.CallTool("greetings.hello", map[string]any{
-			"name": "CodeMode",
-		})
-		if err != nil {
-			__out = err
-			return
-		}
-		__out = value
-	`,
-	Timeout: 5_000,
-})
-```
-
-Snippets can use `codemode.CallTool`, `codemode.CallToolStream`, and `codemode.SearchTools`. `CodeModeResult` contains the resulting value plus captured standard output and standard error.
+Use `NewCodeModeUTCP` for model-driven orchestration or `Execute` to run a snippet directly. See the [CodeMode guide](src/plugins/codemode/README.md) for the API, execution rules, and examples.
 
 ## Examples
 
-The [`examples`](examples/README.md) directory contains standalone modules for each client and transport. Run an example from its directory with workspace mode disabled so that Go uses the example's own module:
+The [`examples`](examples/README.md) directory contains standalone modules for every supported client and transport. To run the zero-dependency text client:
 
 ```sh
 cd examples/text_client
 GOWORK=off go run -mod=mod .
 ```
 
-Some network examples start an in-process demo server; others require the matching transport example or another local dependency. See the source in each directory for its setup.
+Some network examples start their own demo service; others are designed to run alongside the corresponding transport example. Check each example's source for its setup.
 
 ## Development
 
@@ -240,8 +256,8 @@ cd go-utcp
 go test ./...
 ```
 
-New contributors can also follow [`onboarding.md`](onboarding.md).
+See [onboarding.md](onboarding.md) for the contributor workflow.
 
 ## License
 
-This project is licensed under the [Mozilla Public License 2.0](LICENSE).
+`go-utcp` is licensed under the [Mozilla Public License 2.0](LICENSE).
