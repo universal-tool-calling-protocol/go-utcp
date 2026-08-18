@@ -78,42 +78,149 @@ func (cm *CodeModeUTCP) planAndGenerate(
 	}
 
 	prompt := fmt.Sprintf(`
-Decide which UTCP tools are required and generate the complete CodeMode Go snippet in this same response.
+You are a strict UTCP CodeMode planner and executor.
 
-USER QUERY:
-%q
+Your task is to analyze the USER QUERY and produce:
+1. the exact list of UTCP tools that must be called
+2. executable CodeMode Go statements calling ONLY those tools
+3. whether streaming is required
+
+CRITICAL: TOOL NAMES ARE CLOSED-WORLD DATA.
+You MUST NOT invent, infer, rename, approximate, autocomplete, or substitute tool names.
+
+============================================================
+AUTHORITY / SOURCE OF TRUTH
+============================================================
+
+The ONLY valid tool names are the exact strings present in:
 
 AVAILABLE TOOLS:
 %s
 
+Treat AVAILABLE TOOLS as an immutable whitelist.
+
+A tool is valid ONLY if its exact fully-qualified name appears in AVAILABLE TOOLS.
+
 TOOL SPECS:
 %s
 
-------------------------------------------------------------
-SELECTION AND SNIPPET RULES
-------------------------------------------------------------
-- If no available tool is required, return exactly:
-  {"tools":[],"code":"","stream":false}
-- Use ONLY tool names listed in AVAILABLE TOOLS.
-- The "tools" array must contain every tool called by the snippet and no unused tools.
-- Use EXACT input keys from the tool schemas. Do NOT invent fields.
-- Use ONLY these helper functions:
-  - codemode.CallTool(name, args)
-  - codemode.CallToolStream(name, args)
-- NEVER use codemode.SearchTools, codemode.Sprintf, codemode.Errorf, fmt.Sprintf, or fmt.Errorf.
-- No imports and no package declaration. Return ONLY Go statements in "code".
-- String literals may contain Go source such as package main or import "fmt".
-- Do not declare var __out.
-- For early exits, assign __out and use return __out. NEVER use return nil.
-- Always assign the final result to __out using =, not :=.
-- For shell.run, when the schema contains argv, use:
-      map[string]any{"argv": []string{"go", "run", "main.go"}}
-- Set "stream" to true when any codemode.CallToolStream call is used.
+TOOL SPECS describe ONLY the inputs and behavior of tools already present
+in AVAILABLE TOOLS.
 
-------------------------------------------------------------
-NON-STREAMING CALL EXAMPLE
-------------------------------------------------------------
-r1, err := codemode.CallTool("<tool_name>", map[string]any{
+Never create a tool name from:
+- the user query
+- a tool description
+- an example
+- a natural-language capability
+- a provider name
+- a guessed convention
+- a similar existing tool
+- an abbreviated name
+- a renamed version of another tool
+
+If you cannot find an exact matching tool name in AVAILABLE TOOLS,
+DO NOT call it.
+
+============================================================
+MANDATORY TOOL VALIDATION
+============================================================
+
+Before generating code, perform this internal validation:
+
+STEP 1 — Extract the candidate capabilities required by USER QUERY.
+
+STEP 2 — Map each required capability to an EXACT tool name from
+AVAILABLE TOOLS.
+
+STEP 3 — Reject every candidate that is not an exact member of AVAILABLE TOOLS.
+
+STEP 4 — For every remaining tool, locate its EXACT schema in TOOL SPECS.
+
+STEP 5 — Verify every argument used by the generated code exists in that
+tool's schema.
+
+STEP 6 — Verify every generated CallTool/CallToolStream name is byte-for-byte
+identical to a name in AVAILABLE TOOLS.
+
+STEP 7 — Verify the "tools" array contains exactly the tools referenced
+by the generated code.
+
+If any requested capability has no matching available tool, you MUST NOT
+invent a replacement tool.
+
+If the required operation cannot be performed with the available tools,
+return:
+{"tools":[],"code":"","stream":false}
+
+Do NOT explain the missing capability.
+Do NOT output a hypothetical tool name.
+Do NOT output a guessed tool call.
+
+============================================================
+USER QUERY
+============================================================
+
+%q
+
+============================================================
+AVAILABLE TOOLS — CLOSED WHITELIST
+============================================================
+
+%s
+
+============================================================
+TOOL SPECS — SCHEMA SOURCE OF TRUTH
+============================================================
+
+%s
+
+============================================================
+CODE GENERATION RULES
+============================================================
+
+- Use ONLY exact tool names from AVAILABLE TOOLS.
+- Never invent a tool.
+- Never rename a tool.
+- Never infer a tool from natural language.
+- Never use a tool whose exact name cannot be found in AVAILABLE TOOLS.
+- The "tools" array must contain every tool called by the code.
+- The "tools" array must contain NO unused tools.
+- Every CallTool/CallToolStream name must exactly match an entry in AVAILABLE TOOLS.
+- Use EXACT input keys from the corresponding TOOL SPEC.
+- NEVER invent input keys.
+- NEVER pass arguments that are absent from the schema.
+- Use ONLY:
+    codemode.CallTool(name, args)
+    codemode.CallToolStream(name, args)
+- NEVER use:
+    codemode.SearchTools
+    codemode.Sprintf
+    codemode.Errorf
+    fmt.Sprintf
+    fmt.Errorf
+- No imports.
+- No package declaration.
+- Return ONLY Go statements in "code".
+- String literals MAY contain arbitrary Go source text.
+- Do not declare var __out.
+- __out is provided by the CodeMode runtime.
+- For every early exit:
+    __out = err
+    return __out
+- NEVER use return nil.
+- Always assign the final result with:
+    __out = value
+- NEVER use := when assigning __out.
+- Set "stream": true if and only if the generated code contains
+  at least one codemode.CallToolStream call.
+- If stream is false, the code MUST NOT contain CallToolStream.
+- If tools is empty, code MUST be exactly "" and stream MUST be false.
+
+============================================================
+NON-STREAMING CALL
+============================================================
+
+r1, err := codemode.CallTool("<EXACT_TOOL_NAME>", map[string]any{
     "field": "value",
 })
 if err != nil {
@@ -122,10 +229,11 @@ if err != nil {
 }
 __out = r1
 
-------------------------------------------------------------
+============================================================
 CHAINING
-------------------------------------------------------------
-r1, err := codemode.CallTool("<first_tool>", map[string]any{
+============================================================
+
+r1, err := codemode.CallTool("<EXACT_FIRST_TOOL_NAME>", map[string]any{
     "a": 5,
 })
 if err != nil {
@@ -138,7 +246,7 @@ if m, ok := r1.(map[string]any); ok {
     value = m["result"]
 }
 
-r2, err := codemode.CallTool("<second_tool>", map[string]any{
+r2, err := codemode.CallTool("<EXACT_SECOND_TOOL_NAME>", map[string]any{
     "value": value,
 })
 if err != nil {
@@ -147,16 +255,18 @@ if err != nil {
 }
 __out = r2
 
-------------------------------------------------------------
+============================================================
 STREAMING
-------------------------------------------------------------
-stream, err := codemode.CallToolStream("<stream_tool>", map[string]any{
+============================================================
+
+stream, err := codemode.CallToolStream("<EXACT_STREAM_TOOL_NAME>", map[string]any{
     "input": "hello",
 })
 if err != nil {
     __out = err
     return __out
 }
+
 var items []any
 for {
     chunk, err := stream.Next()
@@ -167,14 +277,47 @@ for {
 }
 __out = items
 
-Respond ONLY with one JSON object:
+============================================================
+FINAL CONSISTENCY CHECK
+============================================================
+
+Before responding, verify ALL of the following:
+
+1. Every tool in "tools" is an exact member of AVAILABLE TOOLS.
+2. Every CallTool name is an exact member of AVAILABLE TOOLS.
+3. Every CallToolStream name is an exact member of AVAILABLE TOOLS.
+4. Every tool referenced in code appears in "tools".
+5. Every tool in "tools" is actually referenced in code.
+6. Every argument key exists in that tool's schema.
+7. No nonexistent tool name appears anywhere in the output.
+8. No helper other than CallTool/CallToolStream is used.
+9. "stream" matches actual use of CallToolStream.
+10. If validation fails, return the empty result:
+    {"tools":[],"code":"","stream":false}
+
+The empty result is ALWAYS preferable to hallucinating a tool.
+
+============================================================
+OUTPUT FORMAT
+============================================================
+
+Respond with EXACTLY ONE JSON object and nothing else:
+
 {
   "tools": ["provider.tool"],
   "code": "<Go statements>",
   "stream": false
 }
-`, query, string(toolsJSON), toolSpecs)
 
+Do not use markdown.
+Do not use code fences.
+Do not add explanations.
+Do not add comments outside the JSON object.
+`,
+		query,
+		string(toolsJSON),
+		toolSpecs,
+	)
 	raw, err := cm.model.Generate(ctx, prompt)
 	if err != nil {
 		return generatedPlan{}, err
