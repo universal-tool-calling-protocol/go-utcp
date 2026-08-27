@@ -93,24 +93,18 @@ Allowed runtime API:
 
 Expr syntax:
 - sequential expressions separated by ';'
-- variables: let name = expression
-- maps: {"field": value}
-- arrays: [value1, value2]
+- variables use Expr let bindings
+- maps use {"field": value}
+- arrays use [value1, value2]
 - final expression is the program result
 
-NEVER generate Go constructs:
-- package/import
-- := or var
-- Go type assertions
-- Go if/for blocks
-- __out
-- return
-- err variables or Go error handling
-- stream.Next()
-- codemode.SearchTools, codemode.Sprintf, codemode.Errorf
-- fmt.Sprintf or fmt.Errorf
+The generated source MUST contain only Expr syntax and the allowed CodeMode API.
+Do not emit Go syntax, Go declarations, Go control-flow, Go error-handling,
+Go imports, Go type assertions, or Go-specific runtime APIs.
+Do not use internal output variables, explicit returns, stream iteration,
+or tool-discovery APIs inside the generated program.
 
-Tool errors are propagated by the Expr runtime. Do not write Go-style error handling.
+Tool errors are propagated by the Expr runtime. Do not write explicit error handling.
 Do not use markdown fences.
 
 USER QUERY:
@@ -133,7 +127,7 @@ let r2 = codemode.CallTool("<EXACT_SECOND_TOOL_NAME>", {"value": value}); r2
 
 Streaming:
 codemode.CallToolStream("<EXACT_STREAM_TOOL_NAME>", {"input": "hello"})
-A stream call already returns the collected stream value. NEVER call Next().
+A stream call already returns the collected stream value. Do not iterate the stream.
 
 FINAL CHECK
 1. every declared tool is in AVAILABLE TOOLS
@@ -352,50 +346,4 @@ func (a *CodeModeUTCP) loadToolSpecs() []tools.Tool {
 		for _, tool := range utcpTools { key := strings.ToLower(tool.Name); if !seen[key] { allSpecs = append(allSpecs, tool); seen[key] = true } }
 	}
 	return allSpecs
-}
-
-func extractJSON(response string) string {
-	response = strings.TrimSpace(response)
-	if strings.HasPrefix(response, "{") && strings.HasSuffix(response, "}") { return response }
-	if strings.Contains(response, "```") {
-		response = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(response, "```json"), "```"))
-		if idx := strings.Index(response, "```"); idx >= 0 { response = strings.TrimSpace(response[:idx]) }
-		if strings.HasPrefix(response, "{") && strings.HasSuffix(response, "}") { return response }
-	}
-	start := strings.Index(response, "{")
-	if start < 0 { return "" }
-	depth := 0; inString := false; escaped := false
-	for i := start; i < len(response); i++ {
-		ch := response[i]
-		if escaped { escaped = false; continue }
-		if ch == '\\' { escaped = true; continue }
-		if ch == '"' { inString = !inString; continue }
-		if inString { continue }
-		if ch == '{' { depth++ } else if ch == '}' { depth--; if depth == 0 { candidate := response[start:i+1]; var value any; if json.Unmarshal([]byte(candidate), &value) == nil { return candidate } } }
-	}
-	return ""
-}
-
-func isValidSnippet(code string) bool {
-	trimmed := strings.TrimSpace(code)
-	if trimmed == "" || containsBareCallTool(trimmed) { return false }
-	for _, forbidden := range []string{"package ", "import ", ":=", "var ", "__out", "return ", "stream.Next", "codemode.SearchTools", "codemode.Sprintf", "codemode.Errorf", "fmt.Sprintf", "fmt.Errorf"} { if strings.Contains(trimmed, forbidden) { return false } }
-	env := map[string]any{"codemode": exprCodeModeAPI{}}
-	_, err := expr.Compile(trimmed, expr.Env(env), expr.AsAny())
-	return err == nil
-}
-
-func containsBareCallTool(code string) bool {
-	for _, bad := range []string{"CallTool(", "CallToolStream("} {
-		for idx := strings.Index(code, bad); idx >= 0; {
-			before := ""
-			if idx >= len("codemode.") { before = code[idx-len("codemode."):idx] }
-			if before != "codemode." { return true }
-			nextStart := idx + len(bad)
-			rel := strings.Index(code[nextStart:], bad)
-			if rel < 0 { break }
-			idx = nextStart + rel
-		}
-	}
-	return false
 }
