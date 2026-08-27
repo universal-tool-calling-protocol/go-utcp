@@ -10,7 +10,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/expr-lang/expr"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 )
 
@@ -169,78 +168,141 @@ Return exactly one JSON object:
 
 func validateGeneratedPlan(plan generatedPlan, usedTools, allowedTools []string) error {
 	allowed := make(map[string]struct{}, len(allowedTools))
-	for _, name := range allowedTools { allowed[name] = struct{}{} }
+	for _, name := range allowedTools {
+		allowed[name] = struct{}{}
+	}
 	declared := make(map[string]struct{}, len(plan.Tools))
 	for _, name := range plan.Tools {
-		if _, ok := allowed[name]; !ok { return fmt.Errorf("generated plan selected unavailable tool %q", name) }
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("generated plan selected unavailable tool %q", name)
+		}
 		declared[name] = struct{}{}
 	}
 	for _, name := range usedTools {
-		if _, ok := allowed[name]; !ok { return fmt.Errorf("generated code references unavailable tool %q", name) }
-		if _, ok := declared[name]; !ok { return fmt.Errorf("generated code references tool %q missing from tools list", name) }
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("generated code references unavailable tool %q", name)
+		}
+		if _, ok := declared[name]; !ok {
+			return fmt.Errorf("generated code references tool %q missing from tools list", name)
+		}
 	}
 	for name := range declared {
 		found := false
-		for _, used := range usedTools { if used == name { found = true; break } }
-		if !found { return fmt.Errorf("generated plan declared unused tool %q", name) }
+		for _, used := range usedTools {
+			if used == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("generated plan declared unused tool %q", name)
+		}
 	}
 	usesStream := strings.Contains(plan.Code, "codemode.CallToolStream(")
-	if usesStream != plan.Stream { return fmt.Errorf("generated stream flag does not match generated code") }
+	if usesStream != plan.Stream {
+		return fmt.Errorf("generated stream flag does not match generated code")
+	}
 	return nil
 }
 
 func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
-	if limit <= 0 { limit = 16 }
-	if limit > len(specs) { limit = len(specs) }
+	if limit <= 0 {
+		limit = 16
+	}
+	if limit > len(specs) {
+		limit = len(specs)
+	}
 	queryLower := strings.ToLower(query)
 	terms := toolQueryTerms(queryLower)
 	selected := make([]scoredTool, 0, len(specs))
 	for index, spec := range specs {
-		if spec.Name == CodeModeToolName { continue }
+		if spec.Name == CodeModeToolName {
+			continue
+		}
 		name := strings.ToLower(spec.Name)
 		score := 0
-		if name != "" && strings.Contains(queryLower, name) { score += 200 }
-		if provider, _, ok := strings.Cut(name, "."); ok && strings.Contains(queryLower, provider) { score += 30 }
+		if name != "" && strings.Contains(queryLower, name) {
+			score += 200
+		}
+		if provider, _, ok := strings.Cut(name, "."); ok && strings.Contains(queryLower, provider) {
+			score += 30
+		}
 		for _, term := range terms {
-			if strings.Contains(name, term) { score += 20 }
-			for _, tag := range spec.Tags { if containsFoldASCII(tag, term) { score += 8; break } }
-			if containsFoldASCII(spec.Description, term) { score += 4 }
-			for field := range spec.Inputs.Properties { if containsFoldASCII(field, term) { score += 6 } }
+			if strings.Contains(name, term) {
+				score += 20
+			}
+			for _, tag := range spec.Tags {
+				if containsFoldASCII(tag, term) {
+					score += 8
+					break
+				}
+			}
+			if containsFoldASCII(spec.Description, term) {
+				score += 4
+			}
+			for field := range spec.Inputs.Properties {
+				if containsFoldASCII(field, term) {
+					score += 6
+				}
+			}
 		}
 		selected = append(selected, scoredTool{score: score, index: index})
 	}
 	sort.SliceStable(selected, func(i, j int) bool { return betterScoredTool(selected[i], selected[j]) })
-	if len(selected) > limit { selected = selected[:limit] }
+	if len(selected) > limit {
+		selected = selected[:limit]
+	}
 	result := make([]tools.Tool, len(selected))
-	for i, candidate := range selected { result[i] = specs[candidate.index] }
+	for i, candidate := range selected {
+		result[i] = specs[candidate.index]
+	}
 	return result
 }
 
 func containsFoldASCII(value, lowerNeedle string) bool {
-	if lowerNeedle == "" { return true }
-	if len(lowerNeedle) > len(value) { return false }
+	if lowerNeedle == "" {
+		return true
+	}
+	if len(lowerNeedle) > len(value) {
+		return false
+	}
 	for start := 0; start <= len(value)-len(lowerNeedle); start++ {
 		matched := true
 		for offset := range len(lowerNeedle) {
 			char := value[start+offset]
-			if char >= utf8.RuneSelf { return strings.Contains(strings.ToLower(value), lowerNeedle) }
-			if char >= 'A' && char <= 'Z' { char += 'a' - 'A' }
-			if char != lowerNeedle[offset] { matched = false; break }
+			if char >= utf8.RuneSelf {
+				return strings.Contains(strings.ToLower(value), lowerNeedle)
+			}
+			if char >= 'A' && char <= 'Z' {
+				char += 'a' - 'A'
+			}
+			if char != lowerNeedle[offset] {
+				matched = false
+				break
+			}
 		}
-		if matched { return true }
+		if matched {
+			return true
+		}
 	}
 	return false
 }
 
-func betterScoredTool(left, right scoredTool) bool { return left.score > right.score || left.score == right.score && left.index < right.index }
+func betterScoredTool(left, right scoredTool) bool {
+	return left.score > right.score || left.score == right.score && left.index < right.index
+}
 
 func toolQueryTerms(query string) []string {
 	parts := strings.FieldsFunc(query, func(r rune) bool { return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' })
 	terms := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
-		if len(part) < 2 || isToolQueryStopWord(part) { continue }
-		if _, duplicate := seen[part]; duplicate { continue }
+		if len(part) < 2 || isToolQueryStopWord(part) {
+			continue
+		}
+		if _, duplicate := seen[part]; duplicate {
+			continue
+		}
 		seen[part] = struct{}{}
 		terms = append(terms, part)
 	}
@@ -259,15 +321,21 @@ func isToolQueryStopWord(word string) bool {
 func codeModeCandidateLimit() int {
 	const defaultLimit = 16
 	value := os.Getenv("UTCP_CODEMODE_CANDIDATE_LIMIT")
-	if value == "" { return defaultLimit }
+	if value == "" {
+		return defaultLimit
+	}
 	limit, err := strconv.Atoi(value)
-	if err != nil || limit <= 0 { return defaultLimit }
+	if err != nil || limit <= 0 {
+		return defaultLimit
+	}
 	return limit
 }
 
 func toolNames(specs []tools.Tool) []string {
 	names := make([]string, len(specs))
-	for i, spec := range specs { names[i] = spec.Name }
+	for i, spec := range specs {
+		names[i] = spec.Name
+	}
 	return names
 }
 
@@ -283,23 +351,36 @@ func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 			sb.WriteString("- (no fields)\n")
 		} else {
 			keys := make([]string, 0, len(t.Inputs.Properties))
-			for key := range t.Inputs.Properties { keys = append(keys, key) }
+			for key := range t.Inputs.Properties {
+				keys = append(keys, key)
+			}
 			sort.Strings(keys)
 			for _, key := range keys {
 				propType := "any"
-				if m, ok := t.Inputs.Properties[key].(map[string]any); ok { if value, ok := m["type"].(string); ok { propType = value } }
+				if m, ok := t.Inputs.Properties[key].(map[string]any); ok {
+					if value, ok := m["type"].(string); ok {
+						propType = value
+					}
+				}
 				sb.WriteString(fmt.Sprintf("- %s: %s\n", key, propType))
 			}
 		}
 		if len(t.Inputs.Required) > 0 {
 			sb.WriteString("\nREQUIRED FIELDS:\n")
-			for _, required := range t.Inputs.Required { sb.WriteString(fmt.Sprintf("- %s\n", required)) }
+			for _, required := range t.Inputs.Required {
+				sb.WriteString(fmt.Sprintf("- %s\n", required))
+			}
 		}
 		inBytes, _ := json.MarshalIndent(t.Inputs, "", "  ")
 		sb.WriteString("\nFULL INPUT SCHEMA (JSON):\n")
 		sb.Write(inBytes)
 		sb.WriteString("\n\nOUTPUT SCHEMA (EXACT SHAPE RETURNED BY TOOL):\n")
-		if t.Outputs.Type != "" || len(t.Outputs.Properties) > 0 { outBytes, _ := json.MarshalIndent(t.Outputs, "", "  "); sb.Write(outBytes) } else { sb.WriteString(`{"result": <any>}`) }
+		if t.Outputs.Type != "" || len(t.Outputs.Properties) > 0 {
+			outBytes, _ := json.MarshalIndent(t.Outputs, "", "  ")
+			sb.Write(outBytes)
+		} else {
+			sb.WriteString(`{"result": <any>}`)
+		}
 		sb.WriteString("\n\n------------------------------------------------------------\n\n")
 	}
 	return sb.String()
@@ -310,27 +391,46 @@ func renderUtcpToolCatalog(specs []tools.Tool) string {
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
 	var sb strings.Builder
 	sb.WriteString("AVAILABLE UTCP TOOLS:\n")
-	for _, t := range ordered { sb.WriteString("- "); sb.WriteString(t.Name); if t.Description != "" { sb.WriteString(": "); sb.WriteString(t.Description) }; sb.WriteByte('\n') }
+	for _, t := range ordered {
+		sb.WriteString("- ")
+		sb.WriteString(t.Name)
+		if t.Description != "" {
+			sb.WriteString(": ")
+			sb.WriteString(t.Description)
+		}
+		sb.WriteByte('\n')
+	}
 	return sb.String()
 }
 
 func (cm *CodeModeUTCP) toolSpecsAndCatalog() ([]tools.Tool, string) {
 	if cm.cache != nil {
 		if specs, catalog := cm.cache.getToolSpecsAndCatalogShared(); specs != nil {
-			if catalog == "" { catalog = renderUtcpToolCatalog(specs); cm.cache.SetToolCatalog(catalog) }
+			if catalog == "" {
+				catalog = renderUtcpToolCatalog(specs)
+				cm.cache.SetToolCatalog(catalog)
+			}
 			return specs, catalog
 		}
 	}
 	specs := cm.loadToolSpecs()
 	catalog := renderUtcpToolCatalog(specs)
-	if cm.cache != nil { cm.cache.SetToolSpecsAndCatalog(specs, catalog) }
+	if cm.cache != nil {
+		cm.cache.SetToolSpecsAndCatalog(specs, catalog)
+	}
 	return specs, catalog
 }
 
 func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
-	if a.cache != nil { if cached := a.cache.GetToolSpecs(); cached != nil { return cached } }
+	if a.cache != nil {
+		if cached := a.cache.GetToolSpecs(); cached != nil {
+			return cached
+		}
+	}
 	allSpecs := a.loadToolSpecs()
-	if a.cache != nil { a.cache.SetToolSpecs(allSpecs) }
+	if a.cache != nil {
+		a.cache.SetToolSpecs(allSpecs)
+	}
 	return allSpecs
 }
 
@@ -338,12 +438,28 @@ func (a *CodeModeUTCP) loadToolSpecs() []tools.Tool {
 	var allSpecs []tools.Tool
 	seen := make(map[string]bool)
 	if cmTools, err := a.Tools(); err == nil {
-		for _, t := range cmTools { key := strings.ToLower(strings.TrimSpace(t.Name)); if key == "" || seen[key] { continue }; allSpecs = append(allSpecs, t); seen[key] = true }
+		for _, t := range cmTools {
+			key := strings.ToLower(strings.TrimSpace(t.Name))
+			if key == "" || seen[key] {
+				continue
+			}
+			allSpecs = append(allSpecs, t)
+			seen[key] = true
+		}
 	}
-	limit, err := strconv.Atoi(os.Getenv("utcp_search_tools_limit")); if err != nil || limit == 0 { limit = 50 }
+	limit, err := strconv.Atoi(os.Getenv("utcp_search_tools_limit"))
+	if err != nil || limit == 0 {
+		limit = 50
+	}
 	if a.client != nil {
 		utcpTools, _ := a.client.SearchTools("", limit)
-		for _, tool := range utcpTools { key := strings.ToLower(tool.Name); if !seen[key] { allSpecs = append(allSpecs, tool); seen[key] = true } }
+		for _, tool := range utcpTools {
+			key := strings.ToLower(tool.Name)
+			if !seen[key] {
+				allSpecs = append(allSpecs, tool)
+				seen[key] = true
+			}
+		}
 	}
 	return allSpecs
 }

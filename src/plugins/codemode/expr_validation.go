@@ -1,7 +1,6 @@
 package codemode
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -17,16 +16,32 @@ func extractJSON(raw string) string {
 		return ""
 	}
 
+	// Strip markdown fences if the model ignored the instruction.
+	if strings.HasPrefix(raw, "```") {
+		lines := strings.Split(raw, "\n")
+		if len(lines) >= 2 {
+			lines = lines[1:]
+			if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "```" {
+				lines = lines[:len(lines)-1]
+			}
+			raw = strings.TrimSpace(strings.Join(lines, "\n"))
+		}
+	}
+
 	start := strings.IndexByte(raw, '{')
 	if start < 0 {
 		return ""
 	}
 
+	// Do not validate JSON here. json.Unmarshal is responsible for that.
+	// We only locate the candidate JSON object.
 	depth := 0
 	inString := false
 	escaped := false
+
 	for i := start; i < len(raw); i++ {
 		c := raw[i]
+
 		if inString {
 			if escaped {
 				escaped = false
@@ -50,16 +65,14 @@ func extractJSON(raw string) string {
 		case '}':
 			depth--
 			if depth == 0 {
-				candidate := raw[start : i+1]
-				var value any
-				if json.Unmarshal([]byte(candidate), &value) == nil {
-					return candidate
-				}
-				return ""
+				return raw[start : i+1]
 			}
 		}
 	}
-	return ""
+
+	// There was an object start, but it was malformed/incomplete.
+	// Return the candidate so json.Unmarshal produces the useful error.
+	return raw[start:]
 }
 
 // isValidSnippet validates generated source against the Expr runtime rather
@@ -99,6 +112,10 @@ func isValidSnippet(code string) bool {
 
 type validationCodeModeAPI struct{}
 
-func (validationCodeModeAPI) CallTool(string, map[string]any) (any, error) { return nil, fmt.Errorf("validation runtime") }
-func (validationCodeModeAPI) CallToolStream(string, map[string]any) ([]any, error) { return nil, fmt.Errorf("validation runtime") }
+func (validationCodeModeAPI) CallTool(string, map[string]any) (any, error) {
+	return nil, fmt.Errorf("validation runtime")
+}
+func (validationCodeModeAPI) CallToolStream(string, map[string]any) ([]any, error) {
+	return nil, fmt.Errorf("validation runtime")
+}
 func (validationCodeModeAPI) Get(any, string) any { return nil }
