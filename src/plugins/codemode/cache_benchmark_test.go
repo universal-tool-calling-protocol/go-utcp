@@ -25,7 +25,6 @@ func benchmarkTools(count int) []tools.Tool {
 	return result
 }
 
-// Benchmark tool specs without cache.
 func BenchmarkToolSpecs_NoCache(b *testing.B) {
 	mock := &mockUTCP{
 		searchToolsFn: func(string, int) ([]tools.Tool, error) {
@@ -41,7 +40,6 @@ func BenchmarkToolSpecs_NoCache(b *testing.B) {
 	}
 }
 
-// Benchmark tool specs with a fresh cache on every iteration.
 func BenchmarkToolSpecs_WithCache_Miss(b *testing.B) {
 	mock := &mockUTCP{
 		searchToolsFn: func(string, int) ([]tools.Tool, error) {
@@ -58,7 +56,6 @@ func BenchmarkToolSpecs_WithCache_Miss(b *testing.B) {
 	}
 }
 
-// Benchmark tool specs after the cache has been populated.
 func BenchmarkToolSpecs_WithCache_Hit(b *testing.B) {
 	mock := &mockUTCP{
 		searchToolsFn: func(string, int) ([]tools.Tool, error) {
@@ -74,7 +71,6 @@ func BenchmarkToolSpecs_WithCache_Hit(b *testing.B) {
 	}
 }
 
-// Benchmark the deterministic local candidate-ranking stage.
 func BenchmarkRankToolSpecs(b *testing.B) {
 	specs := benchmarkTools(100)
 	query := "search memory and process the result"
@@ -85,11 +81,10 @@ func BenchmarkRankToolSpecs(b *testing.B) {
 	}
 }
 
-// Benchmark one combined selection-and-generation model call with a mock model.
 func BenchmarkPlanAndGenerate_OneRoundTrip(b *testing.B) {
 	candidates := benchmarkTools(16)
 	toolSpecs := renderUtcpToolsForPrompt(candidates)
-	response := `{"tools":["test.tool1"],"code":"result, err := codemode.CallTool(\"test.tool1\", map[string]any{\"query\": \"memory\"})\nif err != nil {\n__out = err\nreturn __out\n}\n__out = result","stream":false}`
+	response := `{"tools":["test.tool1"],"code":"let result = codemode.CallTool(\"test.tool1\", {\"query\": \"memory\"}); result","stream":false}`
 	mockModel := &mockModel{
 		GenerateFunc: func(context.Context, string) (any, error) {
 			return response, nil
@@ -104,8 +99,6 @@ func BenchmarkPlanAndGenerate_OneRoundTrip(b *testing.B) {
 	}
 }
 
-// Benchmark the full orchestration path. Tool specs are cached, while each
-// request intentionally performs exactly one model roundtrip.
 func BenchmarkCallTool_OneRoundTrip(b *testing.B) {
 	mock := &mockUTCP{
 		searchToolsFn: func(string, int) ([]tools.Tool, error) {
@@ -121,7 +114,7 @@ func BenchmarkCallTool_OneRoundTrip(b *testing.B) {
 			}, nil
 		},
 	}
-	response := `{"tools":["test.tool1"],"code":"result, err := codemode.CallTool(\"test.tool1\", map[string]any{\"query\": \"memory\"})\nif err != nil {\n__out = err\nreturn __out\n}\n__out = result","stream":false}`
+	response := `{"tools":["test.tool1"],"code":"let result = codemode.CallTool(\"test.tool1\", {\"query\": \"memory\"}); result","stream":false}`
 	mockModel := &mockModel{
 		GenerateFunc: func(context.Context, string) (any, error) {
 			return response, nil
@@ -134,8 +127,6 @@ func BenchmarkCallTool_OneRoundTrip(b *testing.B) {
 	ctx := context.Background()
 	query := "search memory"
 
-	// Warm only the tool-spec/catalog cache. The generated plan is deliberately
-	// not cached, so one model call remains part of every benchmark iteration.
 	_, _ = cm.toolSpecsAndCatalog()
 
 	b.ResetTimer()

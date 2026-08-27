@@ -1,23 +1,16 @@
-// path: codemode/codemode_utcp_test.go
 package codemode
 
 import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/repository"
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
-
 	"github.com/universal-tool-calling-protocol/go-utcp/src/transports"
 )
-
-//
-// ─────────────────────────────────────────────────────────────
-//   Mock UTCP Client
-// ─────────────────────────────────────────────────────────────
-//
 
 type mockStream struct {
 	items []any
@@ -44,266 +37,156 @@ type mockUTCP struct {
 func (m *mockUTCP) RegisterToolProvider(ctx context.Context, prov base.Provider) ([]tools.Tool, error) {
 	return nil, nil
 }
-func (m *mockUTCP) DeregisterToolProvider(ctx context.Context, providerName string) error {
-	return nil
-}
-func (m *mockUTCP) CallTool(ctx context.Context, toolName string, args map[string]any) (any, error) {
-	return m.callToolFn(toolName, args)
+func (m *mockUTCP) DeregisterToolProvider(ctx context.Context, providerName string) error { return nil }
+func (m *mockUTCP) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
+	if m.callToolFn == nil {
+		return nil, errors.New("CallTool not configured")
+	}
+	return m.callToolFn(name, args)
 }
 func (m *mockUTCP) SearchTools(query string, limit int) ([]tools.Tool, error) {
+	if m.searchToolsFn == nil {
+		return nil, nil
+	}
 	return m.searchToolsFn(query, limit)
 }
-func (m *mockUTCP) GetTransports() map[string]repository.ClientTransport {
-	return nil
-}
-
-func (m *mockUTCP) CallToolStream(ctx context.Context, toolName string, args map[string]any) (transports.StreamResult, error) {
-	return m.callToolStreamFn(toolName, args)
-}
-
-// toFloat64 handles conversion from int or float64.
-func toFloat64(v any) (float64, bool) {
-	if f, ok := v.(float64); ok {
-		return f, true
+func (m *mockUTCP) GetTransports() map[string]repository.ClientTransport { return nil }
+func (m *mockUTCP) CallToolStream(ctx context.Context, name string, args map[string]any) (transports.StreamResult, error) {
+	if m.callToolStreamFn == nil {
+		return nil, errors.New("CallToolStream not configured")
 	}
-	if i, ok := v.(int); ok {
-		return float64(i), true
-	}
-	// JSON unmarshals numbers into float64 by default
-	return 0, false
+	return m.callToolStreamFn(name, args)
 }
 
-//
-// ─────────────────────────────────────────────────────────────
-//   TESTS
-// ─────────────────────────────────────────────────────────────
-//
+func TestCodeModeExecuteExprArithmetic(t *testing.T) {
+	cm := NewCodeModeUTCP(&mockUTCP{}, nil)
+	result, err := cm.Execute(context.Background(), CodeModeArgs{Code: `2 + 3`, Timeout: 2000})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Value != 5 {
+		t.Fatalf("expected 5, got %#v", result.Value)
+	}
+}
 
-func TestCodeMode_Execute_Simple(t *testing.T) {
-	mock := &mockUTCP{}
-	cm := NewCodeModeUTCP(mock, nil)
-
-	res, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code:    `__out = 2 + 3`,
+func TestCodeModeExecuteExprSequence(t *testing.T) {
+	cm := NewCodeModeUTCP(&mockUTCP{}, nil)
+	result, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `let a = 2; let b = 3; a * b`,
 		Timeout: 2000,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if res.Value.(int) != 5 {
-		t.Fatalf("expected 5, got %#v", res.Value)
+	if result.Value != 6 {
+		t.Fatalf("expected 6, got %#v", result.Value)
 	}
 }
 
-func TestCodeMode_Execute_Timeout(t *testing.T) {
-	mock := &mockUTCP{}
-	cm := NewCodeModeUTCP(mock, nil)
+func TestCodeModeExecuteCallTool(t *testing.T) {
+	mock := &mockUTCP{callToolFn: func(name string, args map[string]any) (any, error) {
+		if name != "math.add" {
+			return nil, errors.New("unexpected tool")
+		}
+		return map[string]any{"result": 9}, nil
+	}}
 
+	cm := NewCodeModeUTCP(mock, nil)
+	result, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `codemode.CallTool("math.add", {"a": 4, "b": 5})`,
+		Timeout: 2000,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := result.Value.(map[string]any)
+	if !ok || got["result"] != 9 {
+		t.Fatalf("unexpected result: %#v", result.Value)
+	}
+}
+
+func TestCodeModeExecuteToolChain(t *testing.T) {
+	mock := &mockUTCP{callToolFn: func(name string, args map[string]any) (any, error) {
+		switch name {
+		case "math.add":
+			return map[string]any{"result": args["a"].(int) + args["b"].(int)}, nil
+		case "math.multiply":
+			return map[string]any{"result": args["value"].(int) * args["factor"].(int)}, nil
+		default:
+			return nil, errors.New("unknown tool")
+		}
+	}}
+
+	cm := NewCodeModeUTCP(mock, nil)
+	result, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `let r1 = codemode.CallTool("math.add", {"a": 4, "b": 5}); let value = codemode.Get(r1, "result"); let r2 = codemode.CallTool("math.multiply", {"value": value, "factor": 2}); r2`,
+		Timeout: 2000,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := result.Value.(map[string]any)
+	if !ok || got["result"] != 18 {
+		t.Fatalf("unexpected chained result: %#v", result.Value)
+	}
+}
+
+func TestCodeModeExecuteStream(t *testing.T) {
+	mock := &mockUTCP{callToolStreamFn: func(name string, args map[string]any) (transports.StreamResult, error) {
+		return &mockStream{items: []any{"hello", "world"}}, nil
+	}}
+
+	cm := NewCodeModeUTCP(mock, nil)
+	result, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `codemode.CallToolStream("stream.echo", {"value": "ignored"})`,
+		Timeout: 2000,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	items, ok := result.Value.([]any)
+	if !ok || len(items) != 2 || items[0] != "hello" || items[1] != "world" {
+		t.Fatalf("unexpected stream result: %#v", result.Value)
+	}
+}
+
+func TestCodeModeExecuteToolError(t *testing.T) {
+	mock := &mockUTCP{callToolFn: func(name string, args map[string]any) (any, error) {
+		return nil, errors.New("tool failed")
+	}}
+	cm := NewCodeModeUTCP(mock, nil)
 	_, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code: `
-            for {
-            }
-        `,
+		Code: `codemode.CallTool("broken.tool", {})`,
+		Timeout: 2000,
+	})
+	if err == nil {
+		t.Fatal("expected tool error")
+	}
+}
+
+func TestCodeModeExecuteTimeout(t *testing.T) {
+	mock := &mockUTCP{callToolFn: func(name string, args map[string]any) (any, error) {
+		<-time.After(500 * time.Millisecond)
+		return "late", nil
+	}}
+	cm := NewCodeModeUTCP(mock, nil)
+	start := time.Now()
+	_, err := cm.Execute(context.Background(), CodeModeArgs{
+		Code: `codemode.CallTool("slow.tool", {})`,
 		Timeout: 50,
 	})
 	if err == nil {
-		t.Fatalf("expected timeout error, got nil")
+		t.Fatal("expected timeout")
+	}
+	if time.Since(start) > 300*time.Millisecond {
+		t.Fatalf("timeout took too long: %s", time.Since(start))
 	}
 }
 
-func TestCodeMode_Execute_ReturnWalrus(t *testing.T) {
-	mock := &mockUTCP{}
-	cm := NewCodeModeUTCP(mock, nil)
-
-	res, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code: `
-            return __out := 123
-        `,
-		Timeout: 2000,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if res.Value != 123 {
-		t.Fatalf("expected 123, got %#v", res.Value)
-	}
-}
-
-func TestCodeMode_Execute_CallTool(t *testing.T) {
-	mock := &mockUTCP{
-		callToolFn: func(name string, args map[string]any) (any, error) {
-			if name != "math.add" {
-				t.Fatalf("unexpected tool name: %s", name)
-			}
-			return map[string]any{"result": 9}, nil
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, nil)
-
-	res, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code: `
-            out, _ := codemode.CallTool("math.add", map[string]any{
-                "a": 4,
-                "b": 5,
-            })
-            __out = out
-        `,
-		Timeout: 2000,
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	resultMap, ok := res.Value.(map[string]any)
-	if !ok {
-		t.Fatalf("expected a map, got %T", res.Value)
-	}
-
-	val, ok := toFloat64(resultMap["result"])
-	if !ok {
-		t.Fatalf("result is not a number: %#v", resultMap["result"])
-	}
-
-	if val != 9 {
-		t.Fatalf("expected result 9, got %v", val)
-	}
-}
-
-func TestCodeMode_Execute_MultipleCallTool(t *testing.T) {
-	mock := &mockUTCP{
-		callToolFn: func(name string, args map[string]any) (any, error) {
-			a, _ := toFloat64(args["a"])
-			b, _ := toFloat64(args["b"])
-
-			switch name {
-			case "math.add":
-				return map[string]any{"result": a + b}, nil
-			case "math.multiply":
-				return map[string]any{"result": a * b}, nil
-			default:
-				return nil, errors.New("unknown tool")
-			}
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, nil)
-
-	res, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code: `
-			addRes, _ := codemode.CallTool("math.add", map[string]any{"a": 4, "b": 5})
-			intermediate := addRes.(map[string]any)["result"].(float64)
-			multRes, _ := codemode.CallTool("math.multiply", map[string]any{"a": intermediate, "b": 2})
-			__out = multRes
-`,
-		Timeout: 2000,
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	resultMap, ok := res.Value.(map[string]any)
-	if !ok {
-		t.Fatalf("expected a map, got %T", res.Value)
-	}
-
-	if resultMap["result"] != float64(18) {
-		t.Fatalf("expected result 18, got %#v", resultMap["result"])
-	}
-}
-
-func TestCodeMode_Execute_SearchTools(t *testing.T) {
-	mock := &mockUTCP{
-		searchToolsFn: func(query string, limit int) ([]tools.Tool, error) {
-			return []tools.Tool{
-				{Name: "memory.store"},
-				{Name: "memory.get"},
-			}, nil
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, nil)
-
-	res, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code: `
-            ts, _ := codemode.SearchTools("memory", 10)
-            __out = ts
-        `,
-		Timeout: 2000,
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	resultSlice, ok := res.Value.([]tools.Tool)
-	if !ok {
-		t.Fatalf("expected a []tools.Tool slice, got %T", res.Value)
-	}
-
-	if len(resultSlice) != 2 {
-		t.Fatalf("expected 2 tools, got %d", len(resultSlice))
-	}
-}
-
-func TestCodeMode_Execute_CallToolStream(t *testing.T) {
-	mock := &mockUTCP{
-		callToolStreamFn: func(name string, args map[string]any) (transports.StreamResult, error) {
-			return &mockStream{
-				items: []any{
-					"hello",
-					"world",
-				},
-			}, nil
-		},
-	}
-
-	cm := NewCodeModeUTCP(mock, nil)
-
-	res, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code: `
-    stream, _ := codemode.CallToolStream("stream.echo", map[string]any{
-        "value": "ignored",
-    })
-    var result string
-    chunk, _ := stream.Next()
-    for ; chunk != nil; {
-        result += chunk.(string)
-        chunk, _ = stream.Next()
-    }
-    __out = result
-`,
-		Timeout: 2000,
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if res.Value != "helloworld" {
-		t.Fatalf("expected 'helloworld', got %#v", res.Value)
-	}
-}
-
-func TestCodeMode_Execute_FmtAvailable(t *testing.T) {
-	mock := &mockUTCP{}
-	cm := NewCodeModeUTCP(mock, nil)
-
-	res, err := cm.Execute(context.Background(), CodeModeArgs{
-		Code: `
-			msg := fmt.Sprintf("num:%d", 7)
-			__out = msg
-		`,
-		Timeout: 2000,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Value != "num:7" {
-		t.Fatalf("expected formatted string, got %#v", res.Value)
+func TestExtractGeneratedToolNamesExpr(t *testing.T) {
+	code := `let a = codemode.CallTool("math.add", {"a": 1}); codemode.CallToolStream("stream.echo", {})`
+	got := extractGeneratedToolNames(code)
+	if len(got) != 2 || got[0] != "math.add" || got[1] != "stream.echo" {
+		t.Fatalf("unexpected tools: %#v", got)
 	}
 }

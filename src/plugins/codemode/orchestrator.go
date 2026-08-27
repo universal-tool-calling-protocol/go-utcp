@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/universal-tool-calling-protocol/go-utcp/src/tools"
@@ -26,26 +24,16 @@ type scoredTool struct {
 	index int
 }
 
-func (cm *CodeModeUTCP) CallTool(
-	ctx context.Context,
-	prompt string,
-) (bool, any, error) {
+func (cm *CodeModeUTCP) CallTool(ctx context.Context, prompt string) (bool, any, error) {
 	toolSpecs, _ := cm.toolSpecsAndCatalog()
 	candidates := rankToolSpecs(prompt, toolSpecs, codeModeCandidateLimit())
 	if len(candidates) == 0 {
 		return false, "", nil
 	}
-
-	plan, err := cm.planAndGenerate(
-		ctx,
-		prompt,
-		candidates,
-		renderUtcpToolsForPrompt(candidates),
-	)
+	plan, err := cm.planAndGenerate(ctx, prompt, candidates, renderUtcpToolsForPrompt(candidates))
 	if err != nil {
 		return false, "", err
 	}
-
 	usedTools := extractGeneratedToolNames(plan.Code)
 	if len(usedTools) == 0 {
 		return false, "", nil
@@ -53,24 +41,14 @@ func (cm *CodeModeUTCP) CallTool(
 	if err := validateGeneratedPlan(plan, usedTools, toolNames(candidates)); err != nil {
 		return true, "", err
 	}
-
-	raw, err := cm.Execute(ctx, CodeModeArgs{
-		Code:    plan.Code,
-		Timeout: 20000,
-	})
+	result, err := cm.Execute(ctx, CodeModeArgs{Code: plan.Code, Timeout: 20000})
 	if err != nil {
 		return true, "", err
 	}
-
-	return true, raw, nil
+	return true, result, nil
 }
 
-func (cm *CodeModeUTCP) planAndGenerate(
-	ctx context.Context,
-	query string,
-	candidates []tools.Tool,
-	toolSpecs string,
-) (generatedPlan, error) {
+func (cm *CodeModeUTCP) planAndGenerate(ctx context.Context, query string, candidates []tools.Tool, toolSpecs string) (generatedPlan, error) {
 	candidateNames := toolNames(candidates)
 	toolsJSON, err := json.Marshal(candidateNames)
 	if err != nil {
@@ -80,259 +58,101 @@ func (cm *CodeModeUTCP) planAndGenerate(
 	prompt := fmt.Sprintf(`
 You are a strict UTCP CodeMode planner and executor.
 
-Your task is to analyze the USER QUERY and produce:
-1. the exact list of UTCP tools that must be called
-2. executable CodeMode Go statements calling ONLY those tools
+The CodeMode runtime is Expr v1.17. Generate VALID EXPR SOURCE, never Go.
+The generated program is executed directly by github.com/expr-lang/expr.
+
+Analyze USER QUERY and produce:
+1. the exact UTCP tools that must be called
+2. one executable Expr program calling only those tools
 3. whether streaming is required
 
-CRITICAL: TOOL NAMES ARE CLOSED-WORLD DATA.
-You MUST NOT invent, infer, rename, approximate, autocomplete, or substitute tool names.
-
-============================================================
-AUTHORITY / SOURCE OF TRUTH
-============================================================
-
-The ONLY valid tool names are the exact strings present in:
+CLOSED-WORLD TOOL AUTHORITY
+AVAILABLE TOOLS is the immutable whitelist. A tool is valid only when its exact
+fully-qualified name appears in that list. Never invent, rename, abbreviate,
+autocomplete, infer, or substitute a tool name.
 
 AVAILABLE TOOLS:
 %s
 
-Treat AVAILABLE TOOLS as an immutable whitelist.
+TOOL SPECS:
+%s
 
-A tool is valid ONLY if its exact fully-qualified name appears in AVAILABLE TOOLS.
+Before generating code, verify every required capability against AVAILABLE TOOLS,
+every input key against TOOL SPECS, and every referenced tool name byte-for-byte.
+If the request cannot be satisfied, return exactly:
+{"tools":[],"code":"","stream":false}
+
+EXPR CODEMODE CONTRACT
+The program MUST be valid Expr syntax.
+
+Allowed runtime API:
+- codemode.CallTool("EXACT_TOOL_NAME", {"field": value})
+- codemode.CallToolStream("EXACT_TOOL_NAME", {"field": value})
+- codemode.Get(value, "field")
+
+Expr syntax:
+- sequential expressions separated by ';'
+- variables use Expr let bindings
+- maps use {"field": value}
+- arrays use [value1, value2]
+- final expression is the program result
+
+The generated source MUST contain only Expr syntax and the allowed CodeMode API.
+Do not emit Go syntax, Go declarations, Go control-flow, Go error-handling,
+Go imports, Go type assertions, or Go-specific runtime APIs.
+Do not use internal output variables, explicit returns, stream iteration,
+or tool-discovery APIs inside the generated program.
+
+Tool errors are propagated by the Expr runtime. Do not write explicit error handling.
+Do not use markdown fences.
+
+USER QUERY:
+%q
+
+AVAILABLE TOOLS:
+%s
 
 TOOL SPECS:
 %s
 
-TOOL SPECS describe ONLY the inputs and behavior of tools already present
-in AVAILABLE TOOLS.
+EXAMPLES
+Single call:
+let result = codemode.CallTool("<EXACT_TOOL_NAME>", {"field": "value"}); result
 
-Never create a tool name from:
-- the user query
-- a tool description
-- an example
-- a natural-language capability
-- a provider name
-- a guessed convention
-- a similar existing tool
-- an abbreviated name
-- a renamed version of another tool
+Sequential chain:
+let r1 = codemode.CallTool("<EXACT_FIRST_TOOL_NAME>", {"a": 5});
+let value = codemode.Get(r1, "result");
+let r2 = codemode.CallTool("<EXACT_SECOND_TOOL_NAME>", {"value": value}); r2
 
-If you cannot find an exact matching tool name in AVAILABLE TOOLS,
-DO NOT call it.
+Streaming:
+codemode.CallToolStream("<EXACT_STREAM_TOOL_NAME>", {"input": "hello"})
+A stream call already returns the collected stream value. Do not iterate the stream.
 
-============================================================
-MANDATORY TOOL VALIDATION
-============================================================
+FINAL CHECK
+1. every declared tool is in AVAILABLE TOOLS
+2. every referenced tool is declared
+3. every declared tool is referenced
+4. every argument key exists in the schema
+5. stream=true iff CallToolStream is used
+6. code is valid Expr and contains no Go constructs
+7. only CallTool, CallToolStream and Get are used
 
-Before generating code, perform this internal validation:
+Return exactly one JSON object:
+{"tools":["provider.tool"],"code":"<Expr source>","stream":false}
+`, string(toolsJSON), toolSpecs, query, string(toolsJSON), toolSpecs)
 
-STEP 1 — Extract the candidate capabilities required by USER QUERY.
-
-STEP 2 — Map each required capability to an EXACT tool name from
-AVAILABLE TOOLS.
-
-STEP 3 — Reject every candidate that is not an exact member of AVAILABLE TOOLS.
-
-STEP 4 — For every remaining tool, locate its EXACT schema in TOOL SPECS.
-
-STEP 5 — Verify every argument used by the generated code exists in that
-tool's schema.
-
-STEP 6 — Verify every generated CallTool/CallToolStream name is byte-for-byte
-identical to a name in AVAILABLE TOOLS.
-
-STEP 7 — Verify the "tools" array contains exactly the tools referenced
-by the generated code.
-
-If any requested capability has no matching available tool, you MUST NOT
-invent a replacement tool.
-
-If the required operation cannot be performed with the available tools,
-return:
-{"tools":[],"code":"","stream":false}
-
-Do NOT explain the missing capability.
-Do NOT output a hypothetical tool name.
-Do NOT output a guessed tool call.
-
-============================================================
-USER QUERY
-============================================================
-
-%q
-
-============================================================
-AVAILABLE TOOLS — CLOSED WHITELIST
-============================================================
-
-%s
-
-============================================================
-TOOL SPECS — SCHEMA SOURCE OF TRUTH
-============================================================
-
-%s
-
-============================================================
-CODE GENERATION RULES
-============================================================
-
-- Use ONLY exact tool names from AVAILABLE TOOLS.
-- Never invent a tool.
-- Never rename a tool.
-- Never infer a tool from natural language.
-- Never use a tool whose exact name cannot be found in AVAILABLE TOOLS.
-- The "tools" array must contain every tool called by the code.
-- The "tools" array must contain NO unused tools.
-- Every CallTool/CallToolStream name must exactly match an entry in AVAILABLE TOOLS.
-- Use EXACT input keys from the corresponding TOOL SPEC.
-- NEVER invent input keys.
-- NEVER pass arguments that are absent from the schema.
-- Use ONLY:
-    codemode.CallTool(name, args)
-    codemode.CallToolStream(name, args)
-- NEVER use:
-    codemode.SearchTools
-    codemode.Sprintf
-    codemode.Errorf
-    fmt.Sprintf
-    fmt.Errorf
-- No imports.
-- No package declaration.
-- Return ONLY Go statements in "code".
-- String literals MAY contain arbitrary Go source text.
-- Do not declare var __out.
-- __out is provided by the CodeMode runtime.
-- For every early exit:
-    __out = err
-    return __out
-- NEVER use return nil.
-- Always assign the final result with:
-    __out = value
-- NEVER use := when assigning __out.
-- Set "stream": true if and only if the generated code contains
-  at least one codemode.CallToolStream call.
-- If stream is false, the code MUST NOT contain CallToolStream.
-- If tools is empty, code MUST be exactly "" and stream MUST be false.
-
-============================================================
-NON-STREAMING CALL
-============================================================
-
-r1, err := codemode.CallTool("<EXACT_TOOL_NAME>", map[string]any{
-    "field": "value",
-})
-if err != nil {
-    __out = err
-    return __out
-}
-__out = r1
-
-============================================================
-CHAINING
-============================================================
-
-r1, err := codemode.CallTool("<EXACT_FIRST_TOOL_NAME>", map[string]any{
-    "a": 5,
-})
-if err != nil {
-    __out = err
-    return __out
-}
-
-var value any
-if m, ok := r1.(map[string]any); ok {
-    value = m["result"]
-}
-
-r2, err := codemode.CallTool("<EXACT_SECOND_TOOL_NAME>", map[string]any{
-    "value": value,
-})
-if err != nil {
-    __out = err
-    return __out
-}
-__out = r2
-
-============================================================
-STREAMING
-============================================================
-
-stream, err := codemode.CallToolStream("<EXACT_STREAM_TOOL_NAME>", map[string]any{
-    "input": "hello",
-})
-if err != nil {
-    __out = err
-    return __out
-}
-
-var items []any
-for {
-    chunk, err := stream.Next()
-    if err != nil {
-        break
-    }
-    items = append(items, chunk)
-}
-__out = items
-
-============================================================
-FINAL CONSISTENCY CHECK
-============================================================
-
-Before responding, verify ALL of the following:
-
-1. Every tool in "tools" is an exact member of AVAILABLE TOOLS.
-2. Every CallTool name is an exact member of AVAILABLE TOOLS.
-3. Every CallToolStream name is an exact member of AVAILABLE TOOLS.
-4. Every tool referenced in code appears in "tools".
-5. Every tool in "tools" is actually referenced in code.
-6. Every argument key exists in that tool's schema.
-7. No nonexistent tool name appears anywhere in the output.
-8. No helper other than CallTool/CallToolStream is used.
-9. "stream" matches actual use of CallToolStream.
-10. If validation fails, return the empty result:
-    {"tools":[],"code":"","stream":false}
-
-The empty result is ALWAYS preferable to hallucinating a tool.
-
-============================================================
-OUTPUT FORMAT
-============================================================
-
-Respond with EXACTLY ONE JSON object and nothing else:
-
-{
-  "tools": ["provider.tool"],
-  "code": "<Go statements>",
-  "stream": false
-}
-
-Do not use markdown.
-Do not use code fences.
-Do not add explanations.
-Do not add comments outside the JSON object.
-`,
-		query,
-		string(toolsJSON),
-		toolSpecs,
-	)
 	raw, err := cm.model.Generate(ctx, prompt)
 	if err != nil {
 		return generatedPlan{}, err
 	}
-
 	jsonStr := extractJSON(fmt.Sprint(raw))
 	if jsonStr == "" {
 		return generatedPlan{}, fmt.Errorf("plan generation returned no JSON")
 	}
-
 	var plan generatedPlan
 	if err := json.Unmarshal([]byte(jsonStr), &plan); err != nil {
 		return generatedPlan{}, fmt.Errorf("decode generated plan: %w", err)
 	}
-
 	plan.Code = normalizeSnippet(plan.Code)
 	if strings.TrimSpace(plan.Code) == "" {
 		if len(plan.Tools) == 0 {
@@ -340,12 +160,9 @@ Do not add comments outside the JSON object.
 		}
 		return generatedPlan{}, fmt.Errorf("generated plan selected tools but returned empty code")
 	}
-
 	if !isValidSnippet(plan.Code) {
-		log.Println("Skipping invalid snippet after normalization:", plan.Code)
 		return generatedPlan{}, fmt.Errorf("snippet validation failed")
 	}
-
 	return plan, nil
 }
 
@@ -354,7 +171,6 @@ func validateGeneratedPlan(plan generatedPlan, usedTools, allowedTools []string)
 	for _, name := range allowedTools {
 		allowed[name] = struct{}{}
 	}
-
 	declared := make(map[string]struct{}, len(plan.Tools))
 	for _, name := range plan.Tools {
 		if _, ok := allowed[name]; !ok {
@@ -362,7 +178,6 @@ func validateGeneratedPlan(plan generatedPlan, usedTools, allowedTools []string)
 		}
 		declared[name] = struct{}{}
 	}
-
 	for _, name := range usedTools {
 		if _, ok := allowed[name]; !ok {
 			return fmt.Errorf("generated code references unavailable tool %q", name)
@@ -371,7 +186,6 @@ func validateGeneratedPlan(plan generatedPlan, usedTools, allowedTools []string)
 			return fmt.Errorf("generated code references tool %q missing from tools list", name)
 		}
 	}
-
 	for name := range declared {
 		found := false
 		for _, used := range usedTools {
@@ -384,12 +198,10 @@ func validateGeneratedPlan(plan generatedPlan, usedTools, allowedTools []string)
 			return fmt.Errorf("generated plan declared unused tool %q", name)
 		}
 	}
-
 	usesStream := strings.Contains(plan.Code, "codemode.CallToolStream(")
 	if usesStream != plan.Stream {
 		return fmt.Errorf("generated stream flag does not match generated code")
 	}
-
 	return nil
 }
 
@@ -400,32 +212,21 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 	if limit > len(specs) {
 		limit = len(specs)
 	}
-
 	queryLower := strings.ToLower(query)
 	terms := toolQueryTerms(queryLower)
-	useTopK := limit <= 64 && limit*4 < len(specs)
-	capacity := len(specs)
-	if useTopK {
-		capacity = limit
-	}
-	selected := make([]scoredTool, 0, capacity)
-
+	selected := make([]scoredTool, 0, len(specs))
 	for index, spec := range specs {
 		if spec.Name == CodeModeToolName {
 			continue
 		}
-
 		name := strings.ToLower(spec.Name)
-		description := spec.Description
 		score := 0
-
 		if name != "" && strings.Contains(queryLower, name) {
 			score += 200
 		}
 		if provider, _, ok := strings.Cut(name, "."); ok && strings.Contains(queryLower, provider) {
 			score += 30
 		}
-
 		for _, term := range terms {
 			if strings.Contains(name, term) {
 				score += 20
@@ -436,7 +237,7 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 					break
 				}
 			}
-			if containsFoldASCII(description, term) {
+			if containsFoldASCII(spec.Description, term) {
 				score += 4
 			}
 			for field := range spec.Inputs.Properties {
@@ -445,37 +246,12 @@ func rankToolSpecs(query string, specs []tools.Tool, limit int) []tools.Tool {
 				}
 			}
 		}
-
-		candidate := scoredTool{score: score, index: index}
-		if !useTopK {
-			selected = append(selected, candidate)
-			continue
-		}
-		position := len(selected)
-		for i := range selected {
-			if betterScoredTool(candidate, selected[i]) {
-				position = i
-				break
-			}
-		}
-		if position >= limit {
-			continue
-		}
-		if len(selected) < limit {
-			selected = append(selected, scoredTool{})
-		}
-		copy(selected[position+1:], selected[position:len(selected)-1])
-		selected[position] = candidate
+		selected = append(selected, scoredTool{score: score, index: index})
 	}
-	if !useTopK {
-		sort.SliceStable(selected, func(i, j int) bool {
-			return betterScoredTool(selected[i], selected[j])
-		})
-		if len(selected) > limit {
-			selected = selected[:limit]
-		}
+	sort.SliceStable(selected, func(i, j int) bool { return betterScoredTool(selected[i], selected[j]) })
+	if len(selected) > limit {
+		selected = selected[:limit]
 	}
-
 	result := make([]tools.Tool, len(selected))
 	for i, candidate := range selected {
 		result[i] = specs[candidate.index]
@@ -517,17 +293,11 @@ func betterScoredTool(left, right scoredTool) bool {
 }
 
 func toolQueryTerms(query string) []string {
-	parts := strings.FieldsFunc(query, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-'
-	})
-
+	parts := strings.FieldsFunc(query, func(r rune) bool { return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' })
 	terms := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
-		if len(part) < 2 {
-			continue
-		}
-		if isToolQueryStopWord(part) {
+		if len(part) < 2 || isToolQueryStopWord(part) {
 			continue
 		}
 		if _, duplicate := seen[part]; duplicate {
@@ -541,10 +311,7 @@ func toolQueryTerms(query string) []string {
 
 func isToolQueryStopWord(word string) bool {
 	switch word {
-	case "a", "an", "and", "are", "as", "at",
-		"be", "by", "for", "from", "in", "is",
-		"it", "of", "on", "or", "the", "to",
-		"use", "using", "with":
+	case "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "the", "to", "use", "using", "with":
 		return true
 	default:
 		return false
@@ -574,27 +341,12 @@ func toolNames(specs []tools.Tool) []string {
 
 func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 	ordered := append([]tools.Tool(nil), specs...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return ordered[i].Name < ordered[j].Name
-	})
-
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
 	var sb strings.Builder
-
-	sb.WriteString("------------------------------------------------------------\n")
-	sb.WriteString("UTCP TOOL REFERENCE (INPUT + OUTPUT SCHEMAS)\n")
-	sb.WriteString("Use EXACT field names listed below. Do NOT invent new keys.\n")
-	sb.WriteString("------------------------------------------------------------\n\n")
-
+	sb.WriteString("------------------------------------------------------------\nUTCP TOOL REFERENCE (INPUT + OUTPUT SCHEMAS)\nUse EXACT field names listed below. Do NOT invent new keys.\n------------------------------------------------------------\n\n")
 	for _, t := range ordered {
-
-		sb.WriteString(fmt.Sprintf("TOOL: %s\n", t.Name))
-		sb.WriteString(fmt.Sprintf("DESCRIPTION: %s\n\n", t.Description))
-
-		// -------------------------------
-		// INPUT FIELD LIST
-		// -------------------------------
+		sb.WriteString(fmt.Sprintf("TOOL: %s\nDESCRIPTION: %s\n\n", t.Name, t.Description))
 		sb.WriteString("INPUT FIELDS (USE EXACTLY THESE KEYS):\n")
-
 		if len(t.Inputs.Properties) == 0 {
 			sb.WriteString("- (no fields)\n")
 		} else {
@@ -604,66 +356,40 @@ func renderUtcpToolsForPrompt(specs []tools.Tool) string {
 			}
 			sort.Strings(keys)
 			for _, key := range keys {
-				raw := t.Inputs.Properties[key]
-
-				// Try to extract "type" from nested schema if present
 				propType := "any"
-				if m, ok := raw.(map[string]any); ok {
-					if v, ok := m["type"]; ok {
-						if s, ok := v.(string); ok {
-							propType = s
-						}
+				if m, ok := t.Inputs.Properties[key].(map[string]any); ok {
+					if value, ok := m["type"].(string); ok {
+						propType = value
 					}
 				}
-
 				sb.WriteString(fmt.Sprintf("- %s: %s\n", key, propType))
 			}
 		}
-
-		// Required field list
 		if len(t.Inputs.Required) > 0 {
 			sb.WriteString("\nREQUIRED FIELDS:\n")
-			for _, r := range t.Inputs.Required {
-				sb.WriteString(fmt.Sprintf("- %s\n", r))
+			for _, required := range t.Inputs.Required {
+				sb.WriteString(fmt.Sprintf("- %s\n", required))
 			}
 		}
-
-		sb.WriteString("\n")
-
-		// Full JSON schema for LLM clarity
 		inBytes, _ := json.MarshalIndent(t.Inputs, "", "  ")
-		sb.WriteString("FULL INPUT SCHEMA (JSON):\n")
-		sb.WriteString(string(inBytes))
-		sb.WriteString("\n\n")
-
-		// -------------------------------
-		// OUTPUT SCHEMA
-		// -------------------------------
-		sb.WriteString("OUTPUT SCHEMA (EXACT SHAPE RETURNED BY TOOL):\n")
-
+		sb.WriteString("\nFULL INPUT SCHEMA (JSON):\n")
+		sb.Write(inBytes)
+		sb.WriteString("\n\nOUTPUT SCHEMA (EXACT SHAPE RETURNED BY TOOL):\n")
 		if t.Outputs.Type != "" || len(t.Outputs.Properties) > 0 {
 			outBytes, _ := json.MarshalIndent(t.Outputs, "", "  ")
-			sb.WriteString(string(outBytes))
+			sb.Write(outBytes)
 		} else {
-			// Generic fallback
-			sb.WriteString("{ \"result\": <any> }\n")
+			sb.WriteString(`{"result": <any>}`)
 		}
-
-		sb.WriteString("\n")
-		sb.WriteString("------------------------------------------------------------\n\n")
+		sb.WriteString("\n\n------------------------------------------------------------\n\n")
 	}
-
 	return sb.String()
 }
 
 func renderUtcpToolCatalog(specs []tools.Tool) string {
 	ordered := append([]tools.Tool(nil), specs...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return ordered[i].Name < ordered[j].Name
-	})
-
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
 	var sb strings.Builder
-
 	sb.WriteString("AVAILABLE UTCP TOOLS:\n")
 	for _, t := range ordered {
 		sb.WriteString("- ")
@@ -674,7 +400,6 @@ func renderUtcpToolCatalog(specs []tools.Tool) string {
 		}
 		sb.WriteByte('\n')
 	}
-
 	return sb.String()
 }
 
@@ -688,7 +413,6 @@ func (cm *CodeModeUTCP) toolSpecsAndCatalog() ([]tools.Tool, string) {
 			return specs, catalog
 		}
 	}
-
 	specs := cm.loadToolSpecs()
 	catalog := renderUtcpToolCatalog(specs)
 	if cm.cache != nil {
@@ -698,27 +422,21 @@ func (cm *CodeModeUTCP) toolSpecsAndCatalog() ([]tools.Tool, string) {
 }
 
 func (a *CodeModeUTCP) ToolSpecs() []tools.Tool {
-	// Check cache first
 	if a.cache != nil {
 		if cached := a.cache.GetToolSpecs(); cached != nil {
 			return cached
 		}
 	}
-
 	allSpecs := a.loadToolSpecs()
-
-	// Store in cache
 	if a.cache != nil {
 		a.cache.SetToolSpecs(allSpecs)
 	}
-
 	return allSpecs
 }
 
 func (a *CodeModeUTCP) loadToolSpecs() []tools.Tool {
 	var allSpecs []tools.Tool
 	seen := make(map[string]bool)
-
 	if cmTools, err := a.Tools(); err == nil {
 		for _, t := range cmTools {
 			key := strings.ToLower(strings.TrimSpace(t.Name))
@@ -729,15 +447,10 @@ func (a *CodeModeUTCP) loadToolSpecs() []tools.Tool {
 			seen[key] = true
 		}
 	}
-
 	limit, err := strconv.Atoi(os.Getenv("utcp_search_tools_limit"))
-	if err != nil {
+	if err != nil || limit == 0 {
 		limit = 50
 	}
-	if limit == 0 {
-		limit = 50
-	}
-
 	if a.client != nil {
 		utcpTools, _ := a.client.SearchTools("", limit)
 		for _, tool := range utcpTools {
@@ -748,207 +461,5 @@ func (a *CodeModeUTCP) loadToolSpecs() []tools.Tool {
 			}
 		}
 	}
-
 	return allSpecs
-}
-
-func extractJSON(response string) string {
-	response = strings.TrimSpace(response)
-
-	// Case 1: Pure JSON (starts and ends with braces)
-	if strings.HasPrefix(response, "{") && strings.HasSuffix(response, "}") {
-		return response
-	}
-
-	// Case 2: JSON wrapped in markdown code fence
-	// ```json\n{...}\n```
-	if strings.Contains(response, "```") {
-		// Remove opening fence
-		response = strings.TrimSpace(response)
-		response = strings.TrimPrefix(response, "```json")
-		response = strings.TrimPrefix(response, "```")
-		response = strings.TrimSpace(response)
-
-		// Remove closing fence
-		if idx := strings.Index(response, "```"); idx != -1 {
-			response = response[:idx]
-		}
-		response = strings.TrimSpace(response)
-
-		if strings.HasPrefix(response, "{") && strings.HasSuffix(response, "}") {
-			return response
-		}
-	}
-
-	// Case 3: JSON followed by extra content (e.g., " | prompt text")
-	// Find the first { and try to extract a complete JSON object
-	startIdx := strings.Index(response, "{")
-	if startIdx == -1 {
-		return ""
-	}
-
-	// Find the matching closing brace
-	depth := 0
-	inString := false
-	escaped := false
-
-	for i := startIdx; i < len(response); i++ {
-		ch := response[i]
-
-		if escaped {
-			escaped = false
-			continue
-		}
-
-		if ch == '\\' {
-			escaped = true
-			continue
-		}
-
-		if ch == '"' {
-			inString = !inString
-			continue
-		}
-
-		if inString {
-			continue
-		}
-
-		if ch == '{' {
-			depth++
-		} else if ch == '}' {
-			depth--
-			if depth == 0 {
-				// Found the matching closing brace
-				candidate := response[startIdx : i+1]
-				// Validate it's actually valid JSON
-				var test interface{}
-				if json.Unmarshal([]byte(candidate), &test) == nil {
-					return candidate
-				}
-			}
-		}
-	}
-
-	return ""
-}
-
-func isValidSnippet(code string) bool {
-	trimmed := strings.TrimSpace(code)
-	if trimmed == "" {
-		return false
-	}
-
-	// Disallow package/import declarations only when they appear as the first
-	// actual snippet statement. Do not scan every line because snippets often
-	// contain Go source code inside string literals, for example a filesystem.write
-	// call that writes package main and import "fmt" into main.go.
-	for _, line := range strings.Split(trimmed, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "//") {
-			continue
-		}
-		if strings.HasPrefix(line, "package ") || line == "package" {
-			return false
-		}
-		if strings.HasPrefix(line, "import ") || line == "import" || strings.HasPrefix(line, "import(") || strings.HasPrefix(line, "import (") {
-			return false
-		}
-		break
-	}
-	if containsBareCallTool(trimmed) {
-		return false
-	}
-	// Disallow map literals printed with fmt as map[value:...].
-	if strings.Contains(trimmed, "map[value:") {
-		return false
-	}
-
-	// Disallow declaring __out as a variable.
-	if strings.Contains(trimmed, "var __out") {
-		return false
-	}
-
-	// Ensure __out is assigned using '=' not ':=' unless '__out, err :=' pattern.
-	if strings.Contains(trimmed, "__out :=") && !strings.Contains(trimmed, "__out, err :=") {
-		return false
-	}
-
-	// Ensure there is at least one assignment to __out using '=' or '__out, err :='.
-	if !strings.Contains(trimmed, "__out =") && !strings.Contains(trimmed, "__out, err :=") {
-		return false
-	}
-
-	return true
-}
-
-// ───────────────────────────────────────────────────────────
-//   Cache Management Methods
-// ───────────────────────────────────────────────────────────
-
-// InvalidateToolSpecsCache clears the cached tool specifications
-func (cm *CodeModeUTCP) InvalidateToolSpecsCache() {
-	if cm.cache != nil {
-		cm.cache.InvalidateToolSpecs()
-	}
-}
-
-// InvalidateSelectionsCache clears all cached tool selection results
-func (cm *CodeModeUTCP) InvalidateSelectionsCache() {
-	if cm.cache != nil {
-		cm.cache.InvalidateSelections()
-	}
-}
-
-// InvalidateAllCaches clears all caches (tool specs and selections)
-func (cm *CodeModeUTCP) InvalidateAllCaches() {
-	if cm.cache != nil {
-		cm.cache.InvalidateAll()
-	}
-}
-
-// CacheStats returns performance statistics for the tool cache
-func (cm *CodeModeUTCP) CacheStats() CacheStats {
-	if cm.cache == nil {
-		return CacheStats{}
-	}
-	return cm.cache.Stats()
-}
-
-// StartCacheCleanup starts a background routine to clean expired cache entries
-// Call this with a context to control the cleanup lifecycle
-func (cm *CodeModeUTCP) StartCacheCleanup(ctx context.Context, interval time.Duration) {
-	if cm.cache != nil {
-		cm.cache.StartCleanupRoutine(ctx, interval)
-	}
-}
-
-func containsBareCallTool(code string) bool {
-	badForms := []string{
-		"CallTool(",
-		"CallToolStream(",
-	}
-
-	for _, bad := range badForms {
-		idx := strings.Index(code, bad)
-		for idx >= 0 {
-			before := ""
-			if idx >= len("codemode.") {
-				before = code[idx-len("codemode.") : idx]
-			}
-
-			if before != "codemode." {
-				return true
-			}
-
-			nextStart := idx + len(bad)
-			next := strings.Index(code[nextStart:], bad)
-			if next < 0 {
-				break
-			}
-			idx = nextStart + next
-		}
-	}
-
-	return false
 }
