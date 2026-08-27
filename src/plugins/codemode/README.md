@@ -1,261 +1,132 @@
-# CodeMode UTCP – Go-Like DSL for Tool Orchestration
+# CodeMode UTCP — Expr runtime
 
-CodeMode UTCP is a system that enables LLMs to orchestrate Universal Tool Calling Protocol (UTCP) tools by generating and executing Go-like code snippets. It uses the Yaegi Go interpreter to safely evaluate user code while providing a structured interface to call external tools.
+CodeMode UTCP lets an LLM compose multiple UTCP tools into a single executable workflow. CodeMode now uses [Expr](https://expr-lang.org/) instead of Yaegi.
 
-## Overview
+## Why Expr
 
-CodeMode UTCP bridges an LLM's understanding of tool semantics with dynamic code execution. Instead of the LLM making sequential tool decisions, it generates Go-like code that chains tools together, handles tool outputs, and produces a final result—all validated and executed in a sandboxed environment.
+Expr is a Go-centric expression language with static checking, a bytecode VM, bounded expression execution, and a small execution surface. CodeMode exposes only the `codemode` API to generated expressions, so generated code cannot import packages or access arbitrary Go APIs.
 
-### Key Components
+## How it works
 
-- **orchestrator.go** – LLM-driven decision pipeline that determines which tools to call and generates code snippets
-- **codemode.go** – Code execution engine using Yaegi, with helper functions injected for tool access
+1. The orchestrator ranks candidate UTCP tools.
+2. The LLM receives an exact closed-world tool list and schemas.
+3. The LLM generates Expr source.
+4. CodeMode compiles the expression with Expr.
+5. The expression calls only the exposed UTCP helpers.
+6. The final Expr value becomes the CodeMode result.
 
-## How It Works
+## Expr syntax
 
-### 1. Tool Decision Pipeline
+Generated code is Expr, not Go. Use sequential expressions and `let` bindings:
 
-When `CallTool()` is invoked with a user prompt, the orchestrator executes three steps:
+```expr
+let r1 = codemode.CallTool("math.add", {"a": 5, "b": 7});
+let sum = codemode.Get(r1, "result");
+let r2 = codemode.CallTool("math.multiply", {"value": sum, "factor": 3});
+r2
+```
 
-1. **Select appropriate tools** – The LLM identifies the exact tool names required; an empty selection means no tools are needed
-2. **Generate Go snippet** – The LLM writes Go code using only the selected tools and their schemas
-3. **Execute and return** – CodeMode runs the snippet and returns the result
+The last expression is returned. There is no `__out`, `:=`, package declaration, import, type assertion, or Go loop.
 
-### 2. Code Generation
+## Runtime API
 
-The LLM generates a Go snippet following strict rules:
+### `codemode.CallTool`
 
-- **Use only selected tool names** – No inventing or modifying tool identifiers
-- **Use exact input/output schema keys** – Fields must match tool specifications exactly
-- **Use provided helper functions** – `codemode.CallTool()`, `codemode.CallToolStream()`, etc.
-- **No package or import declarations** – The system wraps the snippet automatically
-- **Assign final result to `__out`** – The return value must be stored in this variable
+```text
+codemode.CallTool("provider.tool", {"field": value})
+```
 
-### Example Generated Code
+Calls one UTCP tool. Tool errors propagate as Expr runtime errors.
 
-```go
-// User query: "Get sum of 5 and 7, then multiply by 3"
+### `codemode.CallToolStream`
 
-r1, err := codemode.CallTool("math.add", map[string]any{
-    "a": 5,
-    "b": 7,
-})
-if err != nil { return err }
+```text
+codemode.CallToolStream("provider.stream", {"input": "hello"})
+```
 
-var sum any
-if m, ok := r1.(map[string]any); ok {
-    sum = m["result"]
-}
+Calls a streaming UTCP tool and returns the collected chunks as an array. This keeps streaming workflows compatible with Expr's expression-oriented execution model.
 
-r2, err := codemode.CallTool("math.multiply", map[string]any{
-    "a": sum,
-    "b": 3,
-})
+### `codemode.Get`
 
-__out = map[string]any{
-    "sum": sum,
-    "product": r2,
+```text
+codemode.Get(toolResult, "result")
+```
+
+Extracts a field from a `map[string]any` tool result and returns `nil` when the value is not a map or the key is absent.
+
+## Chaining
+
+Tool output can be passed directly into the next tool:
+
+```expr
+let first = codemode.CallTool("calculator.add", {"a": 2, "b": 3});
+let value = codemode.Get(first, "result");
+codemode.CallTool("calculator.multiply", {"value": value, "factor": 10})
+```
+
+This gives CodeMode a compact sequential workflow without repeatedly returning control to the LLM.
+
+## Streaming
+
+The orchestrator marks a generated plan as streaming when the expression contains `codemode.CallToolStream(...)`:
+
+```json
+{
+  "tools": ["api.stream"],
+  "code": "codemode.CallToolStream(\"api.stream\", {\"input\": \"hello\"})",
+  "stream": true
 }
 ```
 
-## API Reference
+## Safety boundary
 
-### CodeModeUTCP
+The Expr environment exposes only the `codemode` object. The runtime does not expose Go imports, filesystem APIs, arbitrary reflection, or Yaegi's standard library loader. UTCP remains the authority for actual tool dispatch.
 
-Main entry point for orchestrating tool calls.
+Generated tool names are checked against the exact candidate whitelist before execution.
 
-#### NewCodeModeUTCP
+## Timeout
+
+`CodeModeArgs.Timeout` is expressed in milliseconds. The default direct-execution timeout is 30 seconds; the tool handler uses 3 seconds when no timeout is supplied. Remote tool calls receive the same cancellable context.
+
+Expr itself does not support arbitrary infinite loops, which removes the primary reason the old Yaegi execution path needed to guard generated loops.
+
+## API
 
 ```go
 func NewCodeModeUTCP(
     client utcp.UtcpClientInterface,
-    model interface { Generate(ctx context.Context,prompt string) (string, error) }
+    model interface {
+        Generate(ctx context.Context, prompt string) (any, error)
+    },
 ) *CodeModeUTCP
-```
 
-Creates a new CodeMode instance with a UTCP client and LLM model.
-
-#### CallTool
-
-```go
 func (cm *CodeModeUTCP) CallTool(
     ctx context.Context,
     prompt string,
 ) (bool, any, error)
-```
 
-Orchestrates tool selection and execution. Returns a boolean indicating whether tools were used, the result, and any error.
-
-#### Execute
-
-```go
-func (c *CodeModeUTCP) Execute(
+func (cm *CodeModeUTCP) Execute(
     ctx context.Context,
     args CodeModeArgs,
 ) (CodeModeResult, error)
 ```
 
-Directly executes a Go snippet with a specified timeout (in milliseconds).
+## Environment
 
-### CodeModeArgs
+- `utcp_search_tools_limit` — maximum number of tools loaded into the CodeMode catalog; defaults to `50`.
+- `UTCP_CODEMODE_CANDIDATE_LIMIT` — maximum candidate tools sent to the planner; defaults to `16`.
 
-```go
-type CodeModeArgs struct {
-    Code    string `json:"code"`
-    Timeout int    `json:"timeout"`
-}
-```
+## Migration from Yaegi
 
-- **Code** – Go-like DSL snippet
-- **Timeout** – Execution timeout in milliseconds (default: 3000ms)
+The old Go-like CodeMode syntax is intentionally no longer the execution contract. Migrate generated programs to Expr using:
 
-### CodeModeResult
+- `let x = ...` instead of Go variable declarations
+- `{}` maps instead of `map[string]any{}`
+- `;`-separated expressions instead of Go statements
+- `codemode.Get(...)` instead of Go type assertions for common map results
+- the final expression instead of `__out`
+- `codemode.CallToolStream(...)` returning collected chunks instead of manual `Next()` loops
 
-```go
-type CodeModeResult struct {
-    Value  any    `json:"value"`
-    Stdout string `json:"stdout"`
-    Stderr string `json:"stderr"`
-}
-```
+## Tests
 
-- **Value** – The result assigned to `__out`
-- **Stdout** – Captured standard output
-- **Stderr** – Captured standard error
-
-## Helper Functions
-
-Available within generated code snippets:
-
-### CallTool
-
-```go
-result, err := codemode.CallTool(name string, args map[string]any) (any, error)
-```
-
-Calls a synchronous UTCP tool and returns its result.
-
-### CallToolStream
-
-```go
-stream, err := codemode.CallToolStream(name string, args map[string]any) (*codeModeStream, error)
-
-for {
-    chunk, err := stream.Next()
-    if err != nil { break }
-    // process chunk
-}
-```
-
-Calls a streaming tool and reads chunks in a loop.
-
-### SearchTools
-
-```go
-tools, err := codemode.SearchTools(query string, limit int) ([]tools.Tool, error)
-```
-
-Searches available tools by query (useful for dynamic tool discovery).
-
-### Sprintf / Errorf
-
-```go
-msg := codemode.Sprintf(format string, args ...any) string
-err := codemode.Errorf(format string, args ...any) error
-```
-
-Standard Go formatting utilities.
-
-## Code Normalization
-
-CodeMode automatically normalizes user-provided code:
-
-- **Package/Import stripping** – Removes `package` and `import` declarations
-- **Walrus to assignment conversion** – Converts `__out :=` to `__out =`
-- **Bare return fixing** – Replaces bare `return` statements with `return __out`
-- **Automatic wrapping** – Wraps snippets into a complete Go program with proper structure
-- **JSON to Go literal conversion** – Converts JSON objects to Go map literals
-
-## Streaming Tools
-
-When using streaming tools, mark the generated code with `"stream": true` in the response JSON:
-
-```json
-{
-  "code": "stream, err := codemode.CallToolStream(\"api.fetch\", map[string]any{...}); ...",
-  "stream": true
-}
-```
-
-The orchestrator checks this flag to handle streaming contexts appropriately.
-
-## Error Handling
-
-Errors occur at multiple stages:
-
-- **Tool decision errors** – LLM fails to determine if tools are needed
-- **Tool selection errors** – LLM cannot identify appropriate tools
-- **Code generation errors** – Generated snippet fails validation or syntax checks
-- **Execution errors** – Runtime errors during snippet evaluation
-- **Schema validation errors** – Generated code uses incorrect field names
-
-All errors include context (stdout, stderr) to aid debugging.
-
-## Configuration
-
-### Environment Variables
-
-- **utcp_search_tools_limit** – Maximum tools returned by `SearchTools` (default: 50)
-
-## Validation Rules
-
-Generated snippets must pass validation:
-
-- **Must contain `__out` assignment** – Missing `__out` causes rejection
-- **Must avoid invalid Go constructs** – E.g., bare map literals like `map[value:hello]`
-- **Must use exact tool names** – No typos or modifications allowed
-- **Must use exact schema keys** – Input/output field names must match specs exactly
-
-## Tool Specs Reference
-
-The orchestrator renders available tools with:
-
-- **Name and Description**
-- **Input field list** with types and required indicators
-- **Full JSON input schema**
-- **Output schema** showing the exact structure returned
-
-This enables the LLM to make precise tool calls without guessing or inventing fields.
-
-## Use Cases
-
-- **Multi-step workflows** – Chain tools together with conditional logic
-- **Data transformation** – Extract, process, and aggregate tool outputs
-- **Error recovery** – Handle tool failures gracefully with branching logic
-- **Dynamic tool discovery** – Use `SearchTools` to find relevant capabilities
-- **Streaming aggregation** – Collect and process streaming results
-
-## Example Workflow
-
-```
-User: "Search for Python tutorials and summarize the top 3 results"
-Orchestrator (select) → ["search.web", "text.summarize"]
-       ↓
-Orchestrator (generate) → Code snippet that searches, extracts, and summarizes
-       ↓
-CodeMode (execute) → Runs snippet, returns structured results
-       ↓
-User receives aggregated summary
-```
-
-## Limitations
-
-- Code snippets execute in a sandboxed Yaegi interpreter (no external process execution)
-- Timeout prevents infinite loops (default 3s, configurable)
-- No filesystem access unless explicitly provided via helpers
-- Concurrent tool calls must be coordinated within the single-threaded Go snippet
-- The DSL loads `fmt` only when a snippet references it; other direct standard-library packages are not available by default
-
-## License
-
-See LICENSE file in the repository.
+The CodeMode test suite covers arithmetic and sequential expressions, synchronous tool calls, tool chaining, streaming, tool errors, timeout behavior, and exact tool-name extraction.
