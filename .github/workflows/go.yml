@@ -34,12 +34,6 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
-      - name: Upload generated go.sum
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-go-sum
-          path: go.sum
-
       - name: Run tests with coverage
         run: |
           go test -v -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v '/examples') || true
