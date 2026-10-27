@@ -11,7 +11,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/base"
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/providers/webrtc"
 
-	webrtc "github.com/pion/webrtc/v3"
+	webrtc "github.com/pion/webrtc/v4"
 )
 
 type signalingServer struct {

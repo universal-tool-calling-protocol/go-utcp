@@ -12,7 +12,7 @@ import (
 	. "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 	transports "github.com/universal-tool-calling-protocol/go-utcp/src/transports/webrtc"
 
-	webrtc "github.com/pion/webrtc/v3"
+	webrtc "github.com/pion/webrtc/v4"
 )
 
 // ---- Signaling Server ----

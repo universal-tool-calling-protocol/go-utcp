@@ -11,7 +11,7 @@ import (
 	utcp "github.com/universal-tool-calling-protocol/go-utcp"
 	src "github.com/universal-tool-calling-protocol/go-utcp/src/tools"
 
-	webrtc "github.com/pion/webrtc/v3"
+	webrtc "github.com/pion/webrtc/v4"
 )
 
 var (
